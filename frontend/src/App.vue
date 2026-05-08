@@ -110,9 +110,9 @@
         </header>
 
         <el-main class="app-main">
-          <router-view v-slot="{ Component }">
+          <router-view v-slot="{ Component, route: currentRoute }">
             <transition name="page-fade" mode="out-in">
-              <component :is="Component" />
+              <component :is="Component" :key="currentRoute.fullPath" />
             </transition>
           </router-view>
         </el-main>
@@ -241,8 +241,14 @@ const appVersionLabel = ref('v1.1.3')
 const isLoginRoute = computed(() => route.path === '/login')
 
 const activeMenu = computed(() => {
+  // 处理首页重定向
+  if (route.path === '/' || route.path === '/search') return '/explore/douban'
   if (route.path.startsWith('/explore/tmdb')) return '/explore/tmdb'
   if (route.path.startsWith('/explore/douban')) return '/explore/douban'
+  // 处理详情页等其他页面，返回最近访问的探索页面
+  if (route.path.startsWith('/movie/') || route.path.startsWith('/tv/') || route.path.startsWith('/douban/')) {
+    return '/explore/douban'
+  }
   return route.path
 })
 

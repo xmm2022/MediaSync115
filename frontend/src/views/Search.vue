@@ -57,7 +57,21 @@
           />
         </template>
 
-        <el-empty v-else-if="!exploreLoading" description="暂无影视推荐" />
+        <template v-else-if="exploreLoading">
+          <div class="explore-skeleton">
+            <div v-for="n in 3" :key="`skeleton-${n}`" class="skeleton-section">
+              <div class="skeleton-section-title" />
+              <div class="skeleton-cards">
+                <div v-for="m in 6" :key="`card-${m}`" class="skeleton-card">
+                  <div class="skeleton-poster" />
+                  <div class="skeleton-title" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <el-empty v-else description="暂无影视推荐" />
       </div>
     </section>
 
@@ -1625,6 +1639,52 @@ onBeforeUnmount(() => {
       }
     }
 
+    .explore-skeleton {
+      .skeleton-section {
+        margin-bottom: 32px;
+
+        .skeleton-section-title {
+          width: 200px;
+          height: 28px;
+          background: linear-gradient(90deg, var(--ms-bg-elevated) 25%, var(--ms-bg-hover) 50%, var(--ms-bg-elevated) 75%);
+          background-size: 200% 100%;
+          animation: skeleton-loading 1.5s ease-in-out infinite;
+          border-radius: 8px;
+          margin-bottom: 16px;
+        }
+
+        .skeleton-cards {
+          display: flex;
+          gap: 16px;
+          overflow: hidden;
+
+          .skeleton-card {
+            flex: 0 0 auto;
+            width: 188px;
+
+            .skeleton-poster {
+              width: 100%;
+              height: 282px;
+              background: linear-gradient(90deg, var(--ms-bg-elevated) 25%, var(--ms-bg-hover) 50%, var(--ms-bg-elevated) 75%);
+              background-size: 200% 100%;
+              animation: skeleton-loading 1.5s ease-in-out infinite;
+              border-radius: 12px;
+              margin-bottom: 12px;
+            }
+
+            .skeleton-title {
+              width: 80%;
+              height: 20px;
+              background: linear-gradient(90deg, var(--ms-bg-elevated) 25%, var(--ms-bg-hover) 50%, var(--ms-bg-elevated) 75%);
+              background-size: 200% 100%;
+              animation: skeleton-loading 1.5s ease-in-out infinite;
+              border-radius: 4px;
+            }
+          }
+        }
+      }
+    }
+
     .recommend-group {
       padding-top: 16px;
 
@@ -2319,5 +2379,10 @@ onBeforeUnmount(() => {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes skeleton-loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 </style>
