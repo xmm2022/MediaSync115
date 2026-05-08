@@ -23,6 +23,7 @@ from app.api.search import (
     _normalize_pansou_pan115_list,
     _search_pansou_pan115_resources,
 )
+from app.core.database import async_session_maker
 from app.services.butailing_service import butailing_service
 from app.services.media_postprocess_service import media_postprocess_service
 from app.services.operation_log_service import operation_log_service
@@ -194,503 +195,505 @@ class SubscriptionService:
         for sub in subscriptions:
             sub_id = sub.id
             sub_title = sub.title
-            try:
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=normalized_channel,
-                    subscription_id=sub_id,
-                    subscription_title=sub_title,
-                    step="subscription_start",
-                    status="info",
-                    message=f"正在检查「{sub_title}」的资源和入库状态",
-                )
-                cleanup_before = await self._evaluate_pre_scan_cleanup(
-                    db,
-                    run_id=run_id,
-                    channel=normalized_channel,
-                    sub=sub,
-                )
-                if cleanup_before.get("deleted"):
-                    self._apply_cleanup_stats(result, sub.media_type)
+            async with async_session_maker() as inner_db:
+
+                try:
                     await self._create_step_log(
-                        db,
+                        inner_db,
+                        run_id=run_id,
+                        channel=normalized_channel,
+                        subscription_id=sub_id,
+                        subscription_title=sub_title,
+                        step="subscription_start",
+                        status="info",
+                        message=f"正在检查「{sub_title}」的资源和入库状态",
+                    )
+                    cleanup_before = await self._evaluate_pre_scan_cleanup(
+                        inner_db,
+                        run_id=run_id,
+                        channel=normalized_channel,
+                        sub=sub,
+                    )
+                    if cleanup_before.get("deleted"):
+                        self._apply_cleanup_stats(result, sub.media_type)
+                        await self._create_step_log(
+                            inner_db,
+                            run_id=run_id,
+                            channel=normalized_channel,
+                            subscription_id=sub_id,
+                            subscription_title=sub_title,
+                            step="subscription_done",
+                            status="success",
+                            message="订阅已自动清理",
+                        )
+                        await operation_log_service.log_background_event(
+                            source_type="background_task",
+                            module="subscriptions",
+                            action="subscription.item.done",
+                            status="success",
+                            message=f"[{sub_title}] 订阅已自动清理（转存完成或已入库）",
+                            trace_id=run_id,
+                            extra={
+                                "subscription_id": sub_id,
+                                "title": sub_title,
+                                "channel": normalized_channel,
+                            },
+                        )
+                        await inner_db.commit()
+                        continue
+
+                    tv_missing_snapshot = cleanup_before.get("tv_missing_snapshot")
+                    (
+                        resources,
+                        fetch_trace,
+                        source_attempt_info,
+                    ) = await self._fetch_resources(
+                        normalized_channel,
+                        sub,
+                        hdhive_unlock_context,
+                        source_order=source_order,
+                    )
+                    for trace in fetch_trace:
+                        await self._create_step_log(
+                            inner_db,
+                            run_id=run_id,
+                            channel=normalized_channel,
+                            subscription_id=sub_id,
+                            subscription_title=sub_title,
+                            step=str(trace.get("step") or "fetch_trace"),
+                            status=str(trace.get("status") or "info"),
+                            message=str(trace.get("message") or ""),
+                            payload=trace.get("payload")
+                            if isinstance(trace.get("payload"), dict)
+                            else None,
+                        )
+
+                    # 记录来源尝试链路汇总日志
+                    source_summary = source_attempt_info.get("summary", "")
+                    await self._create_step_log(
+                        inner_db,
+                        run_id=run_id,
+                        channel=normalized_channel,
+                        subscription_id=sub_id,
+                        subscription_title=sub_title,
+                        step="fetch_resources_summary",
+                        status="success" if resources else "warning",
+                        message=f"搜索完成，找到 {len(resources)} 个可用资源" if resources else "本轮未找到新资源",
+                        payload={
+                            "resource_count": len(resources),
+                            "source_order": source_attempt_info.get("source_order", []),
+                            "attempts": source_attempt_info.get("attempts", []),
+                            "summary": source_summary,
+                        },
+                    )
+
+                    # 为每部影视记录资源抓取汇总
+                    fetch_sources_tried = [
+                        t.get("payload", {}).get("source", t.get("step", ""))
+                        for t in fetch_trace
+                        if t.get("step") == "fetch_source_selected"
+                    ]
+                    await operation_log_service.log_background_event(
+                        source_type="background_task",
+                        module="subscriptions",
+                        action="subscription.item.fetch_done",
+                        status="success" if resources else "warning",
+                        message=(f"[{sub_title}] {source_summary}"),
+                        trace_id=run_id,
+                        extra={
+                            "subscription_id": sub_id,
+                            "title": sub_title,
+                            "resource_count": len(resources),
+                            "sources_hit": fetch_sources_tried,
+                            "source_attempt_summary": source_summary,
+                        },
+                    )
+                    store_stats = await self._store_new_resources(inner_db, sub_id, resources)
+                    created_records = store_stats["created_records"]
+                    duplicate_urls = store_stats["duplicate_urls"]
+                    result["new_resource_count"] += len(created_records)
+                    result["resource_checked_count"] += int(store_stats["checked_count"])
+                    result["resource_duplicate_count"] += int(
+                        store_stats["duplicate_count"]
+                    )
+                    await self._create_step_log(
+                        inner_db,
+                        run_id=run_id,
+                        channel=normalized_channel,
+                        subscription_id=sub_id,
+                        subscription_title=sub_title,
+                        step="store_new_resources",
+                        status="info",
+                        message=(
+                            f"发现 {len(created_records)} 个新资源待处理"
+                            if created_records
+                            else "未发现新资源"
+                        ),
+                        payload={
+                            "checked_count": store_stats["checked_count"],
+                            "new_count": len(created_records),
+                            "duplicate_count": store_stats["duplicate_count"],
+                            "invalid_count": store_stats["invalid_count"],
+                        },
+                    )
+                    await operation_log_service.log_background_event(
+                        source_type="background_task",
+                        module="subscriptions",
+                        action="subscription.item.store_done",
+                        status="success" if created_records else "info",
+                        message=(
+                            f"[{sub_title}] 资源入库：新增 {len(created_records)} 条，"
+                            f"重复 {store_stats['duplicate_count']} 条，无效 {store_stats['invalid_count']} 条"
+                        ),
+                        trace_id=run_id,
+                        extra={
+                            "subscription_id": sub_id,
+                            "title": sub_title,
+                            "new": len(created_records),
+                            "dup": store_stats["duplicate_count"],
+                        },
+                    )
+
+                    should_auto_download = force_auto_download or bool(sub.auto_download)
+                    if should_auto_download:
+                        sub_saved_count = 0
+                        sub_failed_transfer_count = 0
+                        cleanup_after_auto: dict[str, Any] | None = None
+                        retry_records = []
+                        if sub.auto_download:
+                            retry_records = await self._load_retryable_records(inner_db, sub_id)
+                        if force_auto_download and duplicate_urls:
+                            duplicate_retry_records = await self._load_force_retry_records(
+                                inner_db,
+                                sub_id,
+                                duplicate_urls,
+                            )
+                            retry_records = self._merge_records(
+                                retry_records, duplicate_retry_records
+                            )
+                        retry_records = self._exclude_new_records(
+                            retry_records, created_records
+                        )
+
+                        if created_records:
+                            await self._create_step_log(
+                                inner_db,
+                                run_id=run_id,
+                                channel=normalized_channel,
+                                subscription_id=sub_id,
+                                subscription_title=sub_title,
+                                step="auto_transfer_new_start",
+                                status="info",
+                                message=f"开始转存 {len(created_records)} 个新资源",
+                            )
+                            await operation_log_service.log_background_event(
+                                source_type="background_task",
+                                module="subscriptions",
+                                action="subscription.item.transfer_new_start",
+                                status="info",
+                                message=f"[{sub_title}] 开始自动转存新资源 {len(created_records)} 条",
+                                trace_id=run_id,
+                                extra={
+                                    "subscription_id": sub_id,
+                                    "title": sub_title,
+                                    "count": len(created_records),
+                                },
+                            )
+                            new_auto_stats = await self._auto_save_resources(
+                                inner_db,
+                                run_id,
+                                normalized_channel,
+                                sub,
+                                created_records,
+                                source="new",
+                                tv_missing_snapshot=tv_missing_snapshot,
+                            )
+                            sub_saved_count += int(new_auto_stats.get("saved") or 0)
+                            sub_failed_transfer_count += int(
+                                new_auto_stats.get("failed") or 0
+                            )
+                            result["auto_saved_count"] += new_auto_stats["saved"]
+                            result["auto_failed_count"] += new_auto_stats["failed"]
+                            result["auto_new_saved_count"] += new_auto_stats["saved"]
+                            result["auto_new_failed_count"] += new_auto_stats["failed"]
+                            if new_auto_stats["errors"]:
+                                result["errors"].extend(new_auto_stats["errors"])
+                            await self._create_step_log(
+                                inner_db,
+                                run_id=run_id,
+                                channel=normalized_channel,
+                                subscription_id=sub_id,
+                                subscription_title=sub_title,
+                                step="auto_transfer_new_done",
+                                status="success"
+                                if new_auto_stats["failed"] == 0
+                                else "partial",
+                                message=(
+                                    f"新资源转存完成：成功 {new_auto_stats['saved']} 条"
+                                    + (f"，失败 {new_auto_stats['failed']} 条" if new_auto_stats['failed'] else "")
+                                ),
+                            )
+                            await operation_log_service.log_background_event(
+                                source_type="background_task",
+                                module="subscriptions",
+                                action="subscription.item.transfer_new_done",
+                                status="success"
+                                if new_auto_stats["failed"] == 0
+                                else "warning",
+                                message=f"[{sub_title}] 新资源转存完成：成功 {new_auto_stats['saved']} 条，失败 {new_auto_stats['failed']} 条",
+                                trace_id=run_id,
+                                extra={
+                                    "subscription_id": sub_id,
+                                    "title": sub_title,
+                                    "saved": new_auto_stats["saved"],
+                                    "failed": new_auto_stats["failed"],
+                                },
+                            )
+                            if new_auto_stats.get("subscription_completed"):
+                                cleanup_after_auto = new_auto_stats
+
+                        if retry_records and cleanup_after_auto is None:
+                            await self._create_step_log(
+                                inner_db,
+                                run_id=run_id,
+                                channel=normalized_channel,
+                                subscription_id=sub_id,
+                                subscription_title=sub_title,
+                                step="auto_transfer_retry_start",
+                                status="info",
+                                message=f"开始重试之前失败的 {len(retry_records)} 个资源",
+                            )
+                            await operation_log_service.log_background_event(
+                                source_type="background_task",
+                                module="subscriptions",
+                                action="subscription.item.transfer_retry_start",
+                                status="info",
+                                message=f"[{sub_title}] 开始重试历史记录 {len(retry_records)} 条",
+                                trace_id=run_id,
+                                extra={
+                                    "subscription_id": sub_id,
+                                    "title": sub_title,
+                                    "count": len(retry_records),
+                                },
+                            )
+                            retry_auto_stats = await self._auto_save_resources(
+                                inner_db,
+                                run_id,
+                                normalized_channel,
+                                sub,
+                                retry_records,
+                                source="retry",
+                                tv_missing_snapshot=tv_missing_snapshot,
+                            )
+                            sub_saved_count += int(retry_auto_stats.get("saved") or 0)
+                            sub_failed_transfer_count += int(
+                                retry_auto_stats.get("failed") or 0
+                            )
+                            result["auto_saved_count"] += retry_auto_stats["saved"]
+                            result["auto_failed_count"] += retry_auto_stats["failed"]
+                            result["auto_retry_saved_count"] += retry_auto_stats["saved"]
+                            result["auto_retry_failed_count"] += retry_auto_stats["failed"]
+                            if retry_auto_stats["errors"]:
+                                result["errors"].extend(retry_auto_stats["errors"])
+                            await self._create_step_log(
+                                inner_db,
+                                run_id=run_id,
+                                channel=normalized_channel,
+                                subscription_id=sub_id,
+                                subscription_title=sub_title,
+                                step="auto_transfer_retry_done",
+                                status="success"
+                                if retry_auto_stats["failed"] == 0
+                                else "partial",
+                                message=(
+                                    f"重试完成：成功 {retry_auto_stats['saved']} 条"
+                                    + (f"，失败 {retry_auto_stats['failed']} 条" if retry_auto_stats['failed'] else "")
+                                ),
+                            )
+                            await operation_log_service.log_background_event(
+                                source_type="background_task",
+                                module="subscriptions",
+                                action="subscription.item.transfer_retry_done",
+                                status="success"
+                                if retry_auto_stats["failed"] == 0
+                                else "warning",
+                                message=f"[{sub_title}] 历史重试完成：成功 {retry_auto_stats['saved']} 条，失败 {retry_auto_stats['failed']} 条",
+                                trace_id=run_id,
+                                extra={
+                                    "subscription_id": sub_id,
+                                    "title": sub_title,
+                                    "saved": retry_auto_stats["saved"],
+                                    "failed": retry_auto_stats["failed"],
+                                },
+                            )
+                            if retry_auto_stats.get("subscription_completed"):
+                                cleanup_after_auto = retry_auto_stats
+
+                        await self._create_step_log(
+                            inner_db,
+                            run_id=run_id,
+                            channel=normalized_channel,
+                            subscription_id=sub_id,
+                            subscription_title=sub_title,
+                            step="auto_transfer_summary",
+                            status="success"
+                            if sub_failed_transfer_count == 0
+                            else "partial",
+                            message=(
+                                f"本轮转存汇总：成功 {sub_saved_count} 条"
+                                + (f"，失败 {sub_failed_transfer_count} 条" if sub_failed_transfer_count else "")
+                                + f"（新资源 {len(created_records)} 个"
+                                + (f"，重试 {len(retry_records)} 个" if retry_records else "")
+                                + "）"
+                            ),
+                        )
+                        if cleanup_after_auto is not None:
+                            await self._delete_subscription_with_records(inner_db, sub_id)
+                            await operation_log_service.log_background_event(
+                                source_type="background_task",
+                                module="subscriptions",
+                                action="subscription.item.cleanup_after_transfer",
+                                status="success",
+                                message=f"[{sub_title}] 转存完成后自动清理订阅：{str(cleanup_after_auto.get('cleanup_message') or '订阅已自动清理')}",
+                                trace_id=run_id,
+                                extra={
+                                    "subscription_id": sub_id,
+                                    "title": sub_title,
+                                    "reason": cleanup_after_auto.get("cleanup_step"),
+                                },
+                            )
+                            await self._create_step_log(
+                                inner_db,
+                                run_id=run_id,
+                                channel=normalized_channel,
+                                subscription_id=sub_id,
+                                subscription_title=sub_title,
+                                step=str(
+                                    cleanup_after_auto.get("cleanup_step")
+                                    or "subscription_cleanup_after_transfer"
+                                ),
+                                status="success",
+                                message=str(
+                                    cleanup_after_auto.get("cleanup_message")
+                                    or "订阅已自动清理"
+                                ),
+                                payload=cleanup_after_auto.get("cleanup_payload")
+                                if isinstance(
+                                    cleanup_after_auto.get("cleanup_payload"), dict
+                                )
+                                else None,
+                            )
+                            self._apply_cleanup_stats(result, sub.media_type)
+                    else:
+                        await self._create_step_log(
+                            inner_db,
+                            run_id=run_id,
+                            channel=normalized_channel,
+                            subscription_id=sub_id,
+                            subscription_title=sub_title,
+                            step="auto_transfer_skip",
+                            status="info",
+                            message="未开启自动转存，已记录资源供手动处理",
+                        )
+
+                    await self._create_step_log(
+                        inner_db,
                         run_id=run_id,
                         channel=normalized_channel,
                         subscription_id=sub_id,
                         subscription_title=sub_title,
                         step="subscription_done",
                         status="success",
-                        message="订阅已自动清理",
+                        message="订阅处理完成",
                     )
+                    # 构建每部影视的摘要信息
+                    item_parts = [f"[{sub_title}]"]
+                    item_new = result["new_resource_count"]
+                    if should_auto_download:
+                        item_parts.append(
+                            f"新资源 {len(created_records)} 条，"
+                            f"转存成功 {sub_saved_count} 条，失败 {sub_failed_transfer_count} 条"
+                        )
+                    else:
+                        item_parts.append(
+                            f"新资源 {len(created_records)} 条（未启用自动转存）"
+                        )
                     await operation_log_service.log_background_event(
                         source_type="background_task",
                         module="subscriptions",
                         action="subscription.item.done",
-                        status="success",
-                        message=f"[{sub_title}] 订阅已自动清理（转存完成或已入库）",
+                        status="success" if sub_failed_transfer_count == 0 else "warning",
+                        message="，".join(item_parts),
                         trace_id=run_id,
                         extra={
                             "subscription_id": sub_id,
                             "title": sub_title,
                             "channel": normalized_channel,
+                            "new_resources": len(created_records),
+                            "auto_saved": sub_saved_count if should_auto_download else None,
+                            "auto_failed": sub_failed_transfer_count
+                            if should_auto_download
+                            else None,
                         },
                     )
-                    await db.commit()
-                    continue
-
-                tv_missing_snapshot = cleanup_before.get("tv_missing_snapshot")
-                (
-                    resources,
-                    fetch_trace,
-                    source_attempt_info,
-                ) = await self._fetch_resources(
-                    normalized_channel,
-                    sub,
-                    hdhive_unlock_context,
-                    source_order=source_order,
-                )
-                for trace in fetch_trace:
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=normalized_channel,
-                        subscription_id=sub_id,
-                        subscription_title=sub_title,
-                        step=str(trace.get("step") or "fetch_trace"),
-                        status=str(trace.get("status") or "info"),
-                        message=str(trace.get("message") or ""),
-                        payload=trace.get("payload")
-                        if isinstance(trace.get("payload"), dict)
-                        else None,
-                    )
-
-                # 记录来源尝试链路汇总日志
-                source_summary = source_attempt_info.get("summary", "")
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=normalized_channel,
-                    subscription_id=sub_id,
-                    subscription_title=sub_title,
-                    step="fetch_resources_summary",
-                    status="success" if resources else "warning",
-                    message=f"搜索完成，找到 {len(resources)} 个可用资源" if resources else "本轮未找到新资源",
-                    payload={
-                        "resource_count": len(resources),
-                        "source_order": source_attempt_info.get("source_order", []),
-                        "attempts": source_attempt_info.get("attempts", []),
-                        "summary": source_summary,
-                    },
-                )
-
-                # 为每部影视记录资源抓取汇总
-                fetch_sources_tried = [
-                    t.get("payload", {}).get("source", t.get("step", ""))
-                    for t in fetch_trace
-                    if t.get("step") == "fetch_source_selected"
-                ]
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.fetch_done",
-                    status="success" if resources else "warning",
-                    message=(f"[{sub_title}] {source_summary}"),
-                    trace_id=run_id,
-                    extra={
-                        "subscription_id": sub_id,
-                        "title": sub_title,
-                        "resource_count": len(resources),
-                        "sources_hit": fetch_sources_tried,
-                        "source_attempt_summary": source_summary,
-                    },
-                )
-                store_stats = await self._store_new_resources(db, sub_id, resources)
-                created_records = store_stats["created_records"]
-                duplicate_urls = store_stats["duplicate_urls"]
-                result["new_resource_count"] += len(created_records)
-                result["resource_checked_count"] += int(store_stats["checked_count"])
-                result["resource_duplicate_count"] += int(
-                    store_stats["duplicate_count"]
-                )
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=normalized_channel,
-                    subscription_id=sub_id,
-                    subscription_title=sub_title,
-                    step="store_new_resources",
-                    status="info",
-                    message=(
-                        f"发现 {len(created_records)} 个新资源待处理"
-                        if created_records
-                        else "未发现新资源"
-                    ),
-                    payload={
-                        "checked_count": store_stats["checked_count"],
-                        "new_count": len(created_records),
-                        "duplicate_count": store_stats["duplicate_count"],
-                        "invalid_count": store_stats["invalid_count"],
-                    },
-                )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.store_done",
-                    status="success" if created_records else "info",
-                    message=(
-                        f"[{sub_title}] 资源入库：新增 {len(created_records)} 条，"
-                        f"重复 {store_stats['duplicate_count']} 条，无效 {store_stats['invalid_count']} 条"
-                    ),
-                    trace_id=run_id,
-                    extra={
-                        "subscription_id": sub_id,
-                        "title": sub_title,
-                        "new": len(created_records),
-                        "dup": store_stats["duplicate_count"],
-                    },
-                )
-
-                should_auto_download = force_auto_download or bool(sub.auto_download)
-                if should_auto_download:
-                    sub_saved_count = 0
-                    sub_failed_transfer_count = 0
-                    cleanup_after_auto: dict[str, Any] | None = None
-                    retry_records = []
-                    if sub.auto_download:
-                        retry_records = await self._load_retryable_records(db, sub_id)
-                    if force_auto_download and duplicate_urls:
-                        duplicate_retry_records = await self._load_force_retry_records(
-                            db,
-                            sub_id,
-                            duplicate_urls,
-                        )
-                        retry_records = self._merge_records(
-                            retry_records, duplicate_retry_records
-                        )
-                    retry_records = self._exclude_new_records(
-                        retry_records, created_records
-                    )
-
-                    if created_records:
-                        await self._create_step_log(
-                            db,
-                            run_id=run_id,
-                            channel=normalized_channel,
-                            subscription_id=sub_id,
-                            subscription_title=sub_title,
-                            step="auto_transfer_new_start",
-                            status="info",
-                            message=f"开始转存 {len(created_records)} 个新资源",
-                        )
-                        await operation_log_service.log_background_event(
-                            source_type="background_task",
-                            module="subscriptions",
-                            action="subscription.item.transfer_new_start",
-                            status="info",
-                            message=f"[{sub_title}] 开始自动转存新资源 {len(created_records)} 条",
-                            trace_id=run_id,
-                            extra={
-                                "subscription_id": sub_id,
-                                "title": sub_title,
-                                "count": len(created_records),
-                            },
-                        )
-                        new_auto_stats = await self._auto_save_resources(
-                            db,
-                            run_id,
-                            normalized_channel,
-                            sub,
-                            created_records,
-                            source="new",
-                            tv_missing_snapshot=tv_missing_snapshot,
-                        )
-                        sub_saved_count += int(new_auto_stats.get("saved") or 0)
-                        sub_failed_transfer_count += int(
-                            new_auto_stats.get("failed") or 0
-                        )
-                        result["auto_saved_count"] += new_auto_stats["saved"]
-                        result["auto_failed_count"] += new_auto_stats["failed"]
-                        result["auto_new_saved_count"] += new_auto_stats["saved"]
-                        result["auto_new_failed_count"] += new_auto_stats["failed"]
-                        if new_auto_stats["errors"]:
-                            result["errors"].extend(new_auto_stats["errors"])
-                        await self._create_step_log(
-                            db,
-                            run_id=run_id,
-                            channel=normalized_channel,
-                            subscription_id=sub_id,
-                            subscription_title=sub_title,
-                            step="auto_transfer_new_done",
-                            status="success"
-                            if new_auto_stats["failed"] == 0
-                            else "partial",
-                            message=(
-                                f"新资源转存完成：成功 {new_auto_stats['saved']} 条"
-                                + (f"，失败 {new_auto_stats['failed']} 条" if new_auto_stats['failed'] else "")
-                            ),
-                        )
-                        await operation_log_service.log_background_event(
-                            source_type="background_task",
-                            module="subscriptions",
-                            action="subscription.item.transfer_new_done",
-                            status="success"
-                            if new_auto_stats["failed"] == 0
-                            else "warning",
-                            message=f"[{sub_title}] 新资源转存完成：成功 {new_auto_stats['saved']} 条，失败 {new_auto_stats['failed']} 条",
-                            trace_id=run_id,
-                            extra={
-                                "subscription_id": sub_id,
-                                "title": sub_title,
-                                "saved": new_auto_stats["saved"],
-                                "failed": new_auto_stats["failed"],
-                            },
-                        )
-                        if new_auto_stats.get("subscription_completed"):
-                            cleanup_after_auto = new_auto_stats
-
-                    if retry_records and cleanup_after_auto is None:
-                        await self._create_step_log(
-                            db,
-                            run_id=run_id,
-                            channel=normalized_channel,
-                            subscription_id=sub_id,
-                            subscription_title=sub_title,
-                            step="auto_transfer_retry_start",
-                            status="info",
-                            message=f"开始重试之前失败的 {len(retry_records)} 个资源",
-                        )
-                        await operation_log_service.log_background_event(
-                            source_type="background_task",
-                            module="subscriptions",
-                            action="subscription.item.transfer_retry_start",
-                            status="info",
-                            message=f"[{sub_title}] 开始重试历史记录 {len(retry_records)} 条",
-                            trace_id=run_id,
-                            extra={
-                                "subscription_id": sub_id,
-                                "title": sub_title,
-                                "count": len(retry_records),
-                            },
-                        )
-                        retry_auto_stats = await self._auto_save_resources(
-                            db,
-                            run_id,
-                            normalized_channel,
-                            sub,
-                            retry_records,
-                            source="retry",
-                            tv_missing_snapshot=tv_missing_snapshot,
-                        )
-                        sub_saved_count += int(retry_auto_stats.get("saved") or 0)
-                        sub_failed_transfer_count += int(
-                            retry_auto_stats.get("failed") or 0
-                        )
-                        result["auto_saved_count"] += retry_auto_stats["saved"]
-                        result["auto_failed_count"] += retry_auto_stats["failed"]
-                        result["auto_retry_saved_count"] += retry_auto_stats["saved"]
-                        result["auto_retry_failed_count"] += retry_auto_stats["failed"]
-                        if retry_auto_stats["errors"]:
-                            result["errors"].extend(retry_auto_stats["errors"])
-                        await self._create_step_log(
-                            db,
-                            run_id=run_id,
-                            channel=normalized_channel,
-                            subscription_id=sub_id,
-                            subscription_title=sub_title,
-                            step="auto_transfer_retry_done",
-                            status="success"
-                            if retry_auto_stats["failed"] == 0
-                            else "partial",
-                            message=(
-                                f"重试完成：成功 {retry_auto_stats['saved']} 条"
-                                + (f"，失败 {retry_auto_stats['failed']} 条" if retry_auto_stats['failed'] else "")
-                            ),
-                        )
-                        await operation_log_service.log_background_event(
-                            source_type="background_task",
-                            module="subscriptions",
-                            action="subscription.item.transfer_retry_done",
-                            status="success"
-                            if retry_auto_stats["failed"] == 0
-                            else "warning",
-                            message=f"[{sub_title}] 历史重试完成：成功 {retry_auto_stats['saved']} 条，失败 {retry_auto_stats['failed']} 条",
-                            trace_id=run_id,
-                            extra={
-                                "subscription_id": sub_id,
-                                "title": sub_title,
-                                "saved": retry_auto_stats["saved"],
-                                "failed": retry_auto_stats["failed"],
-                            },
-                        )
-                        if retry_auto_stats.get("subscription_completed"):
-                            cleanup_after_auto = retry_auto_stats
-
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=normalized_channel,
-                        subscription_id=sub_id,
-                        subscription_title=sub_title,
-                        step="auto_transfer_summary",
-                        status="success"
-                        if sub_failed_transfer_count == 0
-                        else "partial",
-                        message=(
-                            f"本轮转存汇总：成功 {sub_saved_count} 条"
-                            + (f"，失败 {sub_failed_transfer_count} 条" if sub_failed_transfer_count else "")
-                            + f"（新资源 {len(created_records)} 个"
-                            + (f"，重试 {len(retry_records)} 个" if retry_records else "")
-                            + "）"
-                        ),
-                    )
-                    if cleanup_after_auto is not None:
-                        await self._delete_subscription_with_records(db, sub_id)
-                        await operation_log_service.log_background_event(
-                            source_type="background_task",
-                            module="subscriptions",
-                            action="subscription.item.cleanup_after_transfer",
-                            status="success",
-                            message=f"[{sub_title}] 转存完成后自动清理订阅：{str(cleanup_after_auto.get('cleanup_message') or '订阅已自动清理')}",
-                            trace_id=run_id,
-                            extra={
-                                "subscription_id": sub_id,
-                                "title": sub_title,
-                                "reason": cleanup_after_auto.get("cleanup_step"),
-                            },
-                        )
-                        await self._create_step_log(
-                            db,
-                            run_id=run_id,
-                            channel=normalized_channel,
-                            subscription_id=sub_id,
-                            subscription_title=sub_title,
-                            step=str(
-                                cleanup_after_auto.get("cleanup_step")
-                                or "subscription_cleanup_after_transfer"
-                            ),
-                            status="success",
-                            message=str(
-                                cleanup_after_auto.get("cleanup_message")
-                                or "订阅已自动清理"
-                            ),
-                            payload=cleanup_after_auto.get("cleanup_payload")
-                            if isinstance(
-                                cleanup_after_auto.get("cleanup_payload"), dict
-                            )
-                            else None,
-                        )
-                        self._apply_cleanup_stats(result, sub.media_type)
-                else:
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=normalized_channel,
-                        subscription_id=sub_id,
-                        subscription_title=sub_title,
-                        step="auto_transfer_skip",
-                        status="info",
-                        message="未开启自动转存，已记录资源供手动处理",
-                    )
-
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=normalized_channel,
-                    subscription_id=sub_id,
-                    subscription_title=sub_title,
-                    step="subscription_done",
-                    status="success",
-                    message="订阅处理完成",
-                )
-                # 构建每部影视的摘要信息
-                item_parts = [f"[{sub_title}]"]
-                item_new = result["new_resource_count"]
-                if should_auto_download:
-                    item_parts.append(
-                        f"新资源 {len(created_records)} 条，"
-                        f"转存成功 {sub_saved_count} 条，失败 {sub_failed_transfer_count} 条"
-                    )
-                else:
-                    item_parts.append(
-                        f"新资源 {len(created_records)} 条（未启用自动转存）"
-                    )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.done",
-                    status="success" if sub_failed_transfer_count == 0 else "warning",
-                    message="，".join(item_parts),
-                    trace_id=run_id,
-                    extra={
-                        "subscription_id": sub_id,
-                        "title": sub_title,
-                        "channel": normalized_channel,
-                        "new_resources": len(created_records),
-                        "auto_saved": sub_saved_count if should_auto_download else None,
-                        "auto_failed": sub_failed_transfer_count
-                        if should_auto_download
-                        else None,
-                    },
-                )
-                await db.commit()
-            except Exception as exc:
-                await db.rollback()
-                result["failed_count"] += 1
-                result["errors"].append(
-                    {
-                        "subscription_id": sub_id,
-                        "title": sub_title,
-                        "error": str(exc),
-                    }
-                )
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=normalized_channel,
-                    subscription_id=sub_id,
-                    subscription_title=sub_title,
-                    step="subscription_failed",
-                    status="failed",
-                    message=f"处理出错：{str(exc)[:200]}",
-                )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.failed",
-                    status="failed",
-                    message=f"[{sub_title}] 订阅处理失败: {str(exc)[:200]}",
-                    trace_id=run_id,
-                    extra={
-                        "subscription_id": sub_id,
-                        "title": sub_title,
-                        "channel": normalized_channel,
-                        "error": str(exc)[:500],
-                    },
-                )
-                await db.commit()
-            finally:
-                result["processed_count"] += 1
-                if progress_callback:
-                    await progress_callback(
+                    await inner_db.commit()
+                except Exception as exc:
+                    await inner_db.rollback()
+                    result["failed_count"] += 1
+                    result["errors"].append(
                         {
-                            "channel": normalized_channel,
-                            "status": "running",
-                            "processed_count": result["processed_count"],
-                            "checked_count": result["checked_count"],
-                            "new_resource_count": result["new_resource_count"],
-                            "auto_saved_count": result["auto_saved_count"],
-                            "auto_failed_count": result["auto_failed_count"],
-                            "auto_new_saved_count": result["auto_new_saved_count"],
-                            "auto_new_failed_count": result["auto_new_failed_count"],
-                            "auto_retry_saved_count": result["auto_retry_saved_count"],
-                            "auto_retry_failed_count": result[
-                                "auto_retry_failed_count"
-                            ],
-                            "failed_count": result["failed_count"],
-                            "message": f"已处理 {result['processed_count']}/{result['checked_count']} 项订阅",
+                            "subscription_id": sub_id,
+                            "title": sub_title,
+                            "error": str(exc),
                         }
                     )
+                    await self._create_step_log(
+                        inner_db,
+                        run_id=run_id,
+                        channel=normalized_channel,
+                        subscription_id=sub_id,
+                        subscription_title=sub_title,
+                        step="subscription_failed",
+                        status="failed",
+                        message=f"处理出错：{str(exc)[:200]}",
+                    )
+                    await operation_log_service.log_background_event(
+                        source_type="background_task",
+                        module="subscriptions",
+                        action="subscription.item.failed",
+                        status="failed",
+                        message=f"[{sub_title}] 订阅处理失败: {str(exc)[:200]}",
+                        trace_id=run_id,
+                        extra={
+                            "subscription_id": sub_id,
+                            "title": sub_title,
+                            "channel": normalized_channel,
+                            "error": str(exc)[:500],
+                        },
+                    )
+                    await inner_db.commit()
+                finally:
+                    result["processed_count"] += 1
+                    if progress_callback:
+                        await progress_callback(
+                            {
+                                "channel": normalized_channel,
+                                "status": "running",
+                                "processed_count": result["processed_count"],
+                                "checked_count": result["checked_count"],
+                                "new_resource_count": result["new_resource_count"],
+                                "auto_saved_count": result["auto_saved_count"],
+                                "auto_failed_count": result["auto_failed_count"],
+                                "auto_new_saved_count": result["auto_new_saved_count"],
+                                "auto_new_failed_count": result["auto_new_failed_count"],
+                                "auto_retry_saved_count": result["auto_retry_saved_count"],
+                                "auto_retry_failed_count": result[
+                                    "auto_retry_failed_count"
+                                ],
+                                "failed_count": result["failed_count"],
+                                "message": f"已处理 {result['processed_count']}/{result['checked_count']} 项订阅",
+                            }
+                        )
 
         status = self._resolve_status(
             result["failed_count"],
