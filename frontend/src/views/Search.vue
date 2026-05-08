@@ -513,14 +513,20 @@ const refreshSubscribedKeys = async () => {
 const goToDetail = (mediaType, tmdbId) => {
   if (!tmdbId) return
   const path = mediaType === 'tv' ? `/tv/${tmdbId}` : `/movie/${tmdbId}`
-  router.push(path)
+  router.push({
+    path,
+    query: { from: route.fullPath }
+  })
 }
 
 const goToDoubanDetail = (item) => {
   const doubanId = String(item?.douban_id || item?.id || '').trim()
   if (!doubanId) return false
   const mediaType = item?.media_type === 'tv' ? 'tv' : 'movie'
-  router.push(`/douban/${mediaType}/${encodeURIComponent(doubanId)}`)
+  router.push({
+    path: `/douban/${mediaType}/${encodeURIComponent(doubanId)}`,
+    query: { from: route.fullPath }
+  })
   return true
 }
 
@@ -1275,14 +1281,16 @@ const handleItemClick = (item) => {
   const id = item.id
   if (!id) return
 
+  const query = { from: route.fullPath }
+
   if (type === 'movie') {
     warmupPan115Resources('movie', id)
-    router.push(`/movie/${id}`)
+    router.push({ path: `/movie/${id}`, query })
   } else if (type === 'tv') {
     warmupPan115Resources('tv', id)
-    router.push(`/tv/${id}`)
+    router.push({ path: `/tv/${id}`, query })
   } else if (type === 'collection') {
-    router.push(`/movie/${id}`)
+    router.push({ path: `/movie/${id}`, query })
   }
 }
 
