@@ -10,73 +10,65 @@
     </div>
 
     <el-card>
-      <div class="table-wrap">
-        <el-table :data="logs" v-loading="loading" size="small">
-          <el-table-column type="expand" width="44">
-            <template #default="{ row }">
-              <div class="log-detail">
-                <div class="log-detail__block">
-                  <div class="log-detail__title">详细说明</div>
-                  <pre>{{ row.message || '-' }}</pre>
+      <div class="logs-timeline" v-loading="loading">
+        <div v-if="!logs.length" class="empty-state">
+          <el-empty description="暂无日志" />
+        </div>
+
+        <div v-else class="timeline-list">
+          <div v-for="(log, index) in logs" :key="log.id || index" class="timeline-item" :class="`status-${log.status}`">
+            <div class="timeline-dot"></div>
+
+            <div class="timeline-content">
+              <div class="timeline-header">
+                <span class="timeline-time">{{ formatBeijingDateTime(log.created_at) }}</span>
+                <el-tag :type="statusTagType(log.status)" size="small" class="timeline-status">
+                  {{ translateLabel(log.status, statusLabels) }}
+                </el-tag>
+                <span class="timeline-module">{{ translateLabel(log.module, moduleLabels) }}</span>
+                <span class="timeline-type">{{ translateLabel(log.source_type, sourceTypeLabels) }}</span>
+              </div>
+
+              <div class="timeline-message">{{ formatMessage(log) }}</div>
+
+              <div class="timeline-details" v-if="hasDetails(log)">
+                <div class="detail-item" v-if="log.http_method && log.path">
+                  <span class="detail-label">请求:</span>
+                  <span class="detail-value">{{ formatHttpText(log) }}</span>
                 </div>
-                <div class="log-detail__block">
-                  <div class="log-detail__title">请求详情</div>
-                  <pre>{{ formatSummaryBlock(row.request_summary) }}</pre>
+                <div class="detail-item" v-if="log.duration_ms !== null && log.duration_ms !== undefined">
+                  <span class="detail-label">耗时:</span>
+                  <span class="detail-value">{{ log.duration_ms }} 毫秒</span>
                 </div>
-                <div class="log-detail__block">
-                  <div class="log-detail__title">响应详情</div>
-                  <pre>{{ formatSummaryBlock(row.response_summary) }}</pre>
+                <div class="detail-item" v-if="log.trace_id">
+                  <span class="detail-label">追踪ID:</span>
+                  <span class="detail-value trace-id">{{ log.trace_id }}</span>
                 </div>
-                <div class="log-detail__block">
-                  <div class="log-detail__title">额外信息</div>
-                  <pre>{{ formatSummaryBlock(row.extra) }}</pre>
+
+                <div class="detail-expand" v-if="hasExpandDetails(log)">
+                  <el-button type="primary" link size="small" @click="toggleExpand(log.id)">
+                    {{ expandedIds.has(log.id) ? '收起详情' : '查看详情' }}
+                  </el-button>
+
+                  <div v-show="expandedIds.has(log.id)" class="expand-content">
+                    <div class="expand-block" v-if="log.request_summary">
+                      <div class="expand-title">请求详情</div>
+                      <pre>{{ formatSummaryBlock(log.request_summary) }}</pre>
+                    </div>
+                    <div class="expand-block" v-if="log.response_summary">
+                      <div class="expand-title">响应详情</div>
+                      <pre>{{ formatSummaryBlock(log.response_summary) }}</pre>
+                    </div>
+                    <div class="expand-block" v-if="log.extra">
+                      <div class="expand-title">额外信息</div>
+                      <pre>{{ formatSummaryBlock(log.extra) }}</pre>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </template>
-          </el-table-column>
-          <el-table-column prop="created_at" label="时间" min-width="170" :formatter="formatBeijingTableCell" />
-          <el-table-column label="类型" width="130">
-            <template #default="{ row }">{{ translateLabel(row.source_type, sourceTypeLabels) }}</template>
-          </el-table-column>
-          <el-table-column label="模块" width="120">
-            <template #default="{ row }">{{ translateLabel(row.module, moduleLabels) }}</template>
-          </el-table-column>
-          <el-table-column label="动作" min-width="260" show-overflow-tooltip>
-            <template #default="{ row }">{{ translateAction(row.action) }}</template>
-          </el-table-column>
-          <el-table-column label="状态" width="100">
-            <template #default="{ row }">
-              <el-tag :type="statusTagType(row.status)" size="small">{{ translateLabel(row.status, statusLabels) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="HTTP" min-width="180">
-            <template #default="{ row }">
-              <span>{{ formatHttpCell(row) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="duration_ms" label="耗时(ms)" width="110" />
-          <el-table-column label="说明" min-width="220" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span>{{ formatMessage(row) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="trace_id" label="Trace ID" min-width="230" show-overflow-tooltip />
-          <el-table-column label="请求摘要" min-width="260" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span>{{ stringifySummary(row.request_summary) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="响应摘要" min-width="260" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span>{{ stringifySummary(row.response_summary) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="额外信息" min-width="280" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span>{{ stringifySummary(row.extra) }}</span>
-            </template>
-          </el-table-column>
-        </el-table>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="pager-wrap">
@@ -97,7 +89,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { logsApi } from '@/api'
-import { formatBeijingTableCell } from '@/utils/timezone'
+import { formatBeijingDateTime } from '@/utils/timezone'
 
 const sourceTypeLabels = {
   api: 'API 请求',
@@ -394,7 +386,7 @@ const translatePath = (value) => {
   if (!normalized) return '-'
   for (const [pattern, label] of pathPatterns) {
     if (pattern.test(normalized)) {
-      return `${label}（${normalized}）`
+      return label
     }
   }
   return normalized
@@ -447,17 +439,6 @@ const translateSummaryData = (value, parentKey = '') => {
   return translateSummaryValue(parsed, parentKey)
 }
 
-const stringifyTranslatedSummary = (value) => {
-  if (!value) return '-'
-  const translated = translateSummaryData(value)
-  if (typeof translated === 'string') return translated
-  try {
-    return JSON.stringify(translated, ensureAsciiFalseReplacer())
-  } catch {
-    return String(translated)
-  }
-}
-
 const ensureAsciiFalseReplacer = () => (key, val) => val
 
 const formatApiMessage = (message, row) => {
@@ -471,12 +452,12 @@ const formatApiMessage = (message, row) => {
 
   match = raw.match(/^收到接口请求：(GET|POST|PUT|DELETE|PATCH)\s+([^，]+)，模块=([^，]+)，路由=([^，]+)，处理函数=([^，]+)，客户端=(.+)$/)
   if (match) {
-    return `收到接口请求：${translateHttpMethod(match[1])} ${translatePath(match[2])}，模块=${translateLabel(match[3], moduleLabels)}，路由=${translatePath(match[4])}，处理函数=${translateEndpoint(match[5])}，客户端=${match[6]}`
+    return `收到接口请求：${translateHttpMethod(match[1])} ${translatePath(match[2])}，模块=${translateLabel(match[3], moduleLabels)}，处理函数=${translateEndpoint(match[5])}`
   }
 
   match = raw.match(/^接口处理完成：(GET|POST|PUT|DELETE|PATCH)\s+([^，]+)，模块=([^，]+)，状态码=(\d+)，耗时=(\d+)ms，结果=(.+)$/)
   if (match) {
-    return `接口处理完成：${translateHttpMethod(match[1])} ${translatePath(match[2])}，模块=${translateLabel(match[3], moduleLabels)}，状态码=${match[4]}，耗时=${match[5]}毫秒，结果=${translateLabel(String(match[6]).trim().toLowerCase(), statusLabels)}`
+    return `接口处理完成：${translateHttpMethod(match[1])} ${translatePath(match[2])}，状态码=${match[4]}，耗时=${match[5]}毫秒`
   }
 
   return raw.replace(/\b(GET|POST|PUT|DELETE|PATCH)\b/g, (_, method) => translateHttpMethod(method))
@@ -484,6 +465,11 @@ const formatApiMessage = (message, row) => {
 
 const formatMessage = (row) => {
   if (!row) return '-'
+  // 先尝试翻译 action 字段，看有没有更友好的描述
+  const actionText = translateAction(row.action)
+  if (actionText && actionText !== '-' && actionText !== row.action) {
+    return actionText
+  }
   if (row.source_type === 'api') {
     return formatApiMessage(row.message, row)
   }
@@ -495,12 +481,7 @@ const clearing = ref(false)
 const logs = ref([])
 const total = ref(0)
 const currentPage = ref(1)
-const summary = reactive({
-  success: 0,
-  warning: 0,
-  failed: 0,
-  info: 0
-})
+const expandedIds = ref(new Set())
 
 const filters = reactive({
   limit: 100
@@ -513,10 +494,6 @@ const statusTagType = (status) => {
   return 'info'
 }
 
-const stringifySummary = (value) => {
-  return stringifyTranslatedSummary(value)
-}
-
 const formatSummaryBlock = (value) => {
   if (!value) return '-'
   const translated = translateSummaryData(value)
@@ -527,11 +504,27 @@ const formatSummaryBlock = (value) => {
   }
 }
 
-const formatHttpCell = (row) => {
+const formatHttpText = (row) => {
   const method = translateHttpMethod(row.http_method || '-')
   const path = translatePath(row.path || '-')
   const statusCode = row.status_code || '-'
   return `${method} ${path}（状态码 ${statusCode}）`
+}
+
+const hasDetails = (log) => {
+  return log.http_method || log.path || log.duration_ms !== null || log.trace_id || log.request_summary || log.response_summary || log.extra
+}
+
+const hasExpandDetails = (log) => {
+  return log.request_summary || log.response_summary || log.extra
+}
+
+const toggleExpand = (id) => {
+  if (expandedIds.value.has(id)) {
+    expandedIds.value.delete(id)
+  } else {
+    expandedIds.value.add(id)
+  }
 }
 
 const fetchLogs = async () => {
@@ -545,10 +538,6 @@ const fetchLogs = async () => {
     const { data } = await logsApi.list(params)
     logs.value = Array.isArray(data?.items) ? data.items : []
     total.value = Number(data?.total || 0)
-    summary.success = Number(data?.summary?.success || 0)
-    summary.warning = Number(data?.summary?.warning || 0)
-    summary.failed = Number(data?.summary?.failed || 0)
-    summary.info = Number(data?.summary?.info || 0)
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '日志获取失败')
   } finally {
@@ -558,6 +547,7 @@ const fetchLogs = async () => {
 
 const handleSearch = async () => {
   currentPage.value = 1
+  expandedIds.value.clear()
   await fetchLogs()
 }
 
@@ -583,10 +573,7 @@ const handleClearLogs = async () => {
     logs.value = []
     total.value = 0
     currentPage.value = 1
-    summary.success = 0
-    summary.warning = 0
-    summary.failed = 0
-    summary.info = 0
+    expandedIds.value.clear()
     ElMessage.success(`已清空 ${Number(data?.removed || 0)} 条日志`)
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '清空日志失败')
@@ -620,51 +607,185 @@ onMounted(fetchLogs)
     }
   }
 
-  .table-wrap {
-    overflow-x: auto;
+  .logs-timeline {
+    min-height: 300px;
+  }
 
-    .el-table {
-      min-width: 1600px;
+  .empty-state {
+    padding: 60px 0;
+  }
+
+  .timeline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .timeline-item {
+    display: flex;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: var(--ms-bg-subtle);
+    transition: background 0.2s;
+
+    &:hover {
+      background: var(--ms-bg-hover);
+    }
+
+    &.status-success {
+      border-left: 3px solid var(--el-color-success);
+    }
+
+    &.status-failed {
+      border-left: 3px solid var(--el-color-danger);
+    }
+
+    &.status-warning {
+      border-left: 3px solid var(--el-color-warning);
+    }
+
+    &.status-partial {
+      border-left: 3px solid var(--el-color-warning);
+    }
+
+    &.status-info {
+      border-left: 3px solid var(--el-color-info);
     }
   }
 
-  .log-detail {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(280px, 1fr));
-    gap: 12px;
+  .timeline-dot {
+    flex-shrink: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-top: 6px;
+    background: var(--el-color-info);
 
-    &__block {
-      background: var(--ms-bg-subtle);
-      border: 1px solid var(--ms-border-color);
-      border-radius: 10px;
-      padding: 12px;
-
-      pre {
-        margin: 0;
-        white-space: pre-wrap;
-        word-break: break-word;
-        font-size: 12px;
-        line-height: 1.6;
-        color: var(--ms-text-secondary);
-      }
+    .status-success & {
+      background: var(--el-color-success);
     }
 
-    &__title {
-      margin-bottom: 8px;
+    .status-failed & {
+      background: var(--el-color-danger);
+    }
+
+    .status-warning &,
+    .status-partial & {
+      background: var(--el-color-warning);
+    }
+  }
+
+  .timeline-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .timeline-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+
+  .timeline-time {
+    font-size: 13px;
+    color: var(--ms-text-secondary);
+  }
+
+  .timeline-status {
+    flex-shrink: 0;
+  }
+
+  .timeline-module,
+  .timeline-type {
+    font-size: 12px;
+    color: var(--ms-text-secondary);
+    background: var(--ms-bg-card);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .timeline-message {
+    font-size: 14px;
+    color: var(--ms-text-primary);
+    line-height: 1.5;
+  }
+
+  .timeline-details {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--ms-border-color);
+  }
+
+  .detail-item {
+    display: flex;
+    gap: 8px;
+    font-size: 13px;
+    margin-bottom: 4px;
+    line-height: 1.4;
+  }
+
+  .detail-label {
+    color: var(--ms-text-secondary);
+    flex-shrink: 0;
+  }
+
+  .detail-value {
+    color: var(--ms-text-primary);
+    word-break: break-all;
+
+    &.trace-id {
+      font-family: monospace;
       font-size: 12px;
-      font-weight: 600;
-      color: var(--ms-text-primary);
     }
+  }
+
+  .detail-expand {
+    margin-top: 6px;
+  }
+
+  .expand-content {
+    margin-top: 10px;
+  }
+
+  .expand-block {
+    background: var(--ms-bg-card);
+    border: 1px solid var(--ms-border-color);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .expand-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ms-text-primary);
+    margin-bottom: 6px;
+  }
+
+  .expand-block pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ms-text-secondary);
   }
 
   .pager-wrap {
-    margin-top: 16px;
+    margin-top: 20px;
     display: flex;
     justify-content: flex-end;
   }
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 768px) {
   .logs-page {
     .page-header {
       flex-direction: column;
@@ -680,30 +801,12 @@ onMounted(fetchLogs)
       }
     }
 
-    .log-detail {
-      grid-template-columns: 1fr;
+    .timeline-header {
+      gap: 6px;
     }
 
     .pager-wrap {
       justify-content: center;
-    }
-  }
-}
-
-@media (max-width: 768px) {
-  .logs-page {
-    :deep(.el-card__body) {
-      padding-inline: 16px;
-    }
-
-    .table-wrap {
-      .el-table {
-        min-width: 1120px;
-      }
-    }
-
-    .pager-wrap {
-      margin-top: 12px;
       overflow-x: auto;
     }
   }
