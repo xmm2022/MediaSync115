@@ -62,3 +62,10 @@ export function getOrderedVisibleSubTabs(visibleArr, parentKey) {
     return tab && tab.parent === parentKey
   })
 }
+
+// Return the short name (e.g. 'pansou', 'seedhub') of the first visible sub-tab for a parent group
+export function getFirstVisibleSubTabName(visibleArr, parentKey) {
+  const tabs = getOrderedVisibleSubTabs(visibleArr, parentKey)
+  if (tabs.length === 0) return ''
+  return tabs[0].replace(parentKey + '_', '')
+}

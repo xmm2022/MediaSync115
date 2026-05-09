@@ -89,7 +89,8 @@
       <el-tabs v-model="activeTab" class="resource-tabs">
         <el-tab-pane v-if="tabVisible('pan115')" label="115网盘" name="pan115">
           <el-tabs v-model="pan115SourceTab" class="source-tabs">
-            <el-tab-pane v-if="tabVisible('pan115_pansou')" label="Pansou" name="pansou">
+            <template v-for="key in orderedPan115SubTabs" :key="key">
+              <el-tab-pane v-if="key === 'pan115_pansou'" label="Pansou" name="pansou">
               <div class="resource-tools">
                 <el-button size="small" type="primary" plain :loading="pansouLoading" @click="fetchPansouPan115">
                   {{ pansouTried ? '重新尝试 Pansou' : '用 Pansou 获取资源' }}
@@ -164,8 +165,7 @@
                 <el-empty v-else :description="pansouTried ? '暂无可用115网盘资源' : '尚未获取 Pansou 资源'" />
               </div>
             </el-tab-pane>
-
-            <el-tab-pane v-if="tabVisible('pan115_hdhive')" label="HDHive" name="hdhive">
+              <el-tab-pane v-else-if="key === 'pan115_hdhive'" label="HDHive" name="hdhive">
               <div class="resource-tools">
                 <el-button size="small" type="primary" plain :loading="hdhiveLoading" @click="fetchHdhivePan115">
                   {{ hdhiveTried ? '刷新 HDHive' : '用 HDHive 获取资源' }}
@@ -263,8 +263,7 @@
                 <el-empty v-else :description="hdhiveTried ? 'HDHive 暂无可用115网盘资源' : '尚未获取 HDHive 资源'" />
               </div>
             </el-tab-pane>
-
-            <el-tab-pane v-if="tabVisible('pan115_tg')" label="Telegram" name="tg">
+              <el-tab-pane v-else-if="key === 'pan115_tg'" label="Telegram" name="tg">
               <div class="resource-tools">
                 <el-button size="small" type="primary" plain :loading="tgLoading" @click="fetchTgPan115">
                   {{ tgTried ? '刷新 Telegram' : '用 Telegram 获取资源' }}
@@ -339,12 +338,14 @@
                 <el-empty v-else :description="tgTried ? 'Telegram 暂无可用115网盘资源' : '尚未获取 Telegram 资源'" />
               </div>
             </el-tab-pane>
+            </template>
           </el-tabs>
         </el-tab-pane>
 
         <el-tab-pane v-if="tabVisible('magnet')" label="磁力链接" name="magnet">
           <el-tabs v-model="magnetSourceTab" class="source-tabs">
-            <el-tab-pane v-if="tabVisible('magnet_seedhub')" label="SeedHub" name="seedhub">
+            <template v-for="key in orderedMagnetSubTabs" :key="key">
+              <el-tab-pane v-if="key === 'magnet_seedhub'" label="SeedHub" name="seedhub">
               <div class="resource-tools">
                 <el-button size="small" type="primary" plain :loading="seedhubMagnetLoading" @click="fetchSeedhubMagnet">
                   {{ seedhubMagnetTried ? '重新尝试 SeedHub' : '用 SeedHub 获取磁链' }}
@@ -392,8 +393,7 @@
                 <el-empty v-else :description="seedhubMagnetTried ? 'SeedHub 暂无磁力资源' : '尚未获取 SeedHub 资源'" />
               </div>
             </el-tab-pane>
-
-            <el-tab-pane v-if="tabVisible('magnet_butailing')" label="不太灵" name="butailing">
+              <el-tab-pane v-else-if="key === 'magnet_butailing'" label="不太灵" name="butailing">
               <div class="resource-tools">
                 <el-button size="small" type="primary" plain :loading="butailingMagnetLoading" @click="fetchButailingMagnet">
                   {{ butailingMagnetTried ? '刷新不太灵' : '用不太灵获取磁链' }}
@@ -444,6 +444,7 @@
                 <el-empty v-else :description="butailingMagnetTried ? '不太灵暂无磁力资源' : '尚未获取不太灵资源'" />
               </div>
             </el-tab-pane>
+            </template>
           </el-tabs>
         </el-tab-pane>
 
@@ -510,11 +511,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { pansouApi, pan115Api, searchApi, subscriptionApi } from '@/api'
 import { ArrowLeft, VideoCamera } from '@element-plus/icons-vue'
 import LibraryBadge from '@/components/media/LibraryBadge.vue'
-import { getVisibleTabs, loadVisibleTabs, isTabVisible } from '@/utils/detailTabs'
+import { getVisibleTabs, loadVisibleTabs, isTabVisible, getOrderedVisibleSubTabs, getFirstVisibleSubTabName } from '@/utils/detailTabs'
 import { extractTags } from '@/utils/resourceTags'
 
 const _visibleTabs = getVisibleTabs()
 const tabVisible = (key) => isTabVisible(_visibleTabs.value, key)
+
+const orderedPan115SubTabs = computed(() => getOrderedVisibleSubTabs(_visibleTabs.value, 'pan115'))
+const orderedMagnetSubTabs = computed(() => getOrderedVisibleSubTabs(_visibleTabs.value, 'magnet'))
 
 const _tagCache = new WeakMap()
 const getRowTags = (row) => {
@@ -541,8 +545,8 @@ const subscribing = ref(false)
 const detail = ref(null)
 
 const activeTab = ref('pan115')
-const pan115SourceTab = ref('pansou')
-const magnetSourceTab = ref('seedhub')
+const pan115SourceTab = ref(getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou')
+const magnetSourceTab = ref(getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub')
 
 const pan115Resources = ref([])
 const magnetResources = ref([])
@@ -1149,7 +1153,7 @@ const loadDetail = async () => {
       genres: Array.isArray(data?.genres) ? data.genres : [],
       casts: Array.isArray(data?.casts) ? data.casts : []
     }
-    pan115SourceTab.value = 'pansou'
+    pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
     void hydrateDoubanAuxiliaryData()
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || error.message || '豆瓣详情获取失败')
@@ -1585,14 +1589,16 @@ watch(() => `${route.params.mediaType || ''}:${route.params.id || ''}`, async ()
   isInEmby.value = false
   isInFeiniu.value = false
   activeTab.value = 'pan115'
-  pan115SourceTab.value = 'pansou'
-  magnetSourceTab.value = 'seedhub'
+  pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
+  magnetSourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub'
   resetResources()
   await loadDetail()
 })
 
 onMounted(async () => {
   loadVisibleTabs()
+  pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
+  magnetSourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub'
   await loadDetail()
 })
 </script>

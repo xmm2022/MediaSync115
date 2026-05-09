@@ -548,7 +548,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { searchApi, subscriptionApi, pan115Api } from '@/api'
 import { Star, Plus, ArrowLeft, VideoCamera } from '@element-plus/icons-vue'
 import LibraryBadge from '@/components/media/LibraryBadge.vue'
-import { getVisibleTabs, loadVisibleTabs, isTabVisible, getOrderedVisibleSubTabs } from '@/utils/detailTabs'
+import { getVisibleTabs, loadVisibleTabs, isTabVisible, getOrderedVisibleSubTabs, getFirstVisibleSubTabName } from '@/utils/detailTabs'
 import { extractTags } from '@/utils/resourceTags'
 
 const _visibleTabs = getVisibleTabs()
@@ -581,8 +581,8 @@ const loading = ref(true)
 const activeTab = ref('pan115')
 
 const pan115Resources = ref([])
-const pan115SourceTab = ref('pansou')
-const magnetSourceTab = ref('seedhub')
+const pan115SourceTab = ref(getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou')
+const magnetSourceTab = ref(getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub')
 const magnetResources = ref([])
 
 const pan115Loading = ref(false)
@@ -1430,8 +1430,8 @@ watch(() => route.params.id, () => {
   resetPan115Diagnostics()
   isInEmby.value = false
   isInFeiniu.value = false
-  pan115SourceTab.value = 'pansou'
-  magnetSourceTab.value = 'seedhub'
+  pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
+  magnetSourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub'
   pan115Resources.value = []
   pan115Pager.value = { pansou: 1, hdhive: 1, tg: 1 }
   magnetPager.value = { seedhub: 1, butailing: 1 }
@@ -1452,6 +1452,8 @@ watch(() => route.params.id, () => {
 
 onMounted(() => {
   loadVisibleTabs()
+  pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
+  magnetSourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub'
   resetPan115Diagnostics()
   fetchMovie()
   checkSubscribed()

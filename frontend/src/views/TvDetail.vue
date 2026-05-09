@@ -576,7 +576,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { searchApi, subscriptionApi, pan115Api } from '@/api'
 import { Star, Plus, ArrowLeft } from '@element-plus/icons-vue'
 import LibraryBadge from '@/components/media/LibraryBadge.vue'
-import { getVisibleTabs, loadVisibleTabs, isTabVisible, getOrderedVisibleSubTabs } from '@/utils/detailTabs'
+import { getVisibleTabs, loadVisibleTabs, isTabVisible, getOrderedVisibleSubTabs, getFirstVisibleSubTabName } from '@/utils/detailTabs'
 import { extractTags } from '@/utils/resourceTags'
 
 const _visibleTabs = getVisibleTabs()
@@ -607,8 +607,8 @@ const handleBack = () => {
 const tv = ref(null)
 const loading = ref(true)
 const activeTab = ref('pan115')
-const pan115SourceTab = ref('pansou')
-const magnetSourceTab = ref('seedhub')
+const pan115SourceTab = ref(getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou')
+const magnetSourceTab = ref(getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub')
 const selectedSeason = ref(1)
 
 // 生成季度列表
@@ -1238,7 +1238,7 @@ const handleFetchButailingMagnet = async () => {
 }
 
 const handleSeasonChange = () => {
-  magnetSourceTab.value = 'seedhub'
+  magnetSourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub'
   magnetPager.value = { seedhub: 1, butailing: 1 }
   magnetResources.value = []
   seedhubMagnetTried.value = false
@@ -1248,7 +1248,7 @@ const handleSeasonChange = () => {
   pansouTried.value = false
   hdhiveTried.value = false
   tgTried.value = false
-  pan115SourceTab.value = 'pansou'
+  pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
 }
 
 const handleSubscribe = async () => {
@@ -1591,8 +1591,8 @@ watch(pan115SourceTab, (tab) => {
 watch(() => route.params.id, () => {
   isInEmby.value = false
   isInFeiniu.value = false
-  pan115SourceTab.value = 'pansou'
-  magnetSourceTab.value = 'seedhub'
+  pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
+  magnetSourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub'
   pan115Resources.value = []
   pan115Pager.value = { pansou: 1, hdhive: 1, tg: 1 }
   magnetPager.value = { seedhub: 1, butailing: 1 }
@@ -1613,6 +1613,8 @@ watch(() => route.params.id, () => {
 
 onMounted(() => {
   loadVisibleTabs()
+  pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
+  magnetSourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub'
   fetchTv()
   checkSubscribed()
 })
