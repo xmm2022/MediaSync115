@@ -1326,11 +1326,28 @@
               <el-checkbox v-model="detailTabsForm.pan115">显示整个 115网盘 标签页</el-checkbox>
             </el-form-item>
             <el-form-item label="子标签页" v-if="detailTabsForm.pan115">
-              <el-checkbox-group v-model="detailTabsForm.pan115_children">
-                <el-checkbox label="pan115_pansou">Pansou</el-checkbox>
-                <el-checkbox label="pan115_hdhive">HDHive</el-checkbox>
-                <el-checkbox label="pan115_tg">Telegram</el-checkbox>
-              </el-checkbox-group>
+              <div class="subtab-order-list">
+                <div v-for="(key, idx) in detailTabsForm.pan115_children" :key="key" class="subtab-order-item">
+                  <el-button-group size="small" class="order-btn-group">
+                    <el-button :disabled="idx === 0" @click="movePan115Child(idx, -1)">
+                      <el-icon><ArrowUp /></el-icon>
+                    </el-button>
+                    <el-button :disabled="idx === detailTabsForm.pan115_children.length - 1" @click="movePan115Child(idx, 1)">
+                      <el-icon><ArrowDown /></el-icon>
+                    </el-button>
+                  </el-button-group>
+                  <span class="subtab-label">{{ getSubTabLabel(key) }}</span>
+                  <el-button size="small" type="danger" plain circle @click="removePan115Child(key)">
+                    <el-icon><Close /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+              <div v-if="hiddenPan115Children.length > 0" class="subtab-hidden-list">
+                <span class="text-muted">已隐藏：</span>
+                <el-button v-for="key in hiddenPan115Children" :key="key" size="small" plain @click="addPan115Child(key)">
+                  {{ getSubTabLabel(key) }}
+                </el-button>
+              </div>
             </el-form-item>
 
             <el-divider content-position="left">磁力链接</el-divider>
@@ -1338,10 +1355,28 @@
               <el-checkbox v-model="detailTabsForm.magnet">显示整个磁力链接标签页</el-checkbox>
             </el-form-item>
             <el-form-item label="子标签页" v-if="detailTabsForm.magnet">
-              <el-checkbox-group v-model="detailTabsForm.magnet_children">
-                <el-checkbox label="magnet_seedhub">SeedHub</el-checkbox>
-                <el-checkbox label="magnet_butailing">不太灵</el-checkbox>
-              </el-checkbox-group>
+              <div class="subtab-order-list">
+                <div v-for="(key, idx) in detailTabsForm.magnet_children" :key="key" class="subtab-order-item">
+                  <el-button-group size="small" class="order-btn-group">
+                    <el-button :disabled="idx === 0" @click="moveMagnetChild(idx, -1)">
+                      <el-icon><ArrowUp /></el-icon>
+                    </el-button>
+                    <el-button :disabled="idx === detailTabsForm.magnet_children.length - 1" @click="moveMagnetChild(idx, 1)">
+                      <el-icon><ArrowDown /></el-icon>
+                    </el-button>
+                  </el-button-group>
+                  <span class="subtab-label">{{ getSubTabLabel(key) }}</span>
+                  <el-button size="small" type="danger" plain circle @click="removeMagnetChild(key)">
+                    <el-icon><Close /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+              <div v-if="hiddenMagnetChildren.length > 0" class="subtab-hidden-list">
+                <span class="text-muted">已隐藏：</span>
+                <el-button v-for="key in hiddenMagnetChildren" :key="key" size="small" plain @click="addMagnetChild(key)">
+                  {{ getSubTabLabel(key) }}
+                </el-button>
+              </div>
             </el-form-item>
 
             <el-form-item>
@@ -1671,6 +1706,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowUp, ArrowDown, Close } from '@element-plus/icons-vue'
 import { authApi, pan115Api, pansouApi, settingsApi, subscriptionApi, licenseApi, archiveApi } from '@/api'
 import { resetAuthSessionCache } from '@/router'
 import { useRouter } from 'vue-router'
@@ -1833,6 +1869,47 @@ const detailTabsForm = reactive({
   magnet: true,
   magnet_children: ['magnet_seedhub', 'magnet_butailing'],
 })
+
+const ALL_PAN115_CHILDREN = ['pan115_pansou', 'pan115_hdhive', 'pan115_tg']
+const ALL_MAGNET_CHILDREN = ['magnet_seedhub', 'magnet_butailing']
+
+const getSubTabLabel = (key) => {
+  const tab = ALL_TABS.find(t => t.key === key)
+  return tab ? tab.label : key
+}
+
+const hiddenPan115Children = computed(() =>
+  ALL_PAN115_CHILDREN.filter(k => !detailTabsForm.pan115_children.includes(k))
+)
+const hiddenMagnetChildren = computed(() =>
+  ALL_MAGNET_CHILDREN.filter(k => !detailTabsForm.magnet_children.includes(k))
+)
+
+const movePan115Child = (idx, dir) => {
+  const arr = detailTabsForm.pan115_children
+  const target = idx + dir
+  if (target < 0 || target >= arr.length) return
+  ;[arr[idx], arr[target]] = [arr[target], arr[idx]]
+}
+const moveMagnetChild = (idx, dir) => {
+  const arr = detailTabsForm.magnet_children
+  const target = idx + dir
+  if (target < 0 || target >= arr.length) return
+  ;[arr[idx], arr[target]] = [arr[target], arr[idx]]
+}
+
+const removePan115Child = (key) => {
+  detailTabsForm.pan115_children = detailTabsForm.pan115_children.filter(k => k !== key)
+}
+const addPan115Child = (key) => {
+  detailTabsForm.pan115_children = [...detailTabsForm.pan115_children, key]
+}
+const removeMagnetChild = (key) => {
+  detailTabsForm.magnet_children = detailTabsForm.magnet_children.filter(k => k !== key)
+}
+const addMagnetChild = (key) => {
+  detailTabsForm.magnet_children = [...detailTabsForm.magnet_children, key]
+}
 
 // TG Bot state
 const tgBotForm = ref({
@@ -3731,14 +3808,14 @@ const handleCheckTgBotStatus = async () => {
 
 // Detail tabs visibility handlers
 const handleSaveDetailTabs = async () => {
-  const keys = new Set()
+  const keys = []
   if (detailTabsForm.pan115) {
-    keys.add('pan115')
-    detailTabsForm.pan115_children.forEach(k => keys.add(k))
+    keys.push('pan115')
+    keys.push(...detailTabsForm.pan115_children)
   }
   if (detailTabsForm.magnet) {
-    keys.add('magnet')
-    detailTabsForm.magnet_children.forEach(k => keys.add(k))
+    keys.push('magnet')
+    keys.push(...detailTabsForm.magnet_children)
   }
   try {
     await saveVisibleTabs(keys)
@@ -3750,11 +3827,11 @@ const handleSaveDetailTabs = async () => {
 
 const handleResetDetailTabs = async () => {
   detailTabsForm.pan115 = true
-  detailTabsForm.pan115_children = ['pan115_pansou', 'pan115_hdhive', 'pan115_tg']
+  detailTabsForm.pan115_children = [...ALL_PAN115_CHILDREN]
   detailTabsForm.magnet = true
-  detailTabsForm.magnet_children = ['magnet_seedhub', 'magnet_butailing']
+  detailTabsForm.magnet_children = [...ALL_MAGNET_CHILDREN]
   try {
-    await saveVisibleTabs(new Set(ALL_TABS.map(t => t.key)))
+    await saveVisibleTabs(ALL_TABS.map(t => t.key))
     ElMessage.success('已恢复默认设置，刷新详情页后生效')
   } catch {
     ElMessage.error('重置失败')
@@ -3812,13 +3889,13 @@ const fetchRuntimeSettings = async () => {
     tgBotForm.value.notifyChatIds = Array.isArray(data.tg_bot_notify_chat_ids) ? data.tg_bot_notify_chat_ids : []
     tgBotForm.value.hdhiveAutoUnlock = !!data.tg_bot_hdhive_auto_unlock
 
-    // Detail tabs visibility
+    // Detail tabs visibility (order preserved from backend array)
     if (Array.isArray(data.detail_visible_tabs)) {
-      const s = new Set(data.detail_visible_tabs)
-      detailTabsForm.pan115 = s.has('pan115')
-      detailTabsForm.pan115_children = ['pan115_pansou', 'pan115_hdhive', 'pan115_tg'].filter(k => s.has(k))
-      detailTabsForm.magnet = s.has('magnet')
-      detailTabsForm.magnet_children = ['magnet_seedhub', 'magnet_butailing'].filter(k => s.has(k))
+      const arr = data.detail_visible_tabs
+      detailTabsForm.pan115 = arr.includes('pan115')
+      detailTabsForm.pan115_children = arr.filter(k => ALL_PAN115_CHILDREN.includes(k))
+      detailTabsForm.magnet = arr.includes('magnet')
+      detailTabsForm.magnet_children = arr.filter(k => ALL_MAGNET_CHILDREN.includes(k))
     }
 
     schedulerForm.value.offlineTransferEnabled = !!data.subscription_offline_transfer_enabled
@@ -4847,6 +4924,37 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.subtab-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.subtab-order-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  .order-btn-group {
+    flex-shrink: 0;
+  }
+
+  .subtab-label {
+    min-width: 80px;
+    font-size: 14px;
+    color: var(--ms-text-primary);
+  }
+}
+
+.subtab-hidden-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
 }
 
 @media (max-width: 768px) {

@@ -85,7 +85,8 @@
       <el-tabs v-model="activeTab" class="resource-tabs">
         <el-tab-pane v-if="tabVisible('pan115')" label="115网盘" name="pan115">
           <el-tabs v-model="pan115SourceTab" class="source-tabs">
-            <el-tab-pane v-if="tabVisible('pan115_pansou')" label="Pansou" name="pansou">
+            <template v-for="key in orderedPan115SubTabs" :key="key">
+              <el-tab-pane v-if="key === 'pan115_pansou'" label="Pansou" name="pansou">
               <div class="resource-tools">
                 <el-button
                   size="small"
@@ -184,8 +185,7 @@
                 />
               </div>
             </el-tab-pane>
-
-            <el-tab-pane v-if="tabVisible('pan115_hdhive')" label="HDHive" name="hdhive">
+              <el-tab-pane v-else-if="key === 'pan115_hdhive'" label="HDHive" name="hdhive">
               <div class="resource-tools">
                 <el-button
                   size="small"
@@ -292,8 +292,7 @@
                 />
               </div>
             </el-tab-pane>
-
-            <el-tab-pane v-if="tabVisible('pan115_tg')" label="Telegram" name="tg">
+              <el-tab-pane v-else-if="key === 'pan115_tg'" label="Telegram" name="tg">
               <div class="resource-tools">
                 <el-button
                   size="small"
@@ -383,12 +382,14 @@
                 />
               </div>
             </el-tab-pane>
+            </template>
           </el-tabs>
         </el-tab-pane>
 
         <el-tab-pane v-if="tabVisible('magnet')" label="磁力链接" name="magnet">
           <el-tabs v-model="magnetSourceTab" class="source-tabs">
-            <el-tab-pane v-if="tabVisible('magnet_seedhub')" label="SeedHub" name="seedhub">
+            <template v-for="key in orderedMagnetSubTabs" :key="key">
+              <el-tab-pane v-if="key === 'magnet_seedhub'" label="SeedHub" name="seedhub">
               <div class="resource-tools">
                 <el-button
                   size="small"
@@ -458,8 +459,7 @@
                 />
               </div>
             </el-tab-pane>
-
-            <el-tab-pane v-if="tabVisible('magnet_butailing')" label="不太灵" name="butailing">
+              <el-tab-pane v-else-if="key === 'magnet_butailing'" label="不太灵" name="butailing">
               <div class="resource-tools">
                 <el-button
                   size="small"
@@ -532,6 +532,7 @@
                 />
               </div>
             </el-tab-pane>
+            </template>
           </el-tabs>
         </el-tab-pane>
 
@@ -547,11 +548,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { searchApi, subscriptionApi, pan115Api } from '@/api'
 import { Star, Plus, ArrowLeft, VideoCamera } from '@element-plus/icons-vue'
 import LibraryBadge from '@/components/media/LibraryBadge.vue'
-import { getVisibleTabs, loadVisibleTabs, isTabVisible } from '@/utils/detailTabs'
+import { getVisibleTabs, loadVisibleTabs, isTabVisible, getOrderedVisibleSubTabs } from '@/utils/detailTabs'
 import { extractTags } from '@/utils/resourceTags'
 
 const _visibleTabs = getVisibleTabs()
 const tabVisible = (key) => isTabVisible(_visibleTabs.value, key)
+
+const orderedPan115SubTabs = computed(() => getOrderedVisibleSubTabs(_visibleTabs.value, 'pan115'))
+const orderedMagnetSubTabs = computed(() => getOrderedVisibleSubTabs(_visibleTabs.value, 'magnet'))
 
 const _tagCache = new WeakMap()
 const getRowTags = (row) => {

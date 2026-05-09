@@ -14,8 +14,8 @@ export const ALL_TABS = [
 
 const ALL_KEYS = ALL_TABS.map(t => t.key)
 
-// Shared reactive state — loaded once, used by all detail pages
-const visibleTabs = ref(new Set(ALL_KEYS))
+// Shared reactive state — ordered array, position = display order
+const visibleTabs = ref([...ALL_KEYS])
 let loaded = false
 
 export async function loadVisibleTabs() {
@@ -23,11 +23,11 @@ export async function loadVisibleTabs() {
   try {
     const { data } = await settingsApi.getRuntime()
     const list = data.detail_visible_tabs
-    if (Array.isArray(list)) {
-      visibleTabs.value = new Set(list)
+    if (Array.isArray(list) && list.length > 0) {
+      visibleTabs.value = [...list]
     }
   } catch {
-    // keep default (all visible)
+    // keep default (all visible, default order)
   }
   loaded = true
   return visibleTabs.value
@@ -39,16 +39,26 @@ export function getVisibleTabs() {
 
 export async function saveVisibleTabs(keys) {
   const arr = [...keys]
-  visibleTabs.value = new Set(arr)
+  visibleTabs.value = arr
   loaded = true
   await settingsApi.updateRuntime({ detail_visible_tabs: arr })
 }
 
-export function isTabVisible(visibleSet, key) {
-  const set = visibleSet instanceof Set ? visibleSet : visibleSet?.value
-  if (!set) return true
+export function isTabVisible(visibleArr, key) {
+  const arr = Array.isArray(visibleArr) ? visibleArr : visibleArr?.value
+  if (!arr) return true
   const tab = ALL_TABS.find(t => t.key === key)
   if (!tab) return true
-  if (tab.parent && !set.has(tab.parent)) return false
-  return set.has(key)
+  if (tab.parent && !arr.includes(tab.parent)) return false
+  return arr.includes(key)
+}
+
+// Return visible sub-tab keys for a parent group, in the configured order
+export function getOrderedVisibleSubTabs(visibleArr, parentKey) {
+  const arr = Array.isArray(visibleArr) ? visibleArr : visibleArr?.value
+  if (!arr) return ALL_TABS.filter(t => t.parent === parentKey).map(t => t.key)
+  return arr.filter(k => {
+    const tab = ALL_TABS.find(t => t.key === k)
+    return tab && tab.parent === parentKey
+  })
 }
