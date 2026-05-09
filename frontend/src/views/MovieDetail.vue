@@ -1403,10 +1403,6 @@ onMounted(() => {
   resetPan115Diagnostics()
   fetchMovie()
   checkSubscribed()
-  if (route.query.autoLoadResources === 'true') {
-    handleFetchPansouPan115()
-    handleFetchSeedhubMagnet()
-  }
 })
 </script>
 

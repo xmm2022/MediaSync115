@@ -1608,10 +1608,6 @@ onMounted(() => {
   loadVisibleTabs()
   fetchTv()
   checkSubscribed()
-  if (route.query.autoLoadResources === 'true') {
-    handleFetchPansouPan115()
-    handleFetchSeedhubMagnet()
-  }
 })
 </script>
 

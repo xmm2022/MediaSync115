@@ -1510,18 +1510,67 @@ const handleSave = async (item) => {
     ElMessage.warning('人物不支持转存')
     return
   }
-  const type = item.media_type
   const id = item.id
   if (!id) return
-  const query = { from: route.fullPath, autoLoadResources: 'true' }
-  if (type === 'movie') {
-    warmupPan115Resources('movie', id)
-    router.push({ path: `/movie/${id}`, query })
-  } else if (type === 'tv') {
-    warmupPan115Resources('tv', id)
-    router.push({ path: `/tv/${id}`, query })
-  } else if (type === 'collection') {
-    router.push({ path: `/movie/${id}`, query })
+
+  item.saving = true
+  const type = item.media_type === 'tv' ? 'tv' : 'movie'
+  const title = item.title || item.name || ''
+  const year = item.release_date
+    ? item.release_date.split('-')[0]
+    : (item.first_air_date ? item.first_air_date.split('-')[0] : (item.year || ''))
+
+  try {
+    // Step 1: 搜索 115 网盘资源 (Pansou)
+    const pansouApi = type === 'tv' ? searchApi.getTvPan115Pansou : searchApi.getMoviePan115Pansou
+    const { data: pansouData } = await pansouApi(id, 1, false)
+    const pansouList = Array.isArray(pansouData?.list) ? pansouData.list : []
+
+    if (pansouList.length > 0) {
+      const resource = pansouList[0]
+      const shareLink = resource.share_link || resource.url || resource.link
+      if (!shareLink) {
+        ElMessage.warning('115 资源缺少分享链接')
+        return
+      }
+      let folderId = '0'
+      try {
+        const { data } = await pan115Api.getDefaultFolder()
+        folderId = data.folder_id || '0'
+      } catch { /* use root */ }
+      const folderName = year ? `${title} (${year})` : title
+      const receiveCode = parseReceiveCodeFromShareLink(shareLink)
+      await pan115Api.saveShareToFolder(shareLink, folderName, folderId, receiveCode)
+      ElMessage.success(`已转存至 115 网盘: ${resource.title || resource.name || folderName}`)
+      return
+    }
+
+    // Step 2: 无 115 资源，搜索磁力链接 (SeedHub)
+    const magnetApi = type === 'tv' ? searchApi.getTvMagnetSeedhub : searchApi.getMovieMagnetSeedhub
+    const { data: magnetData } = await magnetApi(id, 80)
+    const magnetList = Array.isArray(magnetData?.list) ? magnetData.list : []
+
+    if (magnetList.length > 0) {
+      const magnet = magnetList[0]
+      if (!magnet.magnet) {
+        ElMessage.warning('磁力链接无效')
+        return
+      }
+      let folderId = '0'
+      try {
+        const { data } = await pan115Api.getOfflineDefaultFolder()
+        folderId = data.folder_id || '0'
+      } catch { /* use root */ }
+      await pan115Api.addOfflineTask(magnet.magnet, folderId)
+      ElMessage.success(`已添加离线下载: ${magnet.name || magnet.title || title}`)
+      return
+    }
+
+    ElMessage.info('未找到可用的 115 网盘资源或磁力链接')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || error.message || '转存失败')
+  } finally {
+    item.saving = false
   }
 }
 
