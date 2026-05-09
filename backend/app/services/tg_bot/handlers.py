@@ -652,7 +652,7 @@ async def _search_115_resources(
 
         for kw in keywords[:3]:
             try:
-                pansou_result = await pansou_service.search(kw, resource_type="115")
+                pansou_result = await pansou_service.search(kw, cloud_types="115")
                 items = (
                     pansou_result
                     if isinstance(pansou_result, list)
