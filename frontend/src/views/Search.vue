@@ -1234,6 +1234,10 @@ const handleBackToExplore = () => {
   currentPage.value = 1
   lastSearchKeyword.value = ''
   activeSearchService.value = ''
+  // 清除 URL 中的搜索参数
+  const url = new URL(window.location.href)
+  url.searchParams.delete('q')
+  window.history.replaceState(window.history.state, '', url.toString())
 }
 
 const handleSearch = async () => {
@@ -1269,8 +1273,10 @@ const handleSearch = async () => {
     loading.value = false
   }
 
-  // 将搜索关键词写入 URL，确保返回时可恢复
-  router.replace({ query: { q: keyword } })
+  // 将搜索关键词写入 URL，使用 history API 避免触发路由重渲染闪烁
+  const url = new URL(window.location.href)
+  url.searchParams.set('q', keyword)
+  window.history.replaceState(window.history.state, '', url.toString())
 }
 
 const handlePageChange = (page) => {
