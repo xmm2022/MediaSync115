@@ -2115,7 +2115,7 @@ onBeforeUnmount(() => {
         justify-content: space-between;
         padding: 12px;
         background: linear-gradient(transparent, rgba(7, 18, 36, 0.84));
-        opacity: 0;
+        opacity: 1;
         transition: opacity 0.3s ease;
 
         .action-btn {
