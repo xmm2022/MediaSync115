@@ -55,6 +55,33 @@
         </div>
       </div>
 
+      <div v-if="hasCollection" v-loading="collectionLoading" class="collection-section">
+        <template v-if="collection?.parts?.length">
+          <div class="collection-header">
+            <h3 class="collection-title">合集：{{ collection.name }}</h3>
+            <span class="collection-count">共 {{ collection.parts.length }} 部</span>
+          </div>
+          <div class="collection-scroll">
+            <div
+              v-for="part in collection.parts"
+              :key="part.id"
+              class="collection-card"
+              :class="{ 'is-current': part.id === movie.id }"
+              @click="part.id !== movie.id && router.push({ path: `/movie/${part.id}`, query: { from: route.query.from } })"
+            >
+              <div class="collection-poster">
+                <img v-if="part.poster_path" :src="getPosterUrl(part.poster_path)" :alt="part.title" />
+                <div v-else class="collection-poster-placeholder">
+                  <el-icon><VideoCamera /></el-icon>
+                </div>
+              </div>
+              <span class="collection-card-title">{{ part.title }}</span>
+              <span class="collection-card-year" v-if="part.release_date">{{ part.release_date.split('-')[0] }}</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <el-tabs v-model="activeTab" class="resource-tabs">
         <el-tab-pane v-if="tabVisible('pan115')" label="115网盘" name="pan115">
           <el-tabs v-model="pan115SourceTab" class="source-tabs">
@@ -518,7 +545,7 @@ import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { searchApi, subscriptionApi, pan115Api } from '@/api'
-import { Star, Plus, ArrowLeft } from '@element-plus/icons-vue'
+import { Star, Plus, ArrowLeft, VideoCamera } from '@element-plus/icons-vue'
 import LibraryBadge from '@/components/media/LibraryBadge.vue'
 import { getVisibleTabs, loadVisibleTabs, isTabVisible } from '@/utils/detailTabs'
 import { extractTags } from '@/utils/resourceTags'
@@ -573,6 +600,23 @@ const isInMediaLibrary = computed(() => isInEmby.value || isInFeiniu.value)
 const subscriptionId = ref(null)
 const subscribing = ref(false)
 const doubanLink = ref(null)
+const collection = ref(null)
+const collectionLoading = ref(false)
+const hasCollection = computed(() => !!movie.value?.belongs_to_collection?.id)
+
+const fetchCollection = async () => {
+  const collId = movie.value?.belongs_to_collection?.id
+  if (!collId) return
+  collectionLoading.value = true
+  try {
+    const { data } = await searchApi.getCollection(collId)
+    collection.value = data
+  } catch {
+    collection.value = null
+  } finally {
+    collectionLoading.value = false
+  }
+}
 
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w500'
 const PAN115_CACHE_TTL_MS = 30 * 60 * 1000
@@ -980,7 +1024,8 @@ const hydrateMovieAuxiliaryData = async () => {
   await Promise.allSettled([
     fetchExternalIds(),
     refreshEmbyStatus(),
-    refreshFeiniuStatus()
+    refreshFeiniuStatus(),
+    fetchCollection()
   ])
 }
 
@@ -1597,6 +1642,120 @@ onMounted(() => {
           font-size: 12px;
           font-weight: 500;
         }
+      }
+    }
+  }
+
+  .collection-section {
+    margin-bottom: 24px;
+    background: var(--ms-gradient-card);
+    border: 1px solid var(--ms-glass-border);
+    border-radius: 16px;
+    padding: 20px;
+
+    .collection-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 16px;
+
+      .collection-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--ms-text-primary);
+      }
+
+      .collection-count {
+        font-size: 13px;
+        color: var(--ms-text-muted);
+      }
+    }
+
+    .collection-scroll {
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+
+      &::-webkit-scrollbar {
+        height: 4px;
+      }
+
+      &::-webkit-scrollbar-thumb {
+        background: var(--ms-scrollbar-thumb, rgba(255, 255, 255, 0.15));
+        border-radius: 2px;
+      }
+    }
+
+    .collection-card {
+      flex-shrink: 0;
+      width: 130px;
+      cursor: pointer;
+      border-radius: 10px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.04);
+      border: 2px solid transparent;
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: rgba(45, 153, 255, 0.08);
+        border-color: rgba(45, 153, 255, 0.3);
+        transform: translateY(-2px);
+      }
+
+      &.is-current {
+        border-color: var(--ms-accent, #2d99ff);
+        background: rgba(45, 153, 255, 0.08);
+        cursor: default;
+
+        .collection-card-title {
+          color: var(--ms-accent, #2d99ff);
+        }
+      }
+
+      .collection-poster {
+        width: 130px;
+        height: 195px;
+        overflow: hidden;
+        background: rgba(0, 0, 0, 0.2);
+
+        img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+      }
+
+      .collection-poster-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 32px;
+        color: var(--ms-text-muted);
+      }
+
+      .collection-card-title {
+        display: block;
+        padding: 8px 8px 2px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--ms-text-primary);
+        line-height: 1.3;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .collection-card-year {
+        display: block;
+        padding: 0 8px 8px;
+        font-size: 11px;
+        color: var(--ms-text-muted);
       }
     }
   }

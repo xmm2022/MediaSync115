@@ -2039,6 +2039,29 @@ async def proxy_explore_poster(
     )
 
 
+@router.get("/collection/{collection_id}")
+async def get_collection(collection_id: int):
+    cache_key = f"collection:{collection_id}"
+    cached = await _get_cached_tmdb_detail(cache_key)
+    if cached:
+        return cached
+    try:
+        result = await tmdb_service.get_collection_detail(collection_id)
+        await _set_cached_tmdb_detail(cache_key, result)
+        return result
+    except ValueError as exc:
+        if "TMDB_API_KEY is not configured" in str(exc):
+            raise HTTPException(status_code=400, detail="TMDB API Key 未配置")
+        raise HTTPException(status_code=400, detail=str(exc))
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response else 502
+        if status == 404:
+            raise HTTPException(status_code=404, detail="合集不存在")
+        raise HTTPException(status_code=502, detail=f"TMDB 合集获取失败({status})")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"TMDB 合集获取失败: {str(exc)}")
+
+
 @router.get("/movie/{tmdb_id}")
 async def get_movie(tmdb_id: int):
     cache_key = f"movie:{tmdb_id}"

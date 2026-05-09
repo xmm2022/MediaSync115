@@ -187,7 +187,8 @@ export const searchApi = {
     api.post(`/search/tv/${tmdbId}/magnet/seedhub/tasks`, null, { params: { limit, force_refresh: forceRefresh } }),
   getSeedhubMagnetTask: (taskId) => api.get(`/search/magnet/seedhub/tasks/${taskId}`),
   cancelSeedhubMagnetTask: (taskId) => api.delete(`/search/magnet/seedhub/tasks/${taskId}`),
-  getBridgeByImdbId: (imdbId, mediaType = 'movie') => api.get(`/search/bridge/imdb/${imdbId}`, { params: { media_type: mediaType } })
+  getBridgeByImdbId: (imdbId, mediaType = 'movie') => api.get(`/search/bridge/imdb/${imdbId}`, { params: { media_type: mediaType } }),
+  getCollection: (collectionId) => api.get(`/search/collection/${collectionId}`)
 }
 
 export const authApi = {

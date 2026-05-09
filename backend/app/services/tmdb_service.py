@@ -314,6 +314,13 @@ class TmdbService:
             params,
         )
 
+    async def get_collection_detail(self, collection_id: int) -> dict[str, Any]:
+        params = self._required_params()
+        cache_key = f"collection:{collection_id}"
+        return await self._get_cached(
+            cache_key, f"/collection/{collection_id}", params
+        )
+
     async def find_by_imdb_id(self, imdb_id: str) -> dict[str, Any]:
         """通过 IMDB ID 查找影片（电影或剧集）
 
