@@ -2125,34 +2125,55 @@ async def _search_pansou_pan115_resources(
     attempted_keywords: list[str] = []
     attempts: list[dict[str, Any]] = []
 
-    for keyword in keyword_candidates:
-        attempted_keywords.append(keyword)
+    # 并行搜索所有关键词，取第一个有结果的
+    async def _try_pansou_keyword(kw: str) -> dict[str, Any] | None:
         try:
-            pansou_payload = await pansou_service.search_115(keyword, res="results")
+            pansou_payload = await pansou_service.search_115(kw, res="results")
             pansou_list = _normalize_pansou_pan115_list(pansou_payload)
-            attempts.append(
-                {
-                    "service": "pansou",
-                    "keyword": keyword,
-                    "status": "ok",
-                    "count": len(pansou_list),
-                }
-            )
-            if pansou_list:
-                return {
-                    "keyword": keyword,
-                    "list": pansou_list,
-                    "attempted_keywords": attempted_keywords,
-                    "keyword_hit_index": len(attempted_keywords) - 1,
-                    "attempts": attempts,
-                }
+            return {
+                "keyword": kw,
+                "list": pansou_list,
+                "status": "ok",
+                "count": len(pansou_list),
+            }
         except Exception as exc:
             attempts.append(
                 {
                     "service": "pansou",
-                    "keyword": keyword,
+                    "keyword": kw,
                     "status": "error",
                     "error": str(exc),
+                }
+            )
+            return None
+
+    tasks = [_try_pansou_keyword(kw) for kw in keyword_candidates]
+    attempted_keywords = list(keyword_candidates)
+    for coro in asyncio.as_completed(tasks):
+        result = await coro
+        if result and result["list"]:
+            attempts.append(
+                {
+                    "service": "pansou",
+                    "keyword": result["keyword"],
+                    "status": "ok",
+                    "count": result["count"],
+                }
+            )
+            return {
+                "keyword": result["keyword"],
+                "list": result["list"],
+                "attempted_keywords": attempted_keywords,
+                "keyword_hit_index": keyword_candidates.index(result["keyword"]),
+                "attempts": attempts,
+            }
+        if result:
+            attempts.append(
+                {
+                    "service": "pansou",
+                    "keyword": result["keyword"],
+                    "status": "ok",
+                    "count": 0,
                 }
             )
 
@@ -2179,45 +2200,70 @@ async def _search_tg_pan115_resources(
     attempted_keywords: list[str] = []
     attempts: list[dict[str, Any]] = []
 
-    for keyword in keyword_candidates:
-        attempted_keywords.append(keyword)
+    # 并行搜索所有 TG 关键词，取第一个有结果的
+    async def _try_tg_keyword(kw: str) -> dict[str, Any] | None:
         try:
             tg_list = await tg_service.search_115_by_keyword(
-                keyword,
+                kw,
                 media_type=media_type,
                 expected_title=context.get("expected_title", ""),
                 expected_original_title=context.get("expected_original_title", ""),
                 expected_year=context.get("expected_year", ""),
             )
             tg_list = _mark_tg_pan115_source(tg_list)
-            attempts.append(
-                {
-                    "service": "tg",
-                    "keyword": keyword,
-                    "status": "ok",
-                    "count": len(tg_list),
-                    "raw_count": len(tg_list),
-                    "filtered_count": len(tg_list),
-                    "rejected_by_precision": 0,
-                }
-            )
-            if tg_list:
-                return {
-                    "keyword": keyword,
-                    "list": tg_list,
-                    "attempted_keywords": attempted_keywords,
-                    "keyword_hit_index": len(attempted_keywords) - 1,
-                    "attempts": attempts,
-                }
+            return {
+                "keyword": kw,
+                "list": tg_list,
+                "status": "ok",
+                "count": len(tg_list),
+            }
         except Exception as exc:
             attempts.append(
                 {
                     "service": "tg",
-                    "keyword": keyword,
+                    "keyword": kw,
                     "status": "error",
                     "error": str(exc),
                 }
             )
+            return None
+
+    tasks = [_try_tg_keyword(kw) for kw in keyword_candidates]
+    attempted_keywords = list(keyword_candidates)
+    for coro in asyncio.as_completed(tasks):
+        result = await coro
+        if result and result["list"]:
+            attempts.append(
+                {
+                    "service": "tg",
+                    "keyword": result["keyword"],
+                    "status": "ok",
+                    "count": result["count"],
+                    "raw_count": result["count"],
+                    "filtered_count": result["count"],
+                    "rejected_by_precision": 0,
+                }
+            )
+            return {
+                "keyword": result["keyword"],
+                "list": result["list"],
+                "attempted_keywords": attempted_keywords,
+                "keyword_hit_index": keyword_candidates.index(result["keyword"]),
+                "attempts": attempts,
+            }
+        if result:
+            attempts.append(
+                {
+                    "service": "tg",
+                    "keyword": result["keyword"],
+                    "status": "ok",
+                    "count": 0,
+                    "raw_count": 0,
+                    "filtered_count": 0,
+                    "rejected_by_precision": 0,
+                }
+            )
+
     return {
         "keyword": selected_keyword,
         "list": [],

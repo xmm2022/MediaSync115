@@ -1122,10 +1122,14 @@ const handleFetchHdhivePan115 = async () => {
 
     if (hdhiveList.length === 0) {
       const keywordCandidates = buildHdhiveKeywords()
+      // 并行搜索所有关键词，取前 30 个结果
+      const results = await Promise.allSettled(
+        keywordCandidates.map((kw) => searchApi.getHdhivePan115ByKeyword(kw, 'tv'))
+      )
       const dedup = new Map()
-      for (const keyword of keywordCandidates) {
-        const { data: keywordData } = await searchApi.getHdhivePan115ByKeyword(keyword, 'tv')
-        const rows = Array.isArray(keywordData?.list) ? keywordData.list : []
+      for (const r of results) {
+        if (r.status !== 'fulfilled') continue
+        const rows = Array.isArray(r.value?.data?.list) ? r.value.data.list : []
         for (const row of rows) {
           const normalizedRow = { ...row, source_service: row?.source_service || 'hdhive' }
           const key = `${String(normalizedRow?.slug || '')}|${String(normalizedRow?.share_link || normalizedRow?.resource_name || normalizedRow?.title || '')}`.toLowerCase()
@@ -1133,7 +1137,6 @@ const handleFetchHdhivePan115 = async () => {
             dedup.set(key, normalizedRow)
           }
         }
-        if (dedup.size >= 30) break
       }
       hdhiveList = Array.from(dedup.values()).slice(0, 30)
     }

@@ -938,13 +938,12 @@ async def save_share_to_folder(request: SaveShareToFolderRequest):
             last_error: Exception | None = None
             for attempt in range(4):
                 try:
-                    # 1. 首先确保目标文件夹存在
-                    target_folder_id = await service.get_or_create_folder(
-                        transfer_parent_id, request.folder_name
-                    )
-
-                    # 2. 如果提供了 tmdb_id，说明这是一个剧集，进行查漏补缺式的转存
+                    # 如果提供了 tmdb_id，说明这是一个剧集，进行查漏补缺式的转存
                     if request.tmdb_id:
+                        # sync_tv_show 需要预先解析好的 target_folder_id
+                        target_folder_id = await service.get_or_create_folder(
+                            transfer_parent_id, request.folder_name
+                        )
                         result = await sync_service.sync_tv_show(
                             tmdb_id=request.tmdb_id,
                             share_url=request.share_url,
@@ -954,7 +953,7 @@ async def save_share_to_folder(request: SaveShareToFolderRequest):
                         asyncio.create_task(_trigger_archive_if_enabled("transfer"))
                         return result
 
-                    # 3. 如果没有 tmdb_id，走默认的全量转存逻辑
+                    # 没有 tmdb_id，走默认全量转存（save_share_to_folder 内部会创建文件夹）
                     result = await service.save_share_to_folder(
                         request.share_url,
                         request.folder_name,
