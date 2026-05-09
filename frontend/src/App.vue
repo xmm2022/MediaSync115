@@ -95,21 +95,7 @@
       </el-aside>
 
       <el-container class="app-content-container">
-        <header v-if="isCompact" class="mobile-topbar">
-          <div class="mobile-brand" role="button" tabindex="0" @click="mobileMenuOpen = true" @keydown.enter.prevent="mobileMenuOpen = true" @keydown.space.prevent="mobileMenuOpen = true">
-            <svg viewBox="0 0 48 48" class="mobile-brand-icon" aria-hidden="true">
-              <rect x="4" y="4" width="40" height="40" rx="12" class="brand-shell" />
-              <path
-                d="M13 31V17h4.6l6.4 7.6 6.4-7.6H35v14h-4.3v-8l-5.9 6.8h-1.6L17.3 23v8H13Z"
-                class="brand-letter"
-              />
-              <path d="M14 36h20" class="brand-track" />
-            </svg>
-            <span class="mobile-brand-text">MediaSync 115</span>
-          </div>
-        </header>
-
-        <el-main class="app-main">
+        <el-main class="app-main" :class="{ 'has-dock': isCompact }">
           <router-view v-slot="{ Component, route: currentRoute }">
             <transition name="page-fade" mode="out-in">
               <component :is="Component" :key="currentRoute.fullPath" />
@@ -119,90 +105,70 @@
       </el-container>
     </el-container>
 
-    <el-drawer
-      v-model="mobileMenuOpen"
-      direction="ltr"
-      :with-header="false"
-      size="280px"
-      class="mobile-nav-drawer"
-    >
-      <div class="mobile-nav-body">
-        <div class="logo" role="button" tabindex="0" @click="handleDrawerGoHome">
-          <div class="logo-icon">
-            <svg viewBox="0 0 48 48" class="brand-mark" aria-hidden="true">
-              <rect x="4" y="4" width="40" height="40" rx="12" class="brand-shell" />
-              <path
-                d="M13 31V17h4.6l6.4 7.6 6.4-7.6H35v14h-4.3v-8l-5.9 6.8h-1.6L17.3 23v8H13Z"
-                class="brand-letter"
-              />
-              <path d="M14 36h20" class="brand-track" />
-            </svg>
-          </div>
-          <div class="logo-text">
-            <div class="logo-heading">
-              <span class="logo-title">MediaSync</span>
-              <span class="logo-badge">115</span>
+    <!-- 手机端底部 Dock 导航栏 -->
+    <nav v-if="isCompact" class="mobile-dock" :class="{ 'dock-visible': isCompact }">
+      <button
+        v-for="tab in dockTabs"
+        :key="tab.key"
+        class="dock-tab"
+        :class="{ active: tab.active }"
+        @click="handleDockTab(tab)"
+        :aria-label="tab.label"
+      >
+        <el-icon class="dock-icon"><component :is="tab.icon" /></el-icon>
+        <span class="dock-label">{{ tab.label }}</span>
+      </button>
+    </nav>
+
+    <!-- 手机端「我的」操作面板 -->
+    <teleport to="body">
+      <transition name="action-sheet">
+        <div v-if="showMoreMenu" class="more-overlay" @click.self="showMoreMenu = false">
+          <div class="more-sheet">
+            <div class="more-sheet-header">
+              <span class="more-sheet-title">更多操作</span>
             </div>
-            <span class="logo-subtitle">Search • Save • Sync</span>
+            <div class="more-sheet-body">
+              <button class="more-item" @click="handleMoreNav('/settings')">
+                <el-icon><Setting /></el-icon>
+                <span>设置</span>
+              </button>
+              <button class="more-item" @click="handleMoreNav('/strm')">
+                <el-icon><Link /></el-icon>
+                <span>STRM 管理</span>
+              </button>
+              <button class="more-item" @click="handleMoreNav('/logs')">
+                <el-icon><Document /></el-icon>
+                <span>日志</span>
+              </button>
+              <button class="more-item" @click="handleMoreNav('/scheduler')">
+                <el-icon><Clock /></el-icon>
+                <span>调度任务</span>
+              </button>
+              <button class="more-item" @click="handleMoreNav('/workflow')">
+                <el-icon><Operation /></el-icon>
+                <span>工作流</span>
+              </button>
+            </div>
+            <div class="more-sheet-footer">
+              <div class="more-theme-row">
+                <span class="more-theme-label">主题</span>
+                <el-radio-group v-model="themeMode" size="small">
+                  <el-radio-button label="auto">自动</el-radio-button>
+                  <el-radio-button label="light">浅色</el-radio-button>
+                  <el-radio-button label="dark">深色</el-radio-button>
+                </el-radio-group>
+              </div>
+              <button class="more-item more-logout" @click="handleMoreLogout">
+                <el-icon><SwitchButton /></el-icon>
+                <span>退出登录</span>
+              </button>
+            </div>
+            <button class="more-cancel" @click="showMoreMenu = false">取消</button>
           </div>
         </div>
-        <el-menu :default-active="activeMenu" router @select="handleDrawerNavigate">
-          <el-sub-menu index="/explore">
-            <template #title>
-              <el-icon><Search /></el-icon>
-              <span>探索</span>
-            </template>
-            <el-menu-item index="/explore/douban">豆瓣榜单</el-menu-item>
-            <el-menu-item index="/explore/tmdb">TMDB榜单</el-menu-item>
-          </el-sub-menu>
-          <el-menu-item index="/subscriptions">
-            <el-icon><Star /></el-icon>
-            <span>订阅</span>
-          </el-menu-item>
-          <el-menu-item index="/downloads">
-            <el-icon><Download /></el-icon>
-            <span>离线下载</span>
-          </el-menu-item>
-          <el-menu-item index="/archive">
-            <el-icon><FolderOpened /></el-icon>
-            <span>归档刮削</span>
-          </el-menu-item>
-          <el-menu-item index="/strm">
-            <el-icon><Link /></el-icon>
-            <span>STRM</span>
-          </el-menu-item>
-          <el-menu-item index="/logs">
-            <el-icon><Document /></el-icon>
-            <span>日志</span>
-          </el-menu-item>
-          <el-menu-item index="/settings">
-            <el-icon><Setting /></el-icon>
-            <span>设置</span>
-          </el-menu-item>
-        </el-menu>
-        <div class="aside-footer">
-          <el-radio-group v-model="themeMode" size="small" class="theme-mode-group mobile-drawer-theme-mode">
-            <el-radio-button label="auto">
-              <el-icon><Monitor /></el-icon>
-            </el-radio-button>
-            <el-radio-button label="light">
-              <el-icon><Sunny /></el-icon>
-            </el-radio-button>
-            <el-radio-button label="dark">
-              <el-icon><MoonNight /></el-icon>
-            </el-radio-button>
-          </el-radio-group>
-          <div class="timezone-info">
-            <span class="timezone-label">北京时间</span>
-            <span class="timezone-value">{{ beijingNow }}</span>
-          </div>
-          <div class="version-info">
-            <span>{{ appVersionLabel }}</span>
-          </div>
-          <el-button class="logout-btn" plain @click="handleLogout">退出登录</el-button>
-        </div>
-      </div>
-    </el-drawer>
+      </transition>
+    </teleport>
   </el-config-provider>
 </template>
 
@@ -224,7 +190,10 @@ import {
   Setting,
   Monitor,
   Sunny,
-  MoonNight
+  MoonNight,
+  Clock,
+  Operation,
+  SwitchButton
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -236,7 +205,7 @@ const themeMode = ref(getInitialThemeMode())
 const systemDark = ref(supportsMatchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : true)
 const beijingNow = ref(formatBeijingDateTime(new Date()))
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280)
-const mobileMenuOpen = ref(false)
+const showMoreMenu = ref(false)
 const appVersionLabel = ref('v1.1.3')
 const isLoginRoute = computed(() => route.path === '/login')
 
@@ -290,13 +259,33 @@ function handleGoHome() {
   router.push('/')
 }
 
-function handleDrawerGoHome() {
-  mobileMenuOpen.value = false
-  handleGoHome()
+const dockTabs = computed(() => {
+  const path = route.path
+  return [
+    { key: 'explore', label: '发现', icon: Search, route: '/explore/douban', active: path === '/' || path === '/search' || path.startsWith('/explore') || path.startsWith('/movie/') || path.startsWith('/tv/') || path.startsWith('/douban/') },
+    { key: 'subscriptions', label: '订阅', icon: Star, route: '/subscriptions', active: path.startsWith('/subscriptions') },
+    { key: 'downloads', label: '下载', icon: Download, route: '/downloads', active: path.startsWith('/downloads') },
+    { key: 'archive', label: '归档', icon: FolderOpened, route: '/archive', active: path.startsWith('/archive') },
+    { key: 'more', label: '我的', icon: Setting, route: null, active: showMoreMenu.value }
+  ]
+})
+
+function handleDockTab(tab) {
+  if (tab.key === 'more') {
+    showMoreMenu.value = true
+  } else {
+    router.push(tab.route)
+  }
 }
 
-function handleDrawerNavigate() {
-  mobileMenuOpen.value = false
+function handleMoreNav(path) {
+  showMoreMenu.value = false
+  router.push(path)
+}
+
+async function handleMoreLogout() {
+  showMoreMenu.value = false
+  await handleLogout()
 }
 
 async function handleLogout() {
@@ -306,7 +295,7 @@ async function handleLogout() {
     // ignore logout failures
   } finally {
     resetAuthSessionCache()
-    mobileMenuOpen.value = false
+    showMoreMenu.value = false
     ElMessage.success('已退出登录')
     router.replace('/login')
   }
@@ -337,12 +326,12 @@ watch(resolvedTheme, (value) => {
 }, { immediate: true })
 
 watch(() => route.path, () => {
-  mobileMenuOpen.value = false
+  showMoreMenu.value = false
 })
 
 watch(isCompact, (compact) => {
   if (!compact) {
-    mobileMenuOpen.value = false
+    showMoreMenu.value = false
   }
 })
 
@@ -562,60 +551,6 @@ html, body, #app {
   }
 }
 
-.mobile-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 64px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--ms-glass-border);
-  background: var(--ms-glass-bg-heavy);
-  /* 性能优化：条件启用 backdrop-filter */
-  @supports (backdrop-filter: blur(18px)) {
-    backdrop-filter: blur(18px);
-  }
-  contain: layout style;
-
-  .mobile-brand {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--ms-text-primary);
-    white-space: nowrap;
-    cursor: pointer;
-    max-width: 100%;
-
-    .mobile-brand-icon {
-      width: 30px;
-      height: 30px;
-      flex: 0 0 auto;
-      filter: drop-shadow(0 10px 18px rgba(17, 79, 179, 0.18));
-    }
-
-    .brand-shell {
-      fill: rgba(43, 123, 255, 0.12);
-    }
-
-    .brand-letter {
-      fill: var(--ms-accent-primary);
-    }
-
-    .brand-track {
-      fill: none;
-      stroke: rgba(80, 137, 224, 0.75);
-      stroke-width: 2.6;
-      stroke-linecap: round;
-    }
-
-    .mobile-brand-text {
-      white-space: nowrap;
-    }
-  }
-}
-
 .app-main {
   background: var(--ms-bg-primary);
   padding: 24px 32px;
@@ -645,114 +580,212 @@ html, body, #app {
   }
 }
 
-.mobile-nav-body {
-  height: 100%;
+/* 手机端底部 Dock 导航栏 */
+.mobile-dock {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  height: 64px;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--ms-glass-bg-heavy);
+  border-top: 1px solid var(--ms-glass-border);
+  @supports (backdrop-filter: blur(20px)) {
+    backdrop-filter: blur(20px);
+  }
+}
+
+.dock-tab {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 2px;
+  border: none;
+  background: transparent;
+  color: var(--ms-text-muted);
+  cursor: pointer;
+  transition: color 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
 
-  .logo {
-    height: 68px;
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    gap: 12px;
-    border-bottom: 1px solid var(--ms-glass-border);
-    cursor: pointer;
+  .dock-icon {
+    font-size: 22px;
+    transition: transform 0.2s ease;
   }
 
-  .logo-icon {
-    width: 44px;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background:
-      radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.2), transparent 45%),
-      linear-gradient(145deg, #1f78ff 0%, #0f4cb7 100%);
-    border-radius: 14px;
-    box-shadow: 0 14px 30px rgba(12, 62, 148, 0.24);
-
-    .brand-mark {
-      width: 30px;
-      height: 30px;
-    }
-
-    .brand-shell {
-      fill: rgba(255, 255, 255, 0.12);
-    }
-
-    .brand-letter {
-      fill: #fff;
-    }
-
-    .brand-track {
-      fill: none;
-      stroke: rgba(255, 255, 255, 0.72);
-      stroke-width: 2.6;
-      stroke-linecap: round;
-    }
-  }
-
-  .logo-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .logo-heading {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .logo-title {
-    font-size: 18px;
-    font-weight: 800;
-    color: var(--ms-text-primary);
-    letter-spacing: -0.6px;
-  }
-
-  .logo-badge {
+  .dock-label {
     font-size: 11px;
-    font-weight: 800;
-    padding: 3px 7px;
-    background: rgba(43, 123, 255, 0.1);
+    font-weight: 500;
+  }
+
+  &.active {
     color: var(--ms-accent-primary);
-    border: 1px solid rgba(43, 123, 255, 0.18);
-    border-radius: 999px;
-  }
 
-  .logo-subtitle {
-    font-size: 11px;
+    .dock-icon {
+      transform: scale(1.1);
+    }
+  }
+}
+
+/* 内容区为 Dock 留出空间 */
+.app-main.has-dock {
+  padding-bottom: calc(64px + env(safe-area-inset-bottom) + 16px);
+}
+
+/* 「我的」操作面板 (Action Sheet) */
+.more-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  @supports (backdrop-filter: blur(6px)) {
+    backdrop-filter: blur(6px);
+  }
+}
+
+.more-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--ms-bg-secondary);
+  border-radius: 20px 20px 0 0;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.more-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 8px;
+
+  .more-sheet-title {
+    font-size: 13px;
     font-weight: 600;
     color: var(--ms-text-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+  }
+}
+
+.more-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ms-text-primary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+
+  .el-icon {
+    font-size: 20px;
+    color: var(--ms-text-secondary);
   }
 
-  .el-menu {
-    flex: 1;
-    border-right: none;
-    background: transparent;
-    padding: 10px 0;
+  &:active {
+    background: var(--ms-glass-bg-heavy);
   }
 
-  .aside-footer {
-    padding: 14px 12px;
-    border-top: 1px solid var(--ms-glass-border);
+  &.more-logout {
+    color: var(--ms-accent-danger, #e74c3c);
 
-    .mobile-drawer-theme-mode {
-      width: 100%;
-      margin-bottom: 12px;
-
-      .el-radio-button {
-        flex: 1;
-      }
-
-      .el-radio-button__inner {
-        width: 100%;
-      }
+    .el-icon {
+      color: var(--ms-accent-danger, #e74c3c);
     }
+  }
+}
+
+.more-sheet-footer {
+  border-top: 1px solid var(--ms-glass-border);
+  padding-top: 12px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.more-theme-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+
+  .more-theme-label {
+    font-size: 14px;
+    color: var(--ms-text-secondary);
+    font-weight: 500;
+  }
+}
+
+.more-cancel {
+  width: 100%;
+  padding: 14px;
+  margin-top: 8px;
+  border: none;
+  border-radius: 12px;
+  background: var(--ms-glass-bg-heavy);
+  color: var(--ms-text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+/* Action Sheet 过渡动画 */
+.action-sheet-enter-active {
+  transition: opacity 0.25s ease;
+
+  .more-sheet {
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
+.action-sheet-leave-active {
+  transition: opacity 0.2s ease;
+
+  .more-sheet {
+    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
+.action-sheet-enter-from {
+  opacity: 0;
+
+  .more-sheet {
+    transform: translateY(100%);
+  }
+}
+
+.action-sheet-leave-to {
+  opacity: 0;
+
+  .more-sheet {
+    transform: translateY(100%);
   }
 }
 
@@ -772,12 +805,6 @@ html, body, #app {
 }
 
 @media (max-width: 1024px) {
-  .mobile-topbar {
-    .mobile-brand {
-      min-width: 0;
-    }
-  }
-
   .app-main {
     padding: 20px;
 
@@ -794,31 +821,26 @@ html, body, #app {
 }
 
 @media (max-width: 768px) {
-  .mobile-topbar {
-    min-height: 56px;
-    padding: 10px;
+  .app-main {
+    padding: 14px 12px;
+  }
 
-    .mobile-brand {
-      font-size: 15px;
-      max-width: 100%;
-      overflow: hidden;
-      padding: 4px 8px;
-      border-radius: 12px;
+  .mobile-dock {
+    height: 56px;
+  }
 
-      .mobile-brand-icon {
-        width: 28px;
-        height: 28px;
-      }
+  .dock-tab {
+    .dock-icon {
+      font-size: 20px;
+    }
 
-      .mobile-brand-text {
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
+    .dock-label {
+      font-size: 10px;
     }
   }
 
-  .app-main {
-    padding: 14px 12px;
+  .app-main.has-dock {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom) + 12px);
   }
 }
 </style>
