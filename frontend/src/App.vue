@@ -95,6 +95,17 @@
       </el-aside>
 
       <el-container class="app-content-container">
+        <!-- 手机端顶部标题栏 -->
+        <header v-if="isCompact" class="compact-topbar">
+          <div class="compact-brand" @click="handleGoHome">
+            <svg viewBox="0 0 48 48" class="compact-brand-icon" aria-hidden="true">
+              <rect x="4" y="4" width="40" height="40" rx="12" class="brand-shell" />
+              <path d="M13 31V17h4.6l6.4 7.6 6.4-7.6H35v14h-4.3v-8l-5.9 6.8h-1.6L17.3 23v8H13Z" class="brand-letter" />
+              <path d="M14 36h20" class="brand-track" />
+            </svg>
+            <span class="compact-brand-text">MediaSync</span>
+          </div>
+        </header>
         <el-main class="app-main" :class="{ 'has-dock': isCompact }">
           <router-view v-slot="{ Component, route: currentRoute }">
             <transition name="page-fade" mode="out-in">
@@ -577,6 +588,57 @@ html, body, #app {
     height: 80%;
     background: radial-gradient(ellipse, rgba(116, 188, 255, 0.15) 0%, transparent 60%);
     pointer-events: none;
+  }
+}
+
+/* 手机端顶部标题栏 */
+.compact-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  min-height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--ms-glass-border);
+  background: var(--ms-glass-bg-heavy);
+  @supports (backdrop-filter: blur(12px)) {
+    backdrop-filter: blur(12px);
+  }
+
+  .compact-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+
+    .compact-brand-icon {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+
+      .brand-shell {
+        fill: rgba(43, 123, 255, 0.12);
+      }
+
+      .brand-letter {
+        fill: var(--ms-accent-primary);
+      }
+
+      .brand-track {
+        fill: none;
+        stroke: rgba(80, 137, 224, 0.75);
+        stroke-width: 2.6;
+        stroke-linecap: round;
+      }
+    }
+
+    .compact-brand-text {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--ms-text-primary);
+      letter-spacing: -0.5px;
+    }
   }
 }
 
