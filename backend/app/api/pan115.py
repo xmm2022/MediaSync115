@@ -4,12 +4,14 @@
 """
 
 import asyncio
+import logging
 from typing import Awaitable, Callable, List, Optional, TypeVar
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from app.services.media_postprocess_service import media_postprocess_service
+from app.services.operation_log_service import operation_log_service
 from app.services.pan115_service import Pan115Service, pan115_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.sync_service import sync_service
@@ -17,6 +19,8 @@ from app.services.transfer_guard_service import (
     TransferInProgressError,
     transfer_guard_service,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def _trigger_archive_if_enabled(trigger: str = "transfer") -> None:
@@ -99,6 +103,7 @@ class OfflineTaskCreate(BaseModel):
 
     url: str
     wp_path_id: Optional[str] = ""
+    title: Optional[str] = ""
 
 
 class SaveShareRequest(BaseModel):
@@ -721,6 +726,7 @@ async def add_offline_task(task: OfflineTaskCreate):
     支持磁力链接、ed2k链接、HTTP链接等
     """
     service = get_service()
+    media_label = (task.title or "").strip() or task.url
     try:
         wp_path_id = (task.wp_path_id or "").strip()
         if not wp_path_id:
@@ -728,8 +734,30 @@ async def add_offline_task(task: OfflineTaskCreate):
                 "folder_id"
             ]
         result = await service.offline_task_add(task.url, wp_path_id)
+        logger.info("手动离线下载任务已添加：%s", media_label)
+        asyncio.create_task(
+            operation_log_service.log_background_event(
+                source_type="user_action",
+                module="pan115",
+                action="offline.add_task",
+                status="success",
+                message=f"手动离线下载已添加：{media_label}",
+                extra={"url": task.url, "title": task.title or ""},
+            )
+        )
         return result
     except Exception as e:
+        logger.warning("手动离线下载任务添加失败：%s，错误：%s", media_label, str(e))
+        asyncio.create_task(
+            operation_log_service.log_background_event(
+                source_type="user_action",
+                module="pan115",
+                action="offline.add_task",
+                status="failed",
+                message=f"手动离线下载添加失败：{media_label}，{e}",
+                extra={"url": task.url, "title": task.title or ""},
+            )
+        )
         handle_115_error(e)
 
 
@@ -932,6 +960,8 @@ async def save_share_to_folder(request: SaveShareToFolderRequest):
     如果提供了 tmdb_id，则会使用 Emby 差集比对进行追更转存
     """
     service = get_service()
+    media_label = request.folder_name or request.share_url
+    source_hint = "TMDB" if request.tmdb_id else "手动"
     try:
         async def operation() -> dict:
             transfer_parent_id = _get_transfer_default_folder_id()
@@ -984,8 +1014,37 @@ async def save_share_to_folder(request: SaveShareToFolderRequest):
                 raise last_error
             raise ValueError("转存失败")
 
-        return await _run_exclusive_transfer("分享到文件夹转存", operation)
+        result = await _run_exclusive_transfer("分享到文件夹转存", operation)
+        logger.info("[%s] 一键转存成功：%s", source_hint, media_label)
+        asyncio.create_task(
+            operation_log_service.log_background_event(
+                source_type="user_action",
+                module="pan115",
+                action="transfer.save_to_folder",
+                status="success",
+                message=f"[{source_hint}] 一键转存成功：{media_label}",
+                extra={
+                    "folder_name": request.folder_name,
+                    "tmdb_id": request.tmdb_id,
+                },
+            )
+        )
+        return result
     except Exception as e:
+        logger.warning("[%s] 一键转存失败：%s，错误：%s", source_hint, media_label, str(e))
+        asyncio.create_task(
+            operation_log_service.log_background_event(
+                source_type="user_action",
+                module="pan115",
+                action="transfer.save_to_folder",
+                status="failed",
+                message=f"[{source_hint}] 一键转存失败：{media_label}，{e}",
+                extra={
+                    "folder_name": request.folder_name,
+                    "tmdb_id": request.tmdb_id,
+                },
+            )
+        )
         handle_115_error(e)
 
 
@@ -1053,6 +1112,7 @@ async def save_share_files_to_folder(request: SaveShareFilesToFolderRequest):
     将用户勾选的部分文件转存到指定名称的文件夹中
     """
     service = get_service()
+    media_label = request.folder_name or request.share_url
     try:
         async def operation() -> dict:
             transfer_parent_id = _get_transfer_default_folder_id()
@@ -1086,8 +1146,37 @@ async def save_share_files_to_folder(request: SaveShareFilesToFolderRequest):
                 raise last_error
             raise ValueError("转存失败")
 
-        return await _run_exclusive_transfer("选集转存", operation)
+        result = await _run_exclusive_transfer("选集转存", operation)
+        logger.info("选集转存成功：%s", media_label)
+        asyncio.create_task(
+            operation_log_service.log_background_event(
+                source_type="user_action",
+                module="pan115",
+                action="transfer.save_files_to_folder",
+                status="success",
+                message=f"选集转存成功：{media_label}",
+                extra={
+                    "folder_name": request.folder_name,
+                    "file_ids": request.file_ids,
+                },
+            )
+        )
+        return result
     except Exception as e:
+        logger.warning("选集转存失败：%s，错误：%s", media_label, str(e))
+        asyncio.create_task(
+            operation_log_service.log_background_event(
+                source_type="user_action",
+                module="pan115",
+                action="transfer.save_files_to_folder",
+                status="failed",
+                message=f"选集转存失败：{media_label}，{e}",
+                extra={
+                    "folder_name": request.folder_name,
+                    "file_ids": request.file_ids,
+                },
+            )
+        )
         handle_115_error(e)
 
 

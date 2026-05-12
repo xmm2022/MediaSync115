@@ -404,8 +404,8 @@ export const pan115Api = {
     api.get(`/pan115/download/${pickCode}`),
 
   // ==================== 离线下载 ====================
-  addOfflineTask: (url, wpPathId = '') => 
-    api.post('/pan115/offline/task', { url, wp_path_id: wpPathId }),
+  addOfflineTask: (url, wpPathId = '', title = '') =>
+    api.post('/pan115/offline/task', { url, wp_path_id: wpPathId, title }),
   
   getOfflineTasks: (page = 1) => 
     api.get('/pan115/offline/tasks', { params: { page } }),

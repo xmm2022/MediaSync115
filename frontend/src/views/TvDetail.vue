@@ -1573,7 +1573,7 @@ const handleSaveMagnet = async (item) => {
   const folderName = tv.value.name + ' (' + tv.value.first_air_date?.split('-')[0] + ')' + seasonSuffix
 
   try {
-    await pan115Api.addOfflineTask(item.magnet, defaultFolderId)
+    await pan115Api.addOfflineTask(item.magnet, defaultFolderId, folderName)
     ElMessage.success(`已添加到离线下载任务，保存至: ${defaultFolderId === '0' ? '根目录' : folderName}`)
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '添加离线任务失败')

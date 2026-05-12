@@ -1400,7 +1400,8 @@ const saveMagnet = async (row) => {
   }
   try {
     const folderId = await getDefaultTransferFolderId()
-    await pan115Api.addOfflineTask(url, folderId)
+    const title = detail.value?.title || '豆瓣资源'
+    await pan115Api.addOfflineTask(url, folderId, title)
     ElMessage.success('已提交离线任务')
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || error.message || '离线失败')

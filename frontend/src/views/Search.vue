@@ -1596,8 +1596,9 @@ const handleSave = async (item) => {
         const { data } = await pan115Api.getOfflineDefaultFolder()
         folderId = data.folder_id || '0'
       } catch { /* use root */ }
-      await pan115Api.addOfflineTask(magnet.magnet, folderId)
-      ElMessage.success(`已添加离线下载: ${magnet.name || magnet.title || title}`)
+      const offlineTitle = magnet.name || magnet.title || title
+      await pan115Api.addOfflineTask(magnet.magnet, folderId, offlineTitle)
+      ElMessage.success(`已添加离线下载: ${offlineTitle}`)
       return
     }
 
