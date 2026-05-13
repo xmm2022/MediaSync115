@@ -178,7 +178,21 @@ class EmbySyncIndexService:
 
             try:
                 sync_payload = await self._collect_emby_snapshot()
-                await self._replace_snapshot(sync_payload, started_at, trigger, started_ts)
+
+                # 带重试写入快照，应对“database is locked”
+                for retry in range(3):
+                    try:
+                        await self._replace_snapshot(sync_payload, started_at, trigger, started_ts)
+                        break
+                    except OperationalError as exc:
+                        if "database is locked" not in str(exc).lower() or retry >= 2:
+                            raise
+                        delay = 1.0 * (2 ** retry)
+                        logger.warning(
+                            "Emby 同步写入时数据库锁定，%0.1f秒后重试（%d/3）", delay, retry + 1
+                        )
+                        await asyncio.sleep(delay)
+
                 await self._clear_runtime_caches()
                 # 同步完成后清理已在影视库中的订阅
                 try:
@@ -357,11 +371,16 @@ class EmbySyncIndexService:
         episode_rows = payload.get("episode_rows") or []
         now = beijing_now()
 
+        # 第一步：在单独事务中快速完成删除，尽早释放写锁
         async with async_session_maker() as db:
             await db.execute(delete(EmbyTvEpisodeIndex))
             await db.execute(delete(EmbyMediaIndex))
+            await db.commit()
 
-            for row in movie_rows:
+        # 第二步：在新事务中批量插入，穿插定期提交减少单次事务持锁时间
+        BATCH_SIZE = 200
+        async with async_session_maker() as db:
+            for i, row in enumerate(movie_rows):
                 item_ids = [str(item_id).strip() for item_id in row.get("item_ids") or [] if str(item_id).strip()]
                 db.add(
                     EmbyMediaIndex(
@@ -372,7 +391,10 @@ class EmbySyncIndexService:
                         last_seen_at=now,
                     )
                 )
-            for row in tv_rows:
+                if (i + 1) % BATCH_SIZE == 0:
+                    await db.commit()
+
+            for i, row in enumerate(tv_rows):
                 item_ids = [str(item_id).strip() for item_id in row.get("item_ids") or [] if str(item_id).strip()]
                 db.add(
                     EmbyMediaIndex(
@@ -383,7 +405,10 @@ class EmbySyncIndexService:
                         last_seen_at=now,
                     )
                 )
-            for row in episode_rows:
+                if (i + 1) % BATCH_SIZE == 0:
+                    await db.commit()
+
+            for i, row in enumerate(episode_rows):
                 db.add(
                     EmbyTvEpisodeIndex(
                         tmdb_id=int(row["tmdb_id"]),
@@ -392,7 +417,10 @@ class EmbySyncIndexService:
                         last_seen_at=now,
                     )
                 )
+                if (i + 1) % BATCH_SIZE == 0:
+                    await db.commit()
 
+            # 最后提交剩余未满批次的记录 + 更新同步状态
             state = await self._get_or_create_state(db)
             state.status = "success"
             state.enabled = runtime_settings_service.get_emby_sync_enabled()

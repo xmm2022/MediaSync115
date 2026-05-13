@@ -98,6 +98,8 @@ async def init_db():
     # 启用 WAL 模式，允许读操作与写操作并发，避免写锁堵塞所有请求
     async with engine.begin() as conn:
         await conn.execute(text("PRAGMA journal_mode=WAL"))
+        # 设置忙等待超时 60 秒，减少“database is locked”错误
+        await conn.execute(text("PRAGMA busy_timeout=60000"))
     await ensure_subscription_columns()
     await ensure_download_record_columns()
 
