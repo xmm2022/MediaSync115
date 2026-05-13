@@ -108,7 +108,7 @@ IMDB_BRIDGE_CACHE_TTL_SECONDS = 60 * 60
 _imdb_bridge_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _imdb_bridge_cache_lock = asyncio.Lock()
 _pan115_share_url_pattern = re.compile(
-    r"(https?://(?:115(?:cdn)?\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|share\.115\.com/[A-Za-z0-9]+(?:[^\s\"'<>]*)?))",
+    r"(https?://(?:115(?:cdn)?\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|share\.115\.com/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|anxia\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?))",
     re.IGNORECASE,
 )
 _pan115_receive_code_pattern = re.compile(

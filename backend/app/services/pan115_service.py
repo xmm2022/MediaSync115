@@ -1587,9 +1587,9 @@ class Pan115Service:
         Returns:
             分享码，如果无法提取则返回None
         """
-        # 尝试匹配常见分享链接（115.com / 115cdn.com / share.115.com）
+        # 尝试匹配常见分享链接（115.com / 115cdn.com / share.115.com / anxia.com）
         match = re.search(
-            r"(?:115(?:cdn)?\.com/s/|share\.115\.com/)([a-zA-Z0-9]+)", share_url
+            r"(?:115(?:cdn)?\.com/s/|share\.115\.com/|anxia\.com/s/)([a-zA-Z0-9]+)", share_url
         )
         if match:
             return match.group(1)

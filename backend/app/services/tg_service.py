@@ -79,7 +79,7 @@ def _load_telethon() -> None:
 
 
 _PAN115_SHARE_URL_PATTERN = re.compile(
-    r"(https?://(?:115(?:cdn)?\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|share\.115\.com/[A-Za-z0-9]+(?:[^\s\"'<>]*)?))",
+    r"(https?://(?:115(?:cdn)?\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|share\.115\.com/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|anxia\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?))",
     re.IGNORECASE,
 )
 _PAN115_RECEIVE_CODE_PATTERN = re.compile(
@@ -372,7 +372,7 @@ class TgService:
     def _build_resource_name(text: str, fallback: str) -> str:
         lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
         for line in lines:
-            if "115.com/s/" in line or "share.115.com/" in line:
+            if "115.com/s/" in line or "share.115.com/" in line or "anxia.com/s/" in line:
                 continue
             return line[:160]
         return fallback

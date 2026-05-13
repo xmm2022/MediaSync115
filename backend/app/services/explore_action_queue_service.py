@@ -25,7 +25,7 @@ from app.core.timezone_utils import beijing_now
 
 
 _PAN115_SHARE_URL_PATTERN = re.compile(
-    r"(https?://(?:115(?:cdn)?\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|share\.115\.com/[A-Za-z0-9]+(?:[^\s\"'<>]*)?))",
+    r"(https?://(?:115(?:cdn)?\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|share\.115\.com/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|anxia\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?))",
     re.IGNORECASE,
 )
 logger = logging.getLogger(__name__)
