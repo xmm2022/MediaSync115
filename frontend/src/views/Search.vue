@@ -158,7 +158,8 @@
                   @click.stop="handleSave(item)"
                 >
                   <el-icon><FolderAdd /></el-icon>
-                  {{ item.isPansouResult ? '一键转存' : '转存' }}
+                  <template v-if="item.queuePosition > 1">排队中({{ item.queuePosition }})</template>
+                  <template v-else>{{ item.isPansouResult ? '一键转存' : '转存' }}</template>
                 </el-button>
               </div>
             </div>
@@ -282,6 +283,10 @@ const EXPLORE_QUEUE_POLL_INTERVAL_MS = 1800
 const queueActiveSaveKeys = ref(new Set())
 let exploreQueuePollTimer = null
 let exploreQueuePolling = false
+
+// 搜索结果页转存队列（FIFO）
+const saveQueue = ref([])
+let saveQueueProcessing = false
 
 const buildSubscribedKey = (mediaType, tmdbId) => {
   const normalizedType = mediaType === 'tv' ? 'tv' : (mediaType === 'movie' ? 'movie' : '')
@@ -1483,14 +1488,15 @@ const parseReceiveCodeFromShareLink = (shareLink) => {
   }
 }
 
-const handleSavePansouResult = async (item) => {
-  if (!item.pan115_share_link) {
-    ElMessage.warning('该盘搜结果没有可转存的 115 分享链接')
-    return
-  }
+// 执行队列中单条转存任务（内部使用，由队列调度）
+const executeSaveItem = async (item) => {
+  if (!item) return
 
-  item.saving = true
-  try {
+  // 盘搜结果直接走 115 分享链接转存
+  if (item.isPansouResult) {
+    if (!item.pan115_share_link) {
+      throw new Error('该盘搜结果没有可转存的 115 分享链接')
+    }
     let folderId = '0'
     try {
       const { data } = await pan115Api.getDefaultFolder()
@@ -1498,7 +1504,6 @@ const handleSavePansouResult = async (item) => {
     } catch {
       folderId = '0'
     }
-
     const resourceName = item.name || item.title || lastSearchKeyword.value || 'Pansou Resource'
     const receiveCode = parseReceiveCodeFromShareLink(item.pan115_share_link)
     const { data } = await pan115Api.saveShareToFolder(
@@ -1514,11 +1519,87 @@ const handleSavePansouResult = async (item) => {
     if (!saveSuccess) {
       throw new Error(data?.message || data?.error || data?.result?.error || '转存失败')
     }
-    ElMessage.success(data?.message || '转存成功')
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || error.message || '转存失败')
+    return
+  }
+
+  if (item.media_type === 'person') {
+    throw new Error('人物不支持转存')
+  }
+
+  const id = item.id
+  if (!id) throw new Error('缺少条目标识')
+
+  const type = item.media_type === 'tv' ? 'tv' : 'movie'
+  const title = item.title || item.name || ''
+  const year = item.release_date
+    ? item.release_date.split('-')[0]
+    : (item.first_air_date ? item.first_air_date.split('-')[0] : (item.year || ''))
+  const folderName = year ? `${title} (${year})` : title
+
+  // Step 1: 按优先级顺序搜索 115 网盘资源
+  for (const source of resourcePriority.value) {
+    const apiFn = SOURCE_115_APIS[source]
+    if (!apiFn) continue
+    try {
+      const { data } = await apiFn(type)(id, 1, false)
+      const list = Array.isArray(data?.list) ? data.list : []
+      if (list.length > 0) {
+        await doSave115Resource(list[0], folderName)
+        return
+      }
+    } catch { /* try next source */ }
+  }
+
+  // Step 2: 无 115 资源，搜索磁力链接 (SeedHub)
+  const magnetApi = type === 'tv' ? searchApi.getTvMagnetSeedhub : searchApi.getMovieMagnetSeedhub
+  const { data: magnetData } = await magnetApi(id, 80)
+  const magnetList = Array.isArray(magnetData?.list) ? magnetData.list : []
+
+  if (magnetList.length > 0) {
+    const magnet = magnetList[0]
+    if (!magnet.magnet) {
+      throw new Error('磁力链接无效')
+    }
+    let folderId = '0'
+    try {
+      const { data } = await pan115Api.getOfflineDefaultFolder()
+      folderId = data.folder_id || '0'
+    } catch { /* use root */ }
+    const offlineTitle = magnet.name || magnet.title || title
+    await pan115Api.addOfflineTask(magnet.magnet, folderId, offlineTitle)
+    ElMessage.success(`已添加离线下载: ${offlineTitle}`)
+    return
+  }
+
+  throw new Error('未找到可用的 115 网盘资源或磁力链接')
+}
+
+// 队列工作器：从队首依次取出并执行转存
+const processSaveQueue = async () => {
+  if (saveQueueProcessing) return
+  saveQueueProcessing = true
+  try {
+    while (saveQueue.value.length > 0) {
+      const item = saveQueue.value[0]
+      const title = item.title || item.name || ''
+      // 更新所有排队项目的显示位置
+      for (let i = 1; i < saveQueue.value.length; i++) {
+        saveQueue.value[i].queuePosition = i + 1
+      }
+      try {
+        await executeSaveItem(item)
+        ElMessage.success(`「${title}」转存完成`)
+      } catch (error) {
+        const reason = error.response?.data?.detail || error.message || '转存失败'
+        ElMessage.error(`「${title}」${reason}`)
+      } finally {
+        item.saving = false
+        item.queuePosition = null
+        saveQueue.value.shift()
+      }
+    }
   } finally {
-    item.saving = false
+    saveQueueProcessing = false
   }
 }
 
@@ -1546,68 +1627,38 @@ const doSave115Resource = async (resource, folderName) => {
 }
 
 const handleSave = async (item) => {
-  if (item.isPansouResult) {
-    await handleSavePansouResult(item)
+  if (item.isPansouResult && !item.pan115_share_link) {
+    ElMessage.warning('该盘搜结果没有可转存的 115 分享链接')
     return
   }
-  if (item.media_type === 'person') {
-    ElMessage.warning('人物不支持转存')
-    return
-  }
-  const id = item.id
-  if (!id) return
-
-  item.saving = true
-  const type = item.media_type === 'tv' ? 'tv' : 'movie'
-  const title = item.title || item.name || ''
-  const year = item.release_date
-    ? item.release_date.split('-')[0]
-    : (item.first_air_date ? item.first_air_date.split('-')[0] : (item.year || ''))
-  const folderName = year ? `${title} (${year})` : title
-
-  try {
-    // Step 1: 按优先级顺序搜索 115 网盘资源
-    for (const source of resourcePriority.value) {
-      const apiFn = SOURCE_115_APIS[source]
-      if (!apiFn) continue
-      try {
-        const { data } = await apiFn(type)(id, 1, false)
-        const list = Array.isArray(data?.list) ? data.list : []
-        if (list.length > 0) {
-          await doSave115Resource(list[0], folderName)
-          return
-        }
-      } catch { /* try next source */ }
-    }
-
-    // Step 2: 无 115 资源，搜索磁力链接 (SeedHub)
-    const magnetApi = type === 'tv' ? searchApi.getTvMagnetSeedhub : searchApi.getMovieMagnetSeedhub
-    const { data: magnetData } = await magnetApi(id, 80)
-    const magnetList = Array.isArray(magnetData?.list) ? magnetData.list : []
-
-    if (magnetList.length > 0) {
-      const magnet = magnetList[0]
-      if (!magnet.magnet) {
-        ElMessage.warning('磁力链接无效')
-        return
-      }
-      let folderId = '0'
-      try {
-        const { data } = await pan115Api.getOfflineDefaultFolder()
-        folderId = data.folder_id || '0'
-      } catch { /* use root */ }
-      const offlineTitle = magnet.name || magnet.title || title
-      await pan115Api.addOfflineTask(magnet.magnet, folderId, offlineTitle)
-      ElMessage.success(`已添加离线下载: ${offlineTitle}`)
+  if (!item.isPansouResult) {
+    if (item.media_type === 'person') {
+      ElMessage.warning('人物不支持转存')
       return
     }
-
-    ElMessage.info('未找到可用的 115 网盘资源或磁力链接')
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || error.message || '转存失败')
-  } finally {
-    item.saving = false
+    if (!item.id) return
   }
+
+  // 检查是否已在队列中
+  if (item.saving) {
+    ElMessage.info('该条目已在转存队列中')
+    return
+  }
+
+  // 加入队列
+  item.saving = true
+  const queuePos = saveQueue.value.length + 1
+  item.queuePosition = queuePos
+  saveQueue.value.push(item)
+
+  if (queuePos === 1) {
+    ElMessage.info(`「${item.title || item.name || ''}」已加入转存队列，正在开始转存`)
+  } else {
+    ElMessage.info(`「${item.title || item.name || ''}」已加入转存队列，前面还有 ${queuePos - 1} 个`)
+  }
+
+  // 启动队列处理
+  processSaveQueue()
 }
 
 const setupSectionResizeObserver = () => {
