@@ -1219,7 +1219,7 @@ class Pan115Service:
             and cls._is_video_file_name(str(item.get("name") or item.get("n") or ""))
         ]
         if len(video_files) <= 1:
-            return files
+            return video_files
 
         if quality_filter:
             from app.utils.resource_tags import filter_and_sort_by_quality
@@ -1229,7 +1229,7 @@ class Pan115Service:
                 return [filtered[0]]
             # 如果过滤后没有匹配的文件，降级使用原来的评分逻辑
         best = cls.pick_best_video_file(video_files)
-        return [best] if best else files
+        return [best] if best else video_files
 
     async def start_qr_login(self, app: str = "alipaymini") -> Dict[str, Any]:
         """
