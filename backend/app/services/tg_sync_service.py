@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -12,6 +12,8 @@ from app.services.operation_log_service import operation_log_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.tg_index_service import tg_index_service
 from app.services.tg_service import FloodWaitError, tg_service
+
+from app.core.timezone_utils import beijing_now, BEIJING_TZ
 
 
 class TgSyncService:
@@ -81,7 +83,7 @@ class TgSyncService:
                         job.finished_at = value
                     else:
                         setattr(job, key, value)
-                job.updated_at = datetime.now(timezone.utc)
+                job.updated_at = beijing_now()
                 await db.commit()
 
     async def _create_job(self, *, job_type: str) -> dict[str, Any]:
@@ -114,7 +116,7 @@ class TgSyncService:
                     payload["already_running"] = True
                     return payload
 
-                now = datetime.now(timezone.utc)
+                now = beijing_now()
                 job = TgSyncJob(
                     job_id=uuid4().hex,
                     job_type=job_type,
@@ -193,7 +195,7 @@ class TgSyncService:
                 state.backfill_completed = bool(backfill_completed)
             if error_message is not None:
                 state.last_error = error_message
-            state.last_synced_at = datetime.now(timezone.utc)
+            state.last_synced_at = beijing_now()
             await db.commit()
 
     async def _sync_channel_messages(
@@ -229,7 +231,7 @@ class TgSyncService:
                 msg_id = int(getattr(message, "id", 0) or 0)
                 msg_date = getattr(message, "date", None)
                 if msg_date and msg_date.tzinfo is None:
-                    msg_date = msg_date.replace(tzinfo=timezone.utc)
+                    msg_date = msg_date.replace(tzinfo=BEIJING_TZ)
 
                 if msg_id > latest_message_id:
                     latest_message_id = msg_id
@@ -301,7 +303,7 @@ class TgSyncService:
                 status="success",
                 message=f"索引状态刷新完成：共 {int(status_payload.get('total_indexed') or 0)} 条资源",
                 result=status_payload,
-                finished_at=datetime.now(timezone.utc),
+                finished_at=beijing_now(),
             )
         except Exception as exc:
             await self._set_job(
@@ -309,7 +311,7 @@ class TgSyncService:
                 status="failed",
                 message=str(exc),
                 errors=[str(exc)],
-                finished_at=datetime.now(timezone.utc),
+                finished_at=beijing_now(),
             )
 
     async def _run_backfill(self, job_id: str, rebuild: bool) -> None:
@@ -374,7 +376,7 @@ class TgSyncService:
                 job_id,
                 status=status,
                 message=msg,
-                finished_at=datetime.now(timezone.utc),
+                finished_at=beijing_now(),
                 processed_messages=total_processed,
                 indexed_rows=total_indexed,
                 errors=errors,
@@ -398,7 +400,7 @@ class TgSyncService:
                 status="failed",
                 message=str(exc),
                 errors=[str(exc)],
-                finished_at=datetime.now(timezone.utc),
+                finished_at=beijing_now(),
             )
             await operation_log_service.log_background_event(
                 source_type="background_task",
@@ -470,7 +472,7 @@ class TgSyncService:
                 job_id,
                 status=status,
                 message=msg,
-                finished_at=datetime.now(timezone.utc),
+                finished_at=beijing_now(),
                 processed_messages=total_processed,
                 indexed_rows=total_indexed,
                 errors=errors,
@@ -494,7 +496,7 @@ class TgSyncService:
                 status="failed",
                 message=str(exc),
                 errors=[str(exc)],
-                finished_at=datetime.now(timezone.utc),
+                finished_at=beijing_now(),
             )
             await operation_log_service.log_background_event(
                 source_type="background_task",

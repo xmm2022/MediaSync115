@@ -7,6 +7,8 @@ from app.core.database import async_session_maker
 from app.services.operation_log_service import operation_log_service
 from app.services.subscription_service import subscription_service
 
+from app.core.timezone_utils import beijing_now
+
 ALL_CHANNELS = ["hdhive", "pansou", "tg"]
 
 
@@ -56,7 +58,7 @@ class SubscriptionRunTaskService:
                     return existing
 
             task_id = uuid4().hex
-            now = datetime.utcnow().isoformat()
+            now = beijing_now().isoformat()
             task = {
                 "task_id": task_id,
                 "channel": normalized_channel,
@@ -157,7 +159,7 @@ class SubscriptionRunTaskService:
                     "status": "success",
                     "message": result.get("message") or "任务执行完成",
                     "result": result,
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": beijing_now().isoformat(),
                 },
             )
             await operation_log_service.log_background_event(
@@ -177,7 +179,7 @@ class SubscriptionRunTaskService:
                     "status": "failed",
                     "message": "任务执行失败",
                     "error": str(exc),
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": beijing_now().isoformat(),
                 },
             )
             await operation_log_service.log_background_event(
@@ -238,7 +240,7 @@ class SubscriptionRunTaskService:
                     "status": final_status,
                     "message": final_message,
                     "result": result,
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": beijing_now().isoformat(),
                 },
             )
             await operation_log_service.log_background_event(
@@ -258,7 +260,7 @@ class SubscriptionRunTaskService:
                     "status": "failed",
                     "message": "任务执行失败",
                     "error": str(exc),
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": beijing_now().isoformat(),
                 },
             )
             await operation_log_service.log_background_event(

@@ -6,7 +6,7 @@ import hmac
 import re
 import time
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -14,6 +14,8 @@ import httpx
 
 from app.services.tmdb_service import tmdb_service
 from app.utils.proxy import proxy_manager
+
+from app.core.timezone_utils import beijing_now
 
 
 DOUBAN_FRODO_BASE_URL = "https://frodo.douban.com/api/v2"
@@ -1537,7 +1539,7 @@ async def fetch_douban_subject_detail(
 
     normalized_type = "tv" if media_type == "tv" else "movie"
     now = time.time()
-    ts = datetime.now().strftime("%Y%m%d")
+    ts = beijing_now().strftime("%Y%m%d")
     path = f"/subject/{quote(normalized_id, safe='')}"
     sign_path = f"/api/v2{path}"
     sig = _douban_sign(path=sign_path, ts=ts)
@@ -1751,7 +1753,7 @@ async def fetch_douban_section(
         _hydrate_tmdb_ids_from_cache(cache_item["payload"].get("items", []))
         return cache_item["payload"]
 
-    ts = datetime.now().strftime("%Y%m%d")
+    ts = beijing_now().strftime("%Y%m%d")
     path = source["path"]
     sign_path = f"/api/v2{path}"
     sig = _douban_sign(path=sign_path, ts=ts)
@@ -1832,7 +1834,7 @@ async def fetch_douban_section(
             "title": source["title"],
             "tag": source["tag"],
             "source_url": request_url,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": beijing_now().isoformat(),
             "total": section_total,
             "start": start,
             "count": count,

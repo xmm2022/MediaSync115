@@ -5,6 +5,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
+from app.core.timezone_utils import beijing_now
+
 
 class EmbyMediaIndex(Base):
     __tablename__ = "emby_media_index"
@@ -18,8 +20,8 @@ class EmbyMediaIndex(Base):
     tmdb_id: Mapped[int] = mapped_column(Integer, nullable=False)
     emby_item_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, onupdate=beijing_now)
 
 
 class EmbyTvEpisodeIndex(Base):
@@ -33,7 +35,7 @@ class EmbyTvEpisodeIndex(Base):
     tmdb_id: Mapped[int] = mapped_column(Integer, nullable=False)
     season_number: Mapped[int] = mapped_column(Integer, nullable=False)
     episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, nullable=False)
 
 
 class EmbySyncState(Base):
@@ -52,5 +54,5 @@ class EmbySyncState(Base):
     movie_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     tv_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     episode_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, onupdate=beijing_now)

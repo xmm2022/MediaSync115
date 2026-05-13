@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.exc import OperationalError
 
+from app.core.timezone_utils import beijing_now
 from app.core.database import (
     async_session_maker,
     ensure_tables_exist,
@@ -197,7 +198,7 @@ class FeiniuSyncIndexService:
     async def _sync_index(self, trigger: str = "manual") -> dict[str, Any]:
         async with self._lock:
             started_ts = time.perf_counter()
-            started_at = datetime.utcnow()
+            started_at = beijing_now()
             await operation_log_service.log_background_event(
                 source_type="background_task",
                 module="feiniu_sync",
@@ -272,7 +273,7 @@ class FeiniuSyncIndexService:
                         runtime_settings_service.get_feiniu_sync_interval_hours()
                     )
                     state.last_trigger = str(trigger or "manual")
-                    state.last_sync_finished_at = datetime.utcnow()
+                    state.last_sync_finished_at = beijing_now()
                     state.last_sync_duration_ms = elapsed_ms
                     state.last_sync_error = str(exc)[:2000]
                     await db.commit()
@@ -449,12 +450,12 @@ class FeiniuSyncIndexService:
         trigger: str,
         started_ts: float,
     ) -> None:
-        finished_at = datetime.utcnow()
+        finished_at = beijing_now()
         elapsed_ms = int((time.perf_counter() - started_ts) * 1000)
         movie_rows = payload.get("movie_rows") or []
         tv_rows = payload.get("tv_rows") or []
         episode_rows = payload.get("episode_rows") or []
-        now = datetime.utcnow()
+        now = beijing_now()
 
         async with async_session_maker() as db:
             await db.execute(delete(FeiniuTvEpisodeIndex))

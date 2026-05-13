@@ -5,6 +5,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
+from app.core.timezone_utils import beijing_now
+
 
 class FeiniuMediaIndex(Base):
     __tablename__ = "feiniu_media_index"
@@ -23,10 +25,10 @@ class FeiniuMediaIndex(Base):
     )
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=beijing_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=beijing_now, onupdate=beijing_now
     )
 
 
@@ -47,7 +49,7 @@ class FeiniuTvEpisodeIndex(Base):
     season_number: Mapped[int] = mapped_column(Integer, nullable=False)
     episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=beijing_now, nullable=False
     )
 
 
@@ -74,8 +76,8 @@ class FeiniuSyncState(Base):
     tv_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     episode_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=beijing_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=beijing_now, onupdate=beijing_now
     )

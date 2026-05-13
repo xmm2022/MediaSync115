@@ -3,13 +3,15 @@
 from datetime import datetime
 from typing import Any
 from pydantic import BaseModel, Field
+from app.core.timezone_utils import beijing_now
+
 
 
 class AnalyticsEvent(BaseModel):
     """分析事件基础模型"""
 
     event_type: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=beijing_now)
     trace_id: str | None = None
     client_ip: str | None = None
     user_agent: str | None = None

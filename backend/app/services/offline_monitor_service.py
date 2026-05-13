@@ -7,6 +7,8 @@ from app.models.models import DownloadRecord, MediaStatus
 from app.services.pan115_service import Pan115Service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.subscription_service import subscription_service
+from app.core.timezone_utils import beijing_now
+
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -138,7 +140,7 @@ class OfflineMonitorService:
         )
         records = result.scalars().all()
         completed_count = 0
-        now = datetime.utcnow()
+        now = beijing_now()
         active_statuses = {"-1", "1", "2", "3"}
         for record in records:
             info_hash = str(record.offline_info_hash or "").upper()

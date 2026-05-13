@@ -1,11 +1,13 @@
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
 from app.services.app_metadata_service import app_metadata_service
+
+from app.core.timezone_utils import beijing_now
 
 
 _SEMVER_PATTERN = re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?$")
@@ -168,7 +170,7 @@ class UpdateCheckService:
             "latest_tag": latest_tag_name or latest_version or "",
             "latest_version": latest_version or latest_tag_name or "",
             "latest_published_at": latest_published_at,
-            "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "checked_at": beijing_now().isoformat().replace("+00:00", "Z"),
             "compare_status": compare_status,
             "has_update": has_update,
             "message": message,

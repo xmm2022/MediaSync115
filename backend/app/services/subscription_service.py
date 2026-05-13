@@ -10,6 +10,7 @@ from uuid import uuid4
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timezone_utils import beijing_now
 from app.models.models import (
     DownloadRecord,
     ExecutionStatus,
@@ -53,7 +54,7 @@ class SubscriptionService:
     ) -> dict[str, Any]:
         normalized_channel = self._normalize_channel(channel)
         run_id = uuid4().hex
-        started_at = datetime.utcnow()
+        started_at = beijing_now()
         await operation_log_service.log_background_event(
             source_type="background_task",
             module="subscriptions",
@@ -711,7 +712,7 @@ class SubscriptionService:
             unlock_stats.get("points_spent") or 0
         )
         message = self._build_message(result)
-        finished_at = datetime.utcnow()
+        finished_at = beijing_now()
         result["finished_at"] = finished_at.isoformat()
         result["status"] = status.value
         result["message"] = message
@@ -2659,7 +2660,7 @@ class SubscriptionService:
                         wp_path_id=offline_folder_id,
                     )
                     record.status = MediaStatus.OFFLINE_SUBMITTED
-                    record.offline_submitted_at = datetime.utcnow()
+                    record.offline_submitted_at = beijing_now()
                     record.offline_status = "submitted"
                     record.offline_info_hash = (
                         self._extract_offline_info_hash(offline_result)
@@ -2933,7 +2934,7 @@ class SubscriptionService:
                         quality_filter=quality_filter,
                     )
                     record.status = MediaStatus.COMPLETED
-                    record.completed_at = datetime.utcnow()
+                    record.completed_at = beijing_now()
                     record.error_message = None
                     record.file_id = parent_folder_id
                     saved += 1
@@ -3014,7 +3015,7 @@ class SubscriptionService:
                         record.completed_at = None
                     else:
                         record.status = MediaStatus.COMPLETED
-                        record.completed_at = datetime.utcnow()
+                        record.completed_at = beijing_now()
                     record.error_message = None
                     saved += 1
                     await self._create_step_log(

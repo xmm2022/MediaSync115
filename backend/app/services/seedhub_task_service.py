@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from app.services.seedhub_service import seedhub_service
 
+from app.core.timezone_utils import beijing_now
+
 
 class SeedhubTaskService:
     def __init__(self) -> None:
@@ -53,7 +55,7 @@ class SeedhubTaskService:
                 cached_result = self._result_cache.get(query_key)
                 if cached_result and cached_result.get("expires_at", 0) > time.time():
                     task_id = uuid4().hex
-                    now_iso = datetime.utcnow().isoformat()
+                    now_iso = beijing_now().isoformat()
                     task = {
                         "task_id": task_id,
                         "query_key": query_key,
@@ -87,7 +89,7 @@ class SeedhubTaskService:
                 return existing
 
             task_id = uuid4().hex
-            now_iso = datetime.utcnow().isoformat()
+            now_iso = beijing_now().isoformat()
             task = {
                 "task_id": task_id,
                 "query_key": query_key,
@@ -137,7 +139,7 @@ class SeedhubTaskService:
             }:
                 return dict(task)
 
-            now_iso = datetime.utcnow().isoformat()
+            now_iso = beijing_now().isoformat()
             task["status"] = "cancelled"
             task["message"] = "任务已取消"
             task["finished_at"] = now_iso
@@ -258,7 +260,7 @@ class SeedhubTaskService:
                 return
 
             items = list(latest.get("items") or [])
-            now_iso = datetime.utcnow().isoformat()
+            now_iso = beijing_now().isoformat()
             final_status = "success" if items else "partial_success"
             final_message = "资源获取完成" if items else "未找到可用磁链"
             await self._update_task(
@@ -282,7 +284,7 @@ class SeedhubTaskService:
                 if current_task_id == task_id:
                     self._running_by_query.pop(query_key, None)
         except Exception as exc:
-            now_iso = datetime.utcnow().isoformat()
+            now_iso = beijing_now().isoformat()
             await self._update_task(
                 task_id,
                 {
@@ -332,7 +334,7 @@ class SeedhubTaskService:
             items.append(item)
             task["items"] = items
             task["success_count"] = len(items)
-            task["updated_at"] = datetime.utcnow().isoformat()
+            task["updated_at"] = beijing_now().isoformat()
 
     async def _increment(self, task_id: str, fields: dict[str, int]) -> None:
         async with self._lock:
@@ -342,7 +344,7 @@ class SeedhubTaskService:
             for key, delta in fields.items():
                 current = int(task.get(key) or 0)
                 task[key] = current + int(delta or 0)
-            task["updated_at"] = datetime.utcnow().isoformat()
+            task["updated_at"] = beijing_now().isoformat()
 
     async def _update_task(self, task_id: str, patch: dict[str, Any]) -> None:
         async with self._lock:
@@ -350,7 +352,7 @@ class SeedhubTaskService:
             if not task:
                 return
             task.update(patch)
-            task["updated_at"] = datetime.utcnow().isoformat()
+            task["updated_at"] = beijing_now().isoformat()
 
     def _prune_locked(self) -> None:
         now = time.time()

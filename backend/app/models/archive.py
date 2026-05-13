@@ -6,6 +6,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
+from app.core.timezone_utils import beijing_now
+
 
 class ArchiveStatus(str, enum.Enum):
     """归档任务状态"""
@@ -35,8 +37,8 @@ class ArchiveTask(Base):
         SQLEnum(ArchiveStatus), default=ArchiveStatus.PENDING
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=beijing_now, onupdate=beijing_now
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

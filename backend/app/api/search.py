@@ -4,7 +4,7 @@ import hashlib
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -13,6 +13,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from app.core.timezone_utils import beijing_now
 from app.services.douban_explore_service import (
     DOUBAN_SECTION_SOURCES,
     fetch_douban_subject_detail,
@@ -1210,7 +1211,7 @@ async def _fetch_popular_section(source, refresh):
             "title": source["title"],
             "tag": source["tag"],
             "source_url": source["url"],
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": beijing_now().isoformat(),
             "total": len(items),
             "items": items,
         }
@@ -1339,7 +1340,7 @@ async def get_explore_popular_sections(
     feiniu_status_map = await _build_feiniu_status_map(_collect_section_items(sections))
     return {
         "source": "popular-movies-data.stevenlu.com",
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": beijing_now().isoformat(),
         "sections": sections,
         "errors": errors,
         "emby_status_map": emby_status_map,
@@ -1386,7 +1387,7 @@ async def get_explore_douban_sections(
         fallback_errors = fallback.get("errors", [])
         return {
             "source": f"fallback:{fallback_source}",
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": beijing_now().isoformat(),
             "sections": fallback.get("sections", []),
             "errors": errors + fallback_errors,
             "emby_status_map": fallback.get("emby_status_map", {}),
@@ -1397,7 +1398,7 @@ async def get_explore_douban_sections(
     feiniu_status_map = await _build_feiniu_status_map(_collect_section_items(sections))
     return {
         "source": "douban-frodo",
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": beijing_now().isoformat(),
         "sections": sections,
         "errors": errors,
         "emby_status_map": emby_status_map,
@@ -1463,7 +1464,7 @@ async def get_explore_sections(
         )
         return {
             "source": "tmdb",
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": beijing_now().isoformat(),
             "sections": sections,
             "errors": errors,
             "emby_status_map": emby_status_map,
@@ -1506,7 +1507,7 @@ async def get_explore_sections(
         fallback_errors = fallback.get("errors", [])
         return {
             "source": f"fallback:{fallback_source}",
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": beijing_now().isoformat(),
             "sections": fallback.get("sections", []),
             "errors": errors + fallback_errors,
             "emby_status_map": fallback.get("emby_status_map", {}),
@@ -1517,7 +1518,7 @@ async def get_explore_sections(
     feiniu_status_map = await _build_feiniu_status_map(_collect_section_items(sections))
     return {
         "source": "douban-frodo",
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": beijing_now().isoformat(),
         "sections": sections,
         "errors": errors,
         "emby_status_map": emby_status_map,
@@ -1537,7 +1538,7 @@ async def get_explore_meta(
     )
     return {
         "source": "tmdb" if normalized_source == "tmdb" else "douban-frodo",
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": beijing_now().isoformat(),
         "sections": [
             {
                 "key": row["key"],
@@ -1607,7 +1608,7 @@ async def get_explore_home(
         )
         return {
             "source": "tmdb",
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": beijing_now().isoformat(),
             "sections": sections,
             "errors": errors,
             "emby_status_map": emby_status_map,
@@ -1656,7 +1657,7 @@ async def get_explore_home(
         fallback_errors = fallback.get("errors", [])
         return {
             "source": f"fallback:{fallback_source}",
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": beijing_now().isoformat(),
             "sections": fallback.get("sections", []),
             "errors": errors + fallback_errors,
             "emby_status_map": fallback.get("emby_status_map", {}),
@@ -1667,7 +1668,7 @@ async def get_explore_home(
     feiniu_status_map = await _build_feiniu_status_map(_collect_section_items(sections))
     return {
         "source": "douban-frodo",
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": beijing_now().isoformat(),
         "sections": sections,
         "errors": errors,
         "emby_status_map": emby_status_map,
@@ -1748,7 +1749,7 @@ async def get_explore_section(
         )
         return {
             "source": "tmdb",
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": beijing_now().isoformat(),
             "section": {
                 "key": payload["key"],
                 "title": payload["title"],
@@ -1791,7 +1792,7 @@ async def get_explore_section(
     items = payload.get("items", []) if isinstance(payload.get("items"), list) else []
     return {
         "source": "douban-frodo",
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": beijing_now().isoformat(),
         "section": {
             "key": payload["key"],
             "title": payload["title"],
@@ -1845,7 +1846,7 @@ async def get_explore_douban_section(
     items = payload.get("items", []) if isinstance(payload.get("items"), list) else []
     return {
         "source": "douban-frodo",
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": beijing_now().isoformat(),
         "section": {
             "key": payload["key"],
             "title": payload["title"],

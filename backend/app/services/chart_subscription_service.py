@@ -8,7 +8,7 @@
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -18,6 +18,8 @@ from app.core.database import async_session_maker
 from app.models.models import MediaType, Subscription
 from app.services.operation_log_service import operation_log_service
 from app.services.runtime_settings_service import runtime_settings_service
+
+from app.core.timezone_utils import beijing_now
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +85,7 @@ async def run_chart_subscription() -> dict[str, Any]:
     limit = int(settings_data.get("chart_subscription_limit", 20) or 20)
     limit = max(1, min(50, limit))
 
-    started_at = datetime.now(timezone.utc).isoformat()
+    started_at = beijing_now().isoformat()
     total_new = 0
     total_existing = 0
     total_failed = 0
@@ -129,7 +131,7 @@ async def run_chart_subscription() -> dict[str, Any]:
                 extra={"source": source_type, "key": section_key, "error": str(exc)[:300]},
             )
 
-    finished_at = datetime.now(timezone.utc).isoformat()
+    finished_at = beijing_now().isoformat()
     message = f"榜单订阅完成：新增 {total_new}，已有 {total_existing}，失败 {total_failed}"
     logger.info(message)
     await operation_log_service.log_background_event(

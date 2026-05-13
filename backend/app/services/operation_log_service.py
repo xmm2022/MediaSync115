@@ -8,6 +8,8 @@ from sqlalchemy import delete
 from app.core.database import async_session_maker
 from app.models.models import OperationLog
 
+from app.core.timezone_utils import beijing_now
+
 logger = logging.getLogger(__name__)
 
 SENSITIVE_KEYWORDS = (
@@ -290,7 +292,7 @@ class OperationLogService:
 
     async def prune(self, days: int = 30) -> int:
         ttl_days = max(1, int(days or 30))
-        cutoff = datetime.utcnow() - timedelta(days=ttl_days)
+        cutoff = beijing_now() - timedelta(days=ttl_days)
         async with async_session_maker() as db:
             result = await db.execute(
                 delete(OperationLog).where(OperationLog.created_at < cutoff)
@@ -302,11 +304,11 @@ class OperationLogService:
         async with async_session_maker() as db:
             result = await db.execute(delete(OperationLog))
             await db.commit()
-            self._last_pruned_at = datetime.utcnow()
+            self._last_pruned_at = beijing_now()
             return int(result.rowcount or 0)
 
     async def maybe_prune(self, days: int = 30, interval_minutes: int = 60) -> None:
-        now = datetime.utcnow()
+        now = beijing_now()
         if self._last_pruned_at and now - self._last_pruned_at < timedelta(
             minutes=max(1, interval_minutes)
         ):

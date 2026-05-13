@@ -8,6 +8,8 @@ from app.core.database import async_session_maker
 from app.models.models import OperationLog
 from app.services.operation_log_service import operation_log_service
 
+from app.core.timezone_utils import BEIJING_TZ
+
 router = APIRouter(prefix="/logs", tags=["logs"])
 
 
@@ -19,7 +21,7 @@ def _parse_iso_datetime(value: Optional[str], field_name: str) -> datetime | Non
     try:
         dt = datetime.fromisoformat(normalized)
         if dt.tzinfo is not None:
-            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt.astimezone(BEIJING_TZ).replace(tzinfo=None)
         return dt
     except Exception:
         raise HTTPException(

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete as sa_delete, select, or_, and_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from app.core.database import get_db
+from app.core.timezone_utils import beijing_now
 from app.models.models import (
     DownloadRecord,
     ExecutionStatus,
@@ -1189,7 +1190,7 @@ async def update_download_record(
     if update_data.status is not None:
         record.status = update_data.status
         if update_data.status in {MediaStatus.COMPLETED, MediaStatus.OFFLINE_COMPLETED}:
-            now = datetime.utcnow()
+            now = beijing_now()
             record.completed_at = now
             if update_data.status == MediaStatus.OFFLINE_COMPLETED:
                 record.offline_completed_at = now
@@ -1197,7 +1198,7 @@ async def update_download_record(
         elif update_data.status == MediaStatus.OFFLINE_SUBMITTED:
             record.completed_at = None
             if record.offline_submitted_at is None:
-                record.offline_submitted_at = datetime.utcnow()
+                record.offline_submitted_at = beijing_now()
         elif update_data.status == MediaStatus.FAILED:
             record.completed_at = None
         elif update_data.status in {

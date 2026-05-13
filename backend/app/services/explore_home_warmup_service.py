@@ -1,13 +1,14 @@
 import asyncio
 import contextlib
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime
 import logging
 import time
 from typing import Any
 
 import httpx
 
+from app.core.timezone_utils import beijing_now
 from app.services.douban_explore_service import (
     DOUBAN_SECTION_SOURCES,
     fetch_douban_section,
@@ -196,7 +197,7 @@ class ExploreHomeWarmupService:
 
         success_count = 0
         failures: list[dict[str, str]] = []
-        warmed_at = datetime.now(timezone.utc).isoformat()
+        warmed_at = beijing_now().isoformat()
         snapshots: list[dict[str, Any]] = []
         for section, result in zip(source_rows, results):
             if isinstance(result, Exception):

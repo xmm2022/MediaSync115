@@ -6,11 +6,13 @@
 import asyncio
 import random
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Set
 from uuid import uuid4
 
 from app.core.config import settings
+
+from app.core.timezone_utils import beijing_now
 
 P115Client = None
 _P115CLIENT_IMPORT_ERROR = ""
@@ -1257,7 +1259,7 @@ class Pan115Service:
             qr_url = f"https://115.com/scan/dg-{uid}"
 
         token = uuid4().hex
-        now = datetime.now(timezone.utc)
+        now = beijing_now()
         expires_at = now + timedelta(seconds=self._QR_LOGIN_EXPIRE_SECONDS)
         async with self._QR_LOGIN_LOCK:
             self._QR_LOGIN_PENDING[token] = {
@@ -1318,7 +1320,7 @@ class Pan115Service:
         if not item:
             raise ValueError("扫码会话不存在或已过期，请重新生成二维码")
 
-        now = datetime.now(timezone.utc)
+        now = beijing_now()
         expires_at = item.get("expires_at")
         if isinstance(expires_at, datetime) and now >= expires_at:
             async with self._QR_LOGIN_LOCK:
@@ -1478,7 +1480,7 @@ class Pan115Service:
 
     @classmethod
     async def _clear_expired_qr_sessions(cls) -> None:
-        now = datetime.now(timezone.utc)
+        now = beijing_now()
         async with cls._QR_LOGIN_LOCK:
             expired = []
             for token, item in cls._QR_LOGIN_PENDING.items():

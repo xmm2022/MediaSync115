@@ -12,6 +12,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
+from app.core.timezone_utils import beijing_now
+
 import enum
 
 
@@ -64,9 +66,9 @@ class Subscription(Base):
     tv_include_specials: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_download: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=beijing_now, onupdate=beijing_now
     )
 
     downloads: Mapped[list["DownloadRecord"]] = relationship(
@@ -94,7 +96,7 @@ class DownloadRecord(Base):
         SQLEnum(MediaStatus), default=MediaStatus.PENDING
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     subscription: Mapped["Subscription"] = relationship(
@@ -115,7 +117,7 @@ class SubscriptionExecutionLog(Base):
     new_resource_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -133,7 +135,7 @@ class SubscriptionStepLog(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
     message: Mapped[str] = mapped_column(String(500), nullable=False)
     payload: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
 
 
 class OperationLog(Base):
@@ -156,7 +158,7 @@ class OperationLog(Base):
     response_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, index=True
+        DateTime, default=beijing_now, index=True
     )
 
 
@@ -188,9 +190,9 @@ class TgMessageIndex(Base):
         String(20), nullable=False, default="unknown"
     )
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=beijing_now, onupdate=beijing_now
     )
 
 
@@ -208,9 +210,9 @@ class TgSyncState(Base):
         Boolean, nullable=False, default=False
     )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=beijing_now, onupdate=beijing_now
     )
 
 
@@ -234,9 +236,9 @@ class TgSyncJob(Base):
     errors_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, index=True
+        DateTime, default=beijing_now, index=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+        DateTime, default=beijing_now, onupdate=beijing_now, index=True
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

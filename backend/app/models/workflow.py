@@ -4,6 +4,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
+from app.core.timezone_utils import beijing_now
+
 
 class Workflow(Base):
     __tablename__ = "workflows"
@@ -23,5 +25,5 @@ class Workflow(Base):
     current_action: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_result: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, onupdate=beijing_now)

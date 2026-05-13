@@ -1,13 +1,15 @@
 import re
 import asyncio
 import importlib.util
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import unquote, urlencode, urlparse
 from uuid import uuid4
 
 from app.core.config import settings
 from app.utils.proxy import proxy_manager
+
+from app.core.timezone_utils import beijing_now, BEIJING_TZ
 
 TELETHON_AVAILABLE = False
 TELETHON_IMPORT_ERROR = ""
@@ -204,7 +206,7 @@ class TgService:
         self._session = ""
 
     async def _clear_expired_qr_pending(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = beijing_now()
         expired_tokens: list[str] = []
         async with self._qr_lock:
             for token, item in self._qr_pending.items():
@@ -469,7 +471,7 @@ class TgService:
     ) -> list[dict[str, Any]]:
         msg_date = getattr(message, "date", None)
         if msg_date and msg_date.tzinfo is None:
-            msg_date = msg_date.replace(tzinfo=timezone.utc)
+            msg_date = msg_date.replace(tzinfo=BEIJING_TZ)
 
         raw_text = str(getattr(message, "raw_text", "") or "")
         message_text = str(getattr(message, "message", "") or "")
@@ -613,12 +615,12 @@ class TgService:
             await client.connect()
             qr_login = await client.qr_login()
             token = uuid4().hex
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=240)
+            expires_at = beijing_now() + timedelta(seconds=240)
             async with self._qr_lock:
                 self._qr_pending[token] = {
                     "client": client,
                     "qr_login": qr_login,
-                    "created_at": datetime.now(timezone.utc),
+                    "created_at": beijing_now(),
                     "expires_at": expires_at,
                     "state": "pending",
                     "session": "",
@@ -829,7 +831,7 @@ class TgService:
         self._ensure_search_config()
         days = max(1, int(search_days or self._search_days))
         limit = max(20, int(max_messages or self._max_messages))
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = beijing_now() - timedelta(days=days)
         client = self._build_client(self._session)
         rows: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -849,7 +851,7 @@ class TgService:
                 ):
                     msg_date = getattr(message, "date", None)
                     if msg_date and msg_date.tzinfo is None:
-                        msg_date = msg_date.replace(tzinfo=timezone.utc)
+                        msg_date = msg_date.replace(tzinfo=BEIJING_TZ)
                     if msg_date and msg_date < cutoff:
                         continue
                     if not msg_date and getattr(message, "id", 0) <= 0:

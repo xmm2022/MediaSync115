@@ -4,8 +4,10 @@
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, AsyncIterator
+from app.core.timezone_utils import beijing_now
+
 
 
 class TransferInProgressError(RuntimeError):
@@ -33,7 +35,7 @@ class TransferGuardService:
                 raise TransferInProgressError(self._current)
             self._current = {
                 "operation": str(operation or "115 转存"),
-                "started_at": datetime.now(timezone.utc).isoformat(),
+                "started_at": beijing_now().isoformat(),
             }
 
         try:

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -20,6 +20,8 @@ from app.services.pansou_service import pansou_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.tg_service import tg_service
 from app.utils.resource_tags import sort_by_preference
+
+from app.core.timezone_utils import beijing_now
 
 
 _PAN115_SHARE_URL_PATTERN = re.compile(
@@ -43,7 +45,7 @@ class ExploreActionQueueService:
 
     @staticmethod
     def _now_iso() -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return beijing_now().isoformat()
 
     @staticmethod
     def _normalize_media_type(raw: str) -> str:

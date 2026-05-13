@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.workflow import Workflow
 
+from app.core.timezone_utils import beijing_now
+
 
 class WorkflowService:
     def __init__(self, db: AsyncSession):
@@ -53,7 +55,7 @@ class WorkflowService:
     async def update(self, workflow: Workflow, payload: dict[str, Any]) -> Workflow:
         for key, value in payload.items():
             setattr(workflow, key, value)
-        workflow.updated_at = datetime.utcnow()
+        workflow.updated_at = beijing_now()
         await self.db.commit()
         await self.db.refresh(workflow)
         return workflow
@@ -67,7 +69,7 @@ class WorkflowService:
         if not workflow:
             return
         workflow.current_action = action_name
-        workflow.last_run_at = datetime.utcnow()
+        workflow.last_run_at = beijing_now()
         workflow.run_count = int(workflow.run_count or 0) + 1
         await self.db.commit()
 
@@ -80,11 +82,11 @@ class WorkflowService:
             {
                 "success": success,
                 "message": message,
-                "at": datetime.utcnow().isoformat(),
+                "at": beijing_now().isoformat(),
             },
             ensure_ascii=False,
         )
-        workflow.updated_at = datetime.utcnow()
+        workflow.updated_at = beijing_now()
         await self.db.commit()
 
     @staticmethod

@@ -19,6 +19,8 @@ from app.services.operation_log_service import operation_log_service
 from app.services.workflow_executor import workflow_executor
 from app.services.workflow_service import WorkflowService
 
+from app.core.timezone_utils import beijing_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -341,7 +343,7 @@ class SchedulerManager:
             task = await db.get(SchedulerTask, task_id)
             if not task:
                 return
-            task.last_run_at = datetime.utcnow()
+            task.last_run_at = beijing_now()
             task.last_error = None if success else str(result)
             task.state = "W" if success else "E"
             await db.commit()
@@ -351,12 +353,12 @@ class SchedulerManager:
             workflow = await db.get(Workflow, workflow_id)
             if not workflow:
                 return
-            workflow.last_run_at = datetime.utcnow()
+            workflow.last_run_at = beijing_now()
             workflow.last_result = json.dumps(
                 {
                     "success": success,
                     "result": result,
-                    "at": datetime.utcnow().isoformat(),
+                    "at": beijing_now().isoformat(),
                 },
                 ensure_ascii=False,
             )

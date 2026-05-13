@@ -1,11 +1,13 @@
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional
 
 import httpx
 
 from app.core.config import settings
+
+from app.core.timezone_utils import beijing_now
 
 
 TMDB_EXPLORE_CACHE_TTL_SECONDS = 60 * 30
@@ -286,7 +288,7 @@ async def fetch_tmdb_section(
             "title": source["title"],
             "tag": source["tag"],
             "source_url": base_url,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": beijing_now().isoformat(),
             "total": section_total,
             "start": start,
             "count": count,

@@ -7,6 +7,8 @@ from typing import Any
 from app.services.emby_service import emby_service
 from app.services.tmdb_service import tmdb_service
 
+from app.core.timezone_utils import beijing_now
+
 
 class TvMissingService:
     def __init__(self) -> None:
@@ -472,7 +474,7 @@ class TvMissingService:
         )
 
     async def _get_cached_status(self, key: str) -> dict[str, Any] | None:
-        now_ts = datetime.utcnow().timestamp()
+        now_ts = beijing_now().timestamp()
         async with self._cache_lock:
             cached = self._status_cache.get(key)
             if not cached:
@@ -487,7 +489,7 @@ class TvMissingService:
     async def _set_cached_status(self, key: str, payload: dict[str, Any]) -> None:
         async with self._cache_lock:
             self._status_cache[key] = {
-                "ts": datetime.utcnow().timestamp(),
+                "ts": beijing_now().timestamp(),
                 "payload": dict(payload),
             }
             if len(self._status_cache) > 500:

@@ -14,6 +14,8 @@ from app.services.subscription_service import subscription_service
 from app.services.archive_service import archive_service
 from app.services.offline_monitor_service import offline_monitor_service
 
+from app.core.timezone_utils import beijing_now
+
 
 class JobRegistry:
     def __init__(self):
@@ -80,7 +82,7 @@ class JobRegistry:
         await asyncio.sleep(0)
         return {
             "success": True,
-            "message": f"noop executed at {datetime.utcnow().isoformat()}",
+            "message": f"noop executed at {beijing_now().isoformat()}",
         }
 
     async def _archive_scan(self, **kwargs) -> dict[str, Any]:

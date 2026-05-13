@@ -7,6 +7,8 @@ from typing import Any
 
 from kafka import KafkaProducer
 from kafka.errors import KafkaError
+from app.core.timezone_utils import beijing_now
+
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +84,7 @@ class AnalyticsKafkaProducer:
         # 构建消息
         message = {
             "event_type": event_type,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": beijing_now().isoformat(),
             "data": data,
         }
 

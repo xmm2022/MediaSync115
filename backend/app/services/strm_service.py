@@ -23,6 +23,8 @@ from app.services.pan115_service import Pan115Service, pan115_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.utils.proxy import proxy_manager
 
+from app.core.timezone_utils import beijing_now
+
 logger = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = {
@@ -862,7 +864,7 @@ class StrmService:
     def _now_iso() -> str:
         from datetime import datetime
 
-        return datetime.utcnow().isoformat()
+        return beijing_now().isoformat()
 
 
 strm_service = StrmService()

@@ -16,6 +16,8 @@ from app.models.emby_sync_index import EmbyMediaIndex, EmbySyncState, EmbyTvEpis
 from app.services.operation_log_service import operation_log_service
 from app.services.runtime_settings_service import runtime_settings_service
 
+from app.core.timezone_utils import beijing_now
+
 logger = logging.getLogger(__name__)
 
 EMBY_SYNC_STATE_ROW_ID = 1
@@ -156,7 +158,7 @@ class EmbySyncIndexService:
     async def _sync_index(self, trigger: str = "manual") -> dict[str, Any]:
         async with self._lock:
             started_ts = time.perf_counter()
-            started_at = datetime.utcnow()
+            started_at = beijing_now()
             await operation_log_service.log_background_event(
                 source_type="background_task", module="emby_sync",
                 action="emby.index.sync.start", status="info",
@@ -215,7 +217,7 @@ class EmbySyncIndexService:
                     state.enabled = runtime_settings_service.get_emby_sync_enabled()
                     state.interval_hours = runtime_settings_service.get_emby_sync_interval_hours()
                     state.last_trigger = str(trigger or "manual")
-                    state.last_sync_finished_at = datetime.utcnow()
+                    state.last_sync_finished_at = beijing_now()
                     state.last_sync_duration_ms = elapsed_ms
                     state.last_sync_error = str(exc)[:2000]
                     await db.commit()
@@ -348,12 +350,12 @@ class EmbySyncIndexService:
         trigger: str,
         started_ts: float,
     ) -> None:
-        finished_at = datetime.utcnow()
+        finished_at = beijing_now()
         elapsed_ms = int((time.perf_counter() - started_ts) * 1000)
         movie_rows = payload.get("movie_rows") or []
         tv_rows = payload.get("tv_rows") or []
         episode_rows = payload.get("episode_rows") or []
-        now = datetime.utcnow()
+        now = beijing_now()
 
         async with async_session_maker() as db:
             await db.execute(delete(EmbyTvEpisodeIndex))

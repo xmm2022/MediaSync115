@@ -14,6 +14,8 @@ from app.services.pan115_service import Pan115Service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.tmdb_service import tmdb_service
 
+from app.core.timezone_utils import beijing_now
+
 logger = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = {
@@ -145,7 +147,7 @@ class ArchiveService:
                 "runtime": self.get_runtime_status(),
             }
 
-        self._last_scan_started_at = datetime.utcnow()
+        self._last_scan_started_at = beijing_now()
         self._last_scan_finished_at = None
         self._last_scan_trigger = trigger
         self._last_scan_summary = None
@@ -165,7 +167,7 @@ class ArchiveService:
         }
 
     def _handle_background_scan_done(self, task: asyncio.Task) -> None:
-        self._last_scan_finished_at = datetime.utcnow()
+        self._last_scan_finished_at = beijing_now()
         try:
             self._last_scan_summary = task.result()
             self._last_scan_error = ""
@@ -1183,7 +1185,7 @@ class ArchiveService:
             task_id,
             status=ArchiveStatus.SUCCESS,
             error_message=None,
-            completed_at=datetime.utcnow(),
+            completed_at=beijing_now(),
         )
 
     async def _mark_task_failed(self, task_id: int, error_message: str) -> None:
@@ -1191,7 +1193,7 @@ class ArchiveService:
             task_id,
             status=ArchiveStatus.FAILED,
             error_message=str(error_message or "")[:2000],
-            completed_at=datetime.utcnow(),
+            completed_at=beijing_now(),
         )
 
     @staticmethod

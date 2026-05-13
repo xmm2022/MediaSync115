@@ -11,6 +11,8 @@ from app.models.workflow import Workflow
 from app.scheduler import scheduler_manager
 from app.services.workflow_service import WorkflowService
 
+from app.core.timezone_utils import beijing_now
+
 router = APIRouter(prefix="/workflow", tags=["workflow"])
 
 
@@ -104,7 +106,7 @@ async def update_workflow(workflow_id: int, payload: WorkflowUpdatePayload, db: 
             mapped[key] = json.dumps(value or ({} if key in {"event_conditions", "context"} else []), ensure_ascii=False)
         else:
             mapped[key] = value
-    mapped["updated_at"] = datetime.utcnow()
+    mapped["updated_at"] = beijing_now()
 
     workflow = await service.update(workflow, mapped)
 
