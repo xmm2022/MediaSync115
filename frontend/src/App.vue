@@ -489,16 +489,17 @@ html, body, #app {
   }
 
   .logo {
-    min-height: 88px;
+    min-height: 64px;
     height: auto;
     display: flex;
     align-items: center;
-    padding: 20px 18px 18px;
-    gap: 14px;
+    padding: 12px 14px;
+    gap: 11px;
     border-bottom: 1px solid var(--ms-glass-border);
     position: relative;
     cursor: pointer;
     box-sizing: border-box;
+    overflow: hidden;
 
     &:focus-visible {
       outline: 2px solid var(--ms-accent-primary);
@@ -506,8 +507,8 @@ html, body, #app {
     }
 
     .logo-icon {
-      width: 42px;
-      height: 42px;
+      width: 40px;
+      height: 40px;
       flex-shrink: 0;
       display: flex;
       align-items: center;
@@ -519,8 +520,8 @@ html, body, #app {
       box-shadow: 0 10px 24px rgba(12, 62, 148, 0.2);
 
       .brand-mark {
-        width: 28px;
-        height: 28px;
+        width: 26px;
+        height: 26px;
       }
 
       .brand-shell {
@@ -543,29 +544,33 @@ html, body, #app {
       display: flex;
       flex-direction: column;
       justify-content: center;
-      gap: 6px;
+      gap: 3px;
+      flex: 1;
       min-width: 0;
 
       .logo-heading {
         display: flex;
         align-items: center;
-        gap: 10px;
-        line-height: 1.2;
+        gap: 8px;
+        line-height: 1.15;
+        min-width: 0;
       }
 
       .logo-title {
-        font-size: 19px;
+        font-size: 18px;
         font-weight: 800;
-        line-height: 1.2;
+        line-height: 1.15;
         color: var(--ms-text-primary);
-        letter-spacing: -0.5px;
+        letter-spacing: -0.4px;
+        white-space: nowrap;
       }
 
       .logo-badge {
-        font-size: 11px;
+        flex-shrink: 0;
+        font-size: 10px;
         font-weight: 800;
         line-height: 1;
-        padding: 4px 8px;
+        padding: 3px 7px;
         background: rgba(43, 123, 255, 0.1);
         color: var(--ms-accent-primary);
         border: 1px solid rgba(43, 123, 255, 0.18);
@@ -573,13 +578,14 @@ html, body, #app {
       }
 
       .logo-subtitle {
-        font-size: 12px;
+        font-size: 10.5px;
         font-weight: 600;
-        line-height: 1.35;
+        line-height: 1.25;
         color: var(--ms-text-muted);
-        letter-spacing: 0.06em;
+        letter-spacing: 0.02em;
         text-transform: uppercase;
         white-space: nowrap;
+        max-width: 100%;
       }
     }
   }
