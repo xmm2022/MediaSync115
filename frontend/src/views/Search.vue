@@ -534,12 +534,27 @@ const refreshSubscribedKeys = async () => {
   }
 }
 
+const buildNavigationFromPath = () => {
+  const keyword = String(lastSearchKeyword.value || route.query.q || '').trim()
+  if (searched.value && keyword) {
+    const query = { ...route.query, q: keyword }
+    const searchParams = new URLSearchParams()
+    Object.entries(query).forEach(([key, value]) => {
+      if (value == null || value === '') return
+      searchParams.set(key, Array.isArray(value) ? String(value[0]) : String(value))
+    })
+    const qs = searchParams.toString()
+    return qs ? `${route.path}?${qs}` : route.path
+  }
+  return route.fullPath
+}
+
 const goToDetail = (mediaType, tmdbId) => {
   if (!tmdbId) return
   const path = mediaType === 'tv' ? `/tv/${tmdbId}` : `/movie/${tmdbId}`
   router.push({
     path,
-    query: { from: route.fullPath }
+    query: { from: buildNavigationFromPath() }
   })
 }
 
@@ -549,7 +564,7 @@ const goToDoubanDetail = (item) => {
   const mediaType = item?.media_type === 'tv' ? 'tv' : 'movie'
   router.push({
     path: `/douban/${mediaType}/${encodeURIComponent(doubanId)}`,
-    query: { from: route.fullPath }
+    query: { from: buildNavigationFromPath() }
   })
   return true
 }
@@ -1265,17 +1280,19 @@ const clearHomePrefetchTimers = () => {
   homeSectionPrefetchTimers.clear()
 }
 
-const handleBackToExplore = () => {
+const handleBackToExplore = async () => {
   searched.value = false
   results.value = []
   totalPages.value = 0
   currentPage.value = 1
   lastSearchKeyword.value = ''
   activeSearchService.value = ''
-  // 清除 URL 中的搜索参数
-  const url = new URL(window.location.href)
-  url.searchParams.delete('q')
-  window.history.replaceState(window.history.state, '', url.toString())
+  const nextQuery = { ...route.query }
+  delete nextQuery.q
+  await router.replace({
+    path: route.path,
+    query: nextQuery
+  })
 }
 
 const handleSearch = async () => {
@@ -1311,10 +1328,12 @@ const handleSearch = async () => {
     loading.value = false
   }
 
-  // 将搜索关键词写入 URL，使用 history API 避免触发路由重渲染闪烁
-  const url = new URL(window.location.href)
-  url.searchParams.set('q', keyword)
-  window.history.replaceState(window.history.state, '', url.toString())
+  if (String(route.query.q || '') !== keyword) {
+    await router.replace({
+      path: route.path,
+      query: { ...route.query, q: keyword }
+    })
+  }
 }
 
 const handlePageChange = (page) => {
@@ -1328,7 +1347,7 @@ const handleItemClick = (item) => {
   const id = item.id
   if (!id) return
 
-  const query = { from: route.fullPath }
+  const query = { from: buildNavigationFromPath() }
 
   if (type === 'movie') {
     warmupPan115Resources('movie', id)
