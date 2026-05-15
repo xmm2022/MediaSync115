@@ -12,22 +12,12 @@ from sqlalchemy.exc import IntegrityError
 from app.core.database import async_session_maker
 from app.models.models import MediaType, Subscription
 from app.services.douban_explore_service import resolve_douban_explore_item
-from app.services.hdhive_service import hdhive_service
 from app.services.media_postprocess_service import media_postprocess_service
 from app.services.operation_log_service import operation_log_service
 from app.services.pan115_service import pan115_service
-from app.services.pansou_service import pansou_service
 from app.services.runtime_settings_service import runtime_settings_service
-from app.services.tg_service import tg_service
-from app.utils.resource_tags import sort_by_preference
-
 from app.core.timezone_utils import beijing_now
 
-
-_PAN115_SHARE_URL_PATTERN = re.compile(
-    r"(https?://(?:115(?:cdn)?\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|share\.115\.com/[A-Za-z0-9]+(?:[^\s\"'<>]*)?|anxia\.com/s/[A-Za-z0-9]+(?:[^\s\"'<>]*)?))",
-    re.IGNORECASE,
-)
 logger = logging.getLogger(__name__)
 
 
@@ -90,66 +80,6 @@ class ExploreActionQueueService:
         if text_match:
             return text_match.group(1).strip()
 
-        return ""
-
-    @staticmethod
-    def _sort_by_pref(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        pref_res = runtime_settings_service.get_resource_preferred_resolutions()
-        hdr = runtime_settings_service.get_resource_preferred_hdr()
-        codec = runtime_settings_service.get_resource_preferred_codec()
-        pref_formats = (hdr or []) + (codec or [])
-        if pref_res or pref_formats:
-            return sort_by_preference(rows, pref_res or [], pref_formats or [])
-        return rows
-
-    @staticmethod
-    def _extract_share_link(row: Any) -> str:
-        if not isinstance(row, dict):
-            return ""
-        for key in (
-            "share_link",
-            "share_url",
-            "pan115_share_link",
-            "url",
-            "link",
-            "resource_url",
-        ):
-            value = row.get(key)
-            if isinstance(value, str) and value.strip():
-                raw = value.strip()
-                url_match = _PAN115_SHARE_URL_PATTERN.search(raw)
-                if url_match:
-                    return url_match.group(1).strip()
-                if re.fullmatch(r"[A-Za-z0-9]{6,32}(?:-[A-Za-z0-9]{4})?", raw):
-                    return raw
-        return ""
-
-    @staticmethod
-    def _extract_pansou_rows(node: Any, depth: int = 0) -> list[dict[str, Any]]:
-        if depth > 5:
-            return []
-        rows: list[dict[str, Any]] = []
-        if isinstance(node, list):
-            for item in node:
-                if isinstance(item, dict):
-                    rows.append(item)
-                rows.extend(
-                    ExploreActionQueueService._extract_pansou_rows(item, depth + 1)
-                )
-        elif isinstance(node, dict):
-            for value in node.values():
-                rows.extend(
-                    ExploreActionQueueService._extract_pansou_rows(value, depth + 1)
-                )
-        return rows
-
-    @staticmethod
-    def _extract_share_link_from_pansou_payload(payload: Any) -> str:
-        rows = ExploreActionQueueService._extract_pansou_rows(payload)
-        for row in rows:
-            link = ExploreActionQueueService._extract_share_link(row)
-            if link:
-                return link
         return ""
 
     @staticmethod
@@ -839,73 +769,6 @@ class ExploreActionQueueService:
             }
 
     @staticmethod
-    def _resolve_save_source_order() -> list[str]:
-        priority = runtime_settings_service.get_subscription_resource_priority()
-        allowed = {"hdhive", "pansou", "tg"}
-        source_order: list[str] = []
-        seen: set[str] = set()
-        for item in priority:
-            source = str(item or "").strip().lower()
-            if source in allowed and source not in seen:
-                source_order.append(source)
-                seen.add(source)
-
-        tg_ready = bool(
-            runtime_settings_service.get_tg_api_id().strip()
-            and runtime_settings_service.get_tg_api_hash().strip()
-            and runtime_settings_service.get_tg_session().strip()
-            and runtime_settings_service.get_tg_channel_usernames()
-        )
-        if not tg_ready:
-            source_order = [item for item in source_order if item != "tg"]
-        return source_order
-
-    @staticmethod
-    def _build_keyword_candidates(payload: dict[str, Any], tmdb_id: int) -> list[str]:
-        title = str(payload.get("title") or payload.get("name") or "").strip()
-        original_title = str(
-            payload.get("original_title") or payload.get("original_name") or ""
-        ).strip()
-        year = ExploreActionQueueService._normalize_year(payload.get("year"))
-        aliases_payload = payload.get("aliases")
-        aliases: list[str] = []
-        if isinstance(aliases_payload, list):
-            aliases = [
-                str(item or "").strip()
-                for item in aliases_payload
-                if str(item or "").strip()
-            ]
-        elif isinstance(aliases_payload, str) and aliases_payload.strip():
-            aliases = [aliases_payload.strip()]
-
-        candidates: list[str] = []
-        if title and year:
-            candidates.append(f"{title} {year}")
-        if title:
-            candidates.append(title)
-        if original_title and year:
-            candidates.append(f"{original_title} {year}")
-        if original_title:
-            candidates.append(original_title)
-        for alias in aliases:
-            if year:
-                candidates.append(f"{alias} {year}")
-            candidates.append(alias)
-        candidates.append(f"TMDB {tmdb_id}")
-
-        deduped: list[str] = []
-        seen: set[str] = set()
-        for item in candidates:
-            normalized = str(item or "").strip()
-            if not normalized:
-                continue
-            key = normalized.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(normalized)
-        return deduped
-
     @staticmethod
     def _build_attempt_error_summary(attempts: list[dict[str, Any]]) -> str:
         if not attempts:
@@ -927,324 +790,173 @@ class ExploreActionQueueService:
             return "暂未找到可转存资源"
         return f"暂未找到可转存资源（{'; '.join(parts)}）"
 
-    async def _find_pan115_share_link(
-        self,
-        route_info: dict[str, Any],
-        payload: dict[str, Any],
-        source_order: list[str] | None = None,
-    ) -> dict[str, Any]:
-        media_type = route_info["media_type"]
-        tmdb_id = int(route_info["tmdb_id"])
-        source_order = list(source_order or self._resolve_save_source_order())
-        keyword_candidates = self._build_keyword_candidates(payload, tmdb_id)
-        attempts: list[dict[str, Any]] = []
-        expected_title = str(
-            payload.get("title") or payload.get("name") or ""
-        ).strip()
-        expected_original_title = str(
-            payload.get("original_title") or payload.get("original_name") or ""
-        ).strip()
-        expected_year = str(payload.get("year") or "").strip()
-
-        for source in source_order:
-            if source == "hdhive":
-                source_has_result = False
-                if tmdb_id > 0:
-                    try:
-                        if media_type == "tv":
-                            rows = await hdhive_service.get_tv_pan115(tmdb_id)
-                        else:
-                            rows = await hdhive_service.get_movie_pan115(tmdb_id)
-                        rows = rows if isinstance(rows, list) else []
-                        if runtime_settings_service.get_subscription_hdhive_prefer_free():
-                            rows = hdhive_service.sort_free_first(rows)
-                        rows = self._sort_by_pref(rows)
-                        for row in rows:
-                            link = self._extract_share_link(row)
-                            if link:
-                                attempts.append(
-                                    {
-                                        "source": "hdhive",
-                                        "status": "success",
-                                        "via": "tmdb",
-                                        "count": len(rows),
-                                    }
-                                )
-                                return {
-                                    "share_link": link,
-                                    "selected_source": "hdhive",
-                                    "source_order": source_order,
-                                    "attempts": attempts,
-                                }
-                        attempts.append(
-                            {
-                                "source": "hdhive",
-                                "status": "empty",
-                                "via": "tmdb",
-                                "count": len(rows),
-                            }
-                        )
-                    except Exception as exc:
-                        attempts.append(
-                            {
-                                "source": "hdhive",
-                                "status": "failed",
-                                "via": "tmdb",
-                                "error": str(exc)[:300],
-                            }
-                        )
-
-                for keyword in keyword_candidates:
-                    try:
-                        rows = await hdhive_service.get_pan115_by_keyword(
-                            keyword, media_type=media_type
-                        )
-                        rows = rows if isinstance(rows, list) else []
-                        if runtime_settings_service.get_subscription_hdhive_prefer_free():
-                            rows = hdhive_service.sort_free_first(rows)
-                        rows = self._sort_by_pref(rows)
-                        for row in rows:
-                            link = self._extract_share_link(row)
-                            if link:
-                                attempts.append(
-                                    {
-                                        "source": "hdhive",
-                                        "status": "success",
-                                        "via": "keyword",
-                                        "keyword": keyword,
-                                        "count": len(rows),
-                                    }
-                                )
-                                return {
-                                    "share_link": link,
-                                    "selected_source": "hdhive",
-                                    "source_order": source_order,
-                                    "attempts": attempts,
-                                }
-                        attempts.append(
-                            {
-                                "source": "hdhive",
-                                "status": "empty",
-                                "via": "keyword",
-                                "keyword": keyword,
-                                "count": len(rows),
-                            }
-                        )
-                    except Exception as exc:
-                        attempts.append(
-                            {
-                                "source": "hdhive",
-                                "status": "failed",
-                                "via": "keyword",
-                                "keyword": keyword,
-                                "error": str(exc)[:300],
-                            }
-                        )
-                    source_has_result = True
-                if not source_has_result:
-                    attempts.append(
-                        {
-                            "source": "hdhive",
-                            "status": "empty",
-                            "via": "keyword",
-                            "count": 0,
-                        }
-                    )
-                continue
-
-            if source == "pansou":
-                pansou_service.set_base_url(
-                    runtime_settings_service.get_pansou_base_url()
-                )
-                for keyword in keyword_candidates:
-                    try:
-                        pansou_payload = await pansou_service.search_115(
-                            keyword, res="results"
-                        )
-                        link = self._extract_share_link_from_pansou_payload(
-                            pansou_payload
-                        )
-                        if link:
-                            attempts.append(
-                                {
-                                    "source": "pansou",
-                                    "status": "success",
-                                    "via": "keyword",
-                                    "keyword": keyword,
-                                }
-                            )
-                            return {
-                                "share_link": link,
-                                "selected_source": "pansou",
-                                "source_order": source_order,
-                                "attempts": attempts,
-                            }
-                        attempts.append(
-                            {
-                                "source": "pansou",
-                                "status": "empty",
-                                "via": "keyword",
-                                "keyword": keyword,
-                            }
-                        )
-                    except Exception as exc:
-                        attempts.append(
-                            {
-                                "source": "pansou",
-                                "status": "failed",
-                                "via": "keyword",
-                                "keyword": keyword,
-                                "error": str(exc)[:300],
-                            }
-                        )
-                continue
-
-            if source == "tg":
-                for keyword in keyword_candidates:
-                    try:
-                        rows = await tg_service.search_115_by_keyword(
-                            keyword,
-                            media_type=media_type,
-                            expected_title=expected_title,
-                            expected_original_title=expected_original_title,
-                            expected_year=expected_year,
-                        )
-                        rows = rows if isinstance(rows, list) else []
-                        for row in rows:
-                            link = self._extract_share_link(row)
-                            if link:
-                                attempts.append(
-                                    {
-                                        "source": "tg",
-                                        "status": "success",
-                                        "via": "keyword",
-                                        "keyword": keyword,
-                                        "count": len(rows),
-                                    }
-                                )
-                                return {
-                                    "share_link": link,
-                                    "selected_source": "tg",
-                                    "source_order": source_order,
-                                    "attempts": attempts,
-                                }
-                        attempts.append(
-                            {
-                                "source": "tg",
-                                "status": "empty",
-                                "via": "keyword",
-                                "keyword": keyword,
-                                "count": len(rows),
-                            }
-                        )
-                    except Exception as exc:
-                        attempts.append(
-                            {
-                                "source": "tg",
-                                "status": "failed",
-                                "via": "keyword",
-                                "keyword": keyword,
-                                "error": str(exc)[:300],
-                            }
-                        )
-                continue
-
-        return {
-            "share_link": "",
-            "selected_source": "",
-            "source_order": source_order,
-            "attempts": attempts,
-        }
-
     async def _execute_save(self, task: dict[str, Any]) -> dict[str, Any]:
         payload = dict(task.get("payload") or {})
         route_info = await self._resolve_route(payload)
         media_type = route_info["media_type"]
         tmdb_id = int(route_info["tmdb_id"])
-        source_order = self._resolve_save_source_order()
+        douban_id = str(route_info.get("douban_id") or "").strip()
+
+        from app.services.subscription_service import (
+            SubscriptionSnapshot,
+            subscription_service,
+        )
+
+        title = (
+            str(payload.get("title") or payload.get("name") or "").strip()
+            or f"TMDB {tmdb_id}"
+        )
+        year = self._normalize_year(payload.get("year")) or None
+        mt = MediaType.TV if media_type == "tv" else MediaType.MOVIE
+
+        snapshot = SubscriptionSnapshot(
+            id=0,
+            tmdb_id=tmdb_id,
+            douban_id=douban_id,
+            title=title,
+            media_type=mt,
+            year=year,
+            auto_download=False,
+            tv_scope="all",
+            tv_season_number=None,
+            tv_episode_start=None,
+            tv_episode_end=None,
+            tv_follow_mode="missing",
+            tv_include_specials=False,
+            has_successful_transfer=False,
+        )
+
+        primary_resources, _traces, meta = await subscription_service._fetch_resources(
+            channel="all", sub=snapshot
+        )
+
+        source_attempts = list(meta.get("attempts") or [])
+        source_order = list(meta.get("source_order") or [])
+
+        if not primary_resources:
+            raise ValueError(self._build_attempt_error_summary(source_attempts))
+
         folder = runtime_settings_service.get_pan115_default_folder()
         folder_id = str(folder.get("folder_id") or "0").strip() or "0"
-        attempts: list[dict[str, Any]] = []
 
-        for source in source_order:
-            search_result = await self._find_pan115_share_link(
-                route_info, payload, source_order=[source]
-            )
-            attempts.extend(list(search_result.get("attempts") or []))
-            share_link = str(search_result.get("share_link") or "").strip()
-            if not share_link:
-                continue
-
-            receive_code = self._extract_receive_code(share_link)
-            try:
-                from app.utils.resource_tags import build_quality_filter_from_settings
-
-                quality_filter = build_quality_filter_from_settings()
-                result = await pan115_service.save_share_directly(
-                    share_link,
-                    folder_id,
-                    receive_code,
-                    quality_filter,
-                )
-            except Exception as exc:
-                attempts.append(
-                    {
-                        "source": source,
-                        "status": "transfer_failed",
-                        "error": str(exc)[:300],
-                    }
-                )
-                continue
-
-            transfer_success = True
-            if isinstance(result, dict):
-                if "success" in result:
-                    transfer_success = bool(result.get("success"))
-                elif "state" in result:
-                    transfer_success = bool(result.get("state"))
-
-            if not transfer_success:
-                if isinstance(result, dict):
-                    error_text = (
-                        str(result.get("error") or "")
-                        or str(result.get("message") or "")
-                        or str(result.get("error_msg") or "")
+        transfer_attempts: list[dict[str, Any]] = []
+        for resource in primary_resources:
+            share_link = subscription_service._extract_resource_url(resource)
+            if share_link:
+                receive_code = self._extract_receive_code(share_link)
+                try:
+                    from app.utils.resource_tags import (
+                        build_quality_filter_from_settings,
                     )
-                else:
-                    error_text = str(result)
-                attempts.append(
-                    {
-                        "source": source,
-                        "status": "transfer_failed",
-                        "error": (error_text or "转存失败")[:300],
-                    }
+
+                    quality_filter = build_quality_filter_from_settings()
+                    result = await pan115_service.save_share_directly(
+                        share_link,
+                        folder_id,
+                        receive_code,
+                        quality_filter,
+                    )
+                except Exception as exc:
+                    transfer_attempts.append(
+                        {
+                            "source": resource.get("source_service", "unknown"),
+                            "status": "transfer_failed",
+                            "error": str(exc)[:300],
+                        }
+                    )
+                    continue
+
+                transfer_success = True
+                if isinstance(result, dict):
+                    if "success" in result:
+                        transfer_success = bool(result.get("success"))
+                    elif "state" in result:
+                        transfer_success = bool(result.get("state"))
+
+                if not transfer_success:
+                    if isinstance(result, dict):
+                        error_text = (
+                            str(result.get("error") or "")
+                            or str(result.get("message") or "")
+                            or str(result.get("error_msg") or "")
+                        )
+                    else:
+                        error_text = str(result)
+                    transfer_attempts.append(
+                        {
+                            "source": resource.get("source_service", "unknown"),
+                            "status": "transfer_failed",
+                            "error": (error_text or "转存失败")[:300],
+                        }
+                    )
+                    continue
+
+                await media_postprocess_service.trigger_archive_after_transfer(
+                    trigger="explore_transfer"
                 )
-                continue
+                file_count = (
+                    result.get("file_count") if isinstance(result, dict) else None
+                )
+                original_file_count = (
+                    result.get("original_file_count")
+                    if isinstance(result, dict)
+                    else None
+                )
+                return {
+                    "tmdb_id": tmdb_id,
+                    "media_type": media_type,
+                    "share_link": share_link,
+                    "selected_source": resource.get("source_service", "unknown"),
+                    "source_order": source_order,
+                    "attempts": transfer_attempts,
+                    "save_mode": "direct",
+                    "target_parent_id": folder_id,
+                    "file_count": file_count,
+                    "original_file_count": original_file_count,
+                    "message": str(result.get("message") or "已提交转存任务")
+                    if isinstance(result, dict)
+                    else "已提交转存任务",
+                }
 
-            await media_postprocess_service.trigger_archive_after_transfer(
-                trigger="explore_transfer"
-            )
-            file_count = result.get("file_count") if isinstance(result, dict) else None
-            original_file_count = (
-                result.get("original_file_count") if isinstance(result, dict) else None
-            )
-            return {
-                "tmdb_id": tmdb_id,
-                "media_type": media_type,
-                "share_link": share_link,
-                "selected_source": source,
-                "source_order": source_order,
-                "attempts": attempts,
-                "save_mode": "direct",
-                "target_parent_id": folder_id,
-                "file_count": file_count,
-                "original_file_count": original_file_count,
-                "message": str(result.get("message") or "已提交转存任务")
-                if isinstance(result, dict)
-                else "已提交转存任务",
-            }
+            offline_url = subscription_service._extract_offline_url(resource)
+            if offline_url:
+                try:
+                    offline_folder_id = str(
+                        runtime_settings_service.get_pan115_offline_folder()
+                        .get("folder_id", "0")
+                        .strip()
+                        or "0"
+                    )
+                    await pan115_service.offline_task_add(
+                        url=offline_url,
+                        wp_path_id=offline_folder_id,
+                    )
+                    await media_postprocess_service.trigger_archive_after_transfer(
+                        trigger="explore_transfer"
+                    )
+                    return {
+                        "tmdb_id": tmdb_id,
+                        "media_type": media_type,
+                        "share_link": offline_url,
+                        "selected_source": resource.get("source_service", "offline"),
+                        "source_order": source_order,
+                        "attempts": transfer_attempts,
+                        "save_mode": "offline",
+                        "target_parent_id": offline_folder_id,
+                        "message": "已提交离线下载任务",
+                    }
+                except Exception as exc:
+                    transfer_attempts.append(
+                        {
+                            "source": resource.get("source_service", "offline"),
+                            "status": "transfer_failed",
+                            "error": str(exc)[:300],
+                        }
+                    )
+                    continue
 
-        raise ValueError(self._build_attempt_error_summary(attempts))
+        all_attempts = source_attempts + transfer_attempts
+        raise ValueError(self._build_attempt_error_summary(all_attempts))
 
 
 explore_action_queue_service = ExploreActionQueueService()
