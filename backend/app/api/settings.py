@@ -90,12 +90,8 @@ class RuntimeSettingsRequest(BaseModel):
     feiniu_sync_enabled: Optional[bool] = None
     feiniu_sync_interval_hours: Optional[int] = None
     feiniu_sync_interval_minutes: Optional[int] = None
-    subscription_hdhive_enabled: Optional[bool] = None
-    subscription_hdhive_interval_hours: Optional[int] = None
-    subscription_pansou_enabled: Optional[bool] = None
-    subscription_pansou_interval_hours: Optional[int] = None
-    subscription_tg_enabled: Optional[bool] = None
-    subscription_tg_interval_hours: Optional[int] = None
+    subscription_enabled: Optional[bool] = None
+    subscription_interval_hours: Optional[int] = None
     subscription_resource_priority: Optional[list[str]] = None
     subscription_hdhive_auto_unlock_enabled: Optional[bool] = None
     subscription_hdhive_unlock_max_points_per_item: Optional[int] = None
@@ -213,9 +209,6 @@ async def _validate_priority_source_config(merged_settings: dict) -> None:
             if not base_url:
                 errors.append("Pansou 优先级已启用，但缺少服务地址配置")
         elif source == "tg":
-            tg_enabled = bool(merged_settings.get("subscription_tg_enabled", False))
-            if not tg_enabled:
-                continue
             tg_api_id = str(merged_settings.get("tg_api_id") or "").strip()
             tg_api_hash = str(merged_settings.get("tg_api_hash") or "").strip()
             tg_session = str(merged_settings.get("tg_session") or "").strip()

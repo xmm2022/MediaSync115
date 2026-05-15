@@ -115,12 +115,8 @@ class RuntimeSettingsService:
             "auth_username": "admin",
             "auth_password_hash": "",
             "auth_secret": "",
-            "subscription_hdhive_enabled": False,
-            "subscription_hdhive_interval_hours": 24,
-            "subscription_pansou_enabled": False,
-            "subscription_pansou_interval_hours": 24,
-            "subscription_tg_enabled": False,
-            "subscription_tg_interval_hours": 24,
+            "subscription_enabled": False,
+            "subscription_interval_hours": 24,
             "subscription_resource_priority": ["hdhive", "pansou", "tg"],
             "subscription_hdhive_auto_unlock_enabled": False,
             "subscription_hdhive_unlock_max_points_per_item": 10,
@@ -1168,23 +1164,11 @@ class RuntimeSettingsService:
             "feiniu_sync_interval_hours": self.get_feiniu_sync_interval_hours(),
             "feiniu_sync_interval_minutes": self.get_feiniu_sync_interval_minutes(),
             "auth_username": self.get_auth_username(),
-            "subscription_hdhive_enabled": bool(
-                self._data.get("subscription_hdhive_enabled", False)
+            "subscription_enabled": bool(
+                self._data.get("subscription_enabled", False)
             ),
-            "subscription_hdhive_interval_hours": int(
-                self._data.get("subscription_hdhive_interval_hours", 24) or 24
-            ),
-            "subscription_pansou_enabled": bool(
-                self._data.get("subscription_pansou_enabled", False)
-            ),
-            "subscription_pansou_interval_hours": int(
-                self._data.get("subscription_pansou_interval_hours", 24) or 24
-            ),
-            "subscription_tg_enabled": bool(
-                self._data.get("subscription_tg_enabled", False)
-            ),
-            "subscription_tg_interval_hours": int(
-                self._data.get("subscription_tg_interval_hours", 24) or 24
+            "subscription_interval_hours": int(
+                self._data.get("subscription_interval_hours", 24) or 24
             ),
             "subscription_resource_priority": self.get_subscription_resource_priority(),
             "subscription_hdhive_auto_unlock_enabled": self.get_subscription_hdhive_auto_unlock_enabled(),

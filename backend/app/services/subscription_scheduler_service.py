@@ -10,59 +10,50 @@ from app.services.runtime_settings_service import runtime_settings_service
 
 class SubscriptionSchedulerService:
     async def ensure_subscription_tasks(self) -> None:
+        """确保统一的订阅定时任务存在。"""
         settings_data = runtime_settings_service.get_all()
-        channels = (
-            ("hdhive", "HDHive 订阅检查"),
-            ("pansou", "Pansou 订阅检查"),
-            ("tg", "Telegram 订阅检查"),
+        enabled = bool(settings_data.get("subscription_enabled", False))
+        interval_hours = max(
+            1,
+            int(settings_data.get("subscription_interval_hours", 24) or 24),
         )
+        interval_seconds = interval_hours * 3600
+        job_key = "subscription.check"
 
         async with async_session_maker() as db:
-            for channel, display_name in channels:
-                enabled = bool(
-                    settings_data.get(f"subscription_{channel}_enabled", False)
+            result = await db.execute(
+                select(SchedulerTask)
+                .where(SchedulerTask.job_key == job_key)
+                .limit(1)
+            )
+            task = result.scalar_one_or_none()
+            if not task:
+                task = SchedulerTask(
+                    name="订阅检查",
+                    job_key=job_key,
+                    trigger_type="interval",
+                    cron_expr=None,
+                    interval_seconds=interval_seconds,
+                    kwargs_json=json.dumps({}, ensure_ascii=False),
+                    enabled=enabled,
+                    state="W" if enabled else "P",
                 )
-                interval_hours = max(
-                    1,
-                    int(
-                        settings_data.get(f"subscription_{channel}_interval_hours", 24)
-                        or 24
-                    ),
-                )
-                interval_seconds = interval_hours * 3600
-                job_key = f"subscription.check_{channel}"
-
-                result = await db.execute(
-                    select(SchedulerTask)
-                    .where(SchedulerTask.job_key == job_key)
-                    .limit(1)
-                )
-                task = result.scalar_one_or_none()
-                if not task:
-                    task = SchedulerTask(
-                        name=display_name,
-                        job_key=job_key,
-                        trigger_type="interval",
-                        cron_expr=None,
-                        interval_seconds=interval_seconds,
-                        kwargs_json=json.dumps({}, ensure_ascii=False),
-                        enabled=enabled,
-                        state="W" if enabled else "P",
-                    )
-                    db.add(task)
-                    await db.flush()
-                else:
-                    task.name = display_name
-                    task.trigger_type = "interval"
-                    task.cron_expr = None
-                    task.interval_seconds = interval_seconds
-                    task.enabled = enabled
-                    task.state = "W" if enabled else "P"
-
+                db.add(task)
                 await db.flush()
-                await scheduler_manager.update_dynamic_job(task)
-                if not enabled:
-                    await scheduler_manager.remove_dynamic_job(task.id)
+            else:
+                task.name = "订阅检查"
+                task.trigger_type = "interval"
+                task.cron_expr = None
+                task.interval_seconds = interval_seconds
+                task.enabled = enabled
+                task.state = "W" if enabled else "P"
+
+            await db.flush()
+            await scheduler_manager.update_dynamic_job(task)
+            if enabled:
+                await scheduler_manager.start(job_id=f"dynamic:{task.id}")
+            else:
+                await scheduler_manager.remove_dynamic_job(task.id)
 
             await db.commit()
 
@@ -107,7 +98,9 @@ class SubscriptionSchedulerService:
 
             await db.flush()
             await scheduler_manager.update_dynamic_job(task)
-            if not enabled:
+            if enabled:
+                await scheduler_manager.start(job_id=f"dynamic:{task.id}")
+            else:
                 await scheduler_manager.remove_dynamic_job(task.id)
 
             await db.commit()

@@ -1115,55 +1115,32 @@
               </el-text>
             </el-form-item>
 
-            <el-divider content-position="left">HDHive 渠道</el-divider>
+            <el-divider content-position="left">订阅定时任务</el-divider>
             <el-form-item label="启用任务">
-              <el-switch v-model="schedulerForm.hdhive.enabled" />
+              <el-switch v-model="schedulerForm.enabled" />
+              <el-text size="small" type="info" style="margin-left: 8px">
+                启用后按间隔自动搜索所有活跃订阅的资源（按优先级依次查找 HDHive / Pansou / Telegram）
+              </el-text>
             </el-form-item>
             <el-form-item label="检查间隔(小时)">
               <el-input-number
-                v-model="schedulerForm.hdhive.intervalHours"
+                v-model="schedulerForm.intervalHours"
                 :min="1"
-                :max="24"
-                :disabled="!schedulerForm.hdhive.enabled"
+                :max="72"
+                :disabled="!schedulerForm.enabled"
               />
-            </el-form-item>
-
-            <el-divider content-position="left">Pansou 渠道</el-divider>
-            <el-form-item label="启用任务">
-              <el-switch v-model="schedulerForm.pansou.enabled" />
-            </el-form-item>
-            <el-form-item label="检查间隔(小时)">
-              <el-input-number
-                v-model="schedulerForm.pansou.intervalHours"
-                :min="1"
-                :max="24"
-                :disabled="!schedulerForm.pansou.enabled"
-              />
-            </el-form-item>
-
-            <el-divider content-position="left">Telegram 渠道</el-divider>
-            <el-form-item label="启用任务">
-              <el-switch v-model="schedulerForm.tg.enabled" />
-            </el-form-item>
-            <el-form-item label="检查间隔(小时)">
-              <el-input-number
-                v-model="schedulerForm.tg.intervalHours"
-                :min="1"
-                :max="24"
-                :disabled="!schedulerForm.tg.enabled"
-              />
+              <el-text size="small" type="info" style="margin-left: 8px">
+                从保存时刻开始，每隔 N 小时执行一次
+              </el-text>
             </el-form-item>
 
             <el-form-item>
               <el-button type="primary" :loading="savingScheduler" @click="handleSaveScheduler">保存</el-button>
-              <el-button type="success" :loading="runningAllChannels" :disabled="runningSubscriptionChannel !== ''" @click="handleRunAllChannels">立即执行全部渠道</el-button>
-              <el-button :loading="runningHdhive" :disabled="runningSubscriptionChannel !== '' || runningAllChannels" @click="handleRunSubscriptionChannel('hdhive')">立即执行 HDHive</el-button>
-              <el-button :loading="runningPansou" :disabled="runningSubscriptionChannel !== '' || runningAllChannels" @click="handleRunSubscriptionChannel('pansou')">立即执行 Pansou</el-button>
-              <el-button :loading="runningTg" :disabled="runningSubscriptionChannel !== '' || runningAllChannels" @click="handleRunSubscriptionChannel('tg')">立即执行 Telegram</el-button>
+              <el-button type="success" :loading="runningAllChannels" :disabled="runningSubscriptionChannel !== ''" @click="handleRunAllChannels">立即执行</el-button>
             </el-form-item>
             <el-form-item v-if="runningSubscriptionChannel || runningAllChannels">
               <el-alert
-                :title="runningTaskMessage || (runningAllChannels ? '正在执行全部渠道任务' : `正在执行 ${runningSubscriptionChannel} 任务`)"
+                :title="runningTaskMessage || '正在执行订阅任务'"
                 type="info"
                 :closable="false"
                 show-icon
@@ -1779,18 +1756,8 @@ const tmdbForm = ref({
 
 const schedulerForm = ref({
   offlineTransferEnabled: false,
-  hdhive: {
-    enabled: false,
-    intervalHours: 24
-  },
-  pansou: {
-    enabled: false,
-    intervalHours: 24
-  },
-  tg: {
-    enabled: false,
-    intervalHours: 24
-  },
+  enabled: false,
+  intervalHours: 24,
   hdhiveUnlock: {
     enabled: false,
     maxPointsPerItem: 10,
@@ -1987,9 +1954,6 @@ const rebuildingTgIndex = ref(false)
 const savingTmdb = ref(false)
 const savingScheduler = ref(false)
 const savingResourcePriority = ref(false)
-const runningHdhive = ref(false)
-const runningPansou = ref(false)
-const runningTg = ref(false)
 const runningAllChannels = ref(false)
 const runningSubscriptionChannel = ref('')
 const runningTaskId = ref('')
@@ -3898,13 +3862,8 @@ const fetchRuntimeSettings = async () => {
     }
 
     schedulerForm.value.offlineTransferEnabled = !!data.subscription_offline_transfer_enabled
-    schedulerForm.value.hdhive.enabled = !!data.subscription_hdhive_enabled
-    schedulerForm.value.hdhive.intervalHours = Number(data.subscription_hdhive_interval_hours || 24)
-
-    schedulerForm.value.pansou.enabled = !!data.subscription_pansou_enabled
-    schedulerForm.value.pansou.intervalHours = Number(data.subscription_pansou_interval_hours || 24)
-    schedulerForm.value.tg.enabled = !!data.subscription_tg_enabled
-    schedulerForm.value.tg.intervalHours = Number(data.subscription_tg_interval_hours || 24)
+    schedulerForm.value.enabled = !!data.subscription_enabled
+    schedulerForm.value.intervalHours = Number(data.subscription_interval_hours || 24)
     schedulerForm.value.hdhiveUnlock.enabled = !!data.subscription_hdhive_auto_unlock_enabled
     schedulerForm.value.hdhiveUnlock.maxPointsPerItem = Number(data.subscription_hdhive_unlock_max_points_per_item || 10)
     schedulerForm.value.hdhiveUnlock.budgetPointsPerRun = Number(data.subscription_hdhive_unlock_budget_points_per_run || 30)
@@ -4066,12 +4025,8 @@ const handleSaveScheduler = async () => {
     const normalizedPriority = normalizeResourcePriority(resourcePriority.value)
     await settingsApi.updateRuntime({
       subscription_offline_transfer_enabled: schedulerForm.value.offlineTransferEnabled,
-      subscription_hdhive_enabled: schedulerForm.value.hdhive.enabled,
-      subscription_hdhive_interval_hours: Number(schedulerForm.value.hdhive.intervalHours || 24),
-      subscription_pansou_enabled: schedulerForm.value.pansou.enabled,
-      subscription_pansou_interval_hours: Number(schedulerForm.value.pansou.intervalHours || 24),
-      subscription_tg_enabled: schedulerForm.value.tg.enabled,
-      subscription_tg_interval_hours: Number(schedulerForm.value.tg.intervalHours || 24),
+      subscription_enabled: schedulerForm.value.enabled,
+      subscription_interval_hours: Number(schedulerForm.value.intervalHours || 24),
       subscription_resource_priority: normalizedPriority,
       subscription_hdhive_auto_unlock_enabled: schedulerForm.value.hdhiveUnlock.enabled,
       subscription_hdhive_unlock_max_points_per_item: Number(schedulerForm.value.hdhiveUnlock.maxPointsPerItem || 10),
@@ -4133,45 +4088,6 @@ const pollSubscriptionTask = async (taskId) => {
     await wait(2000)
   }
   return { ok: false, status: 'timeout', task: { error: '任务执行超时，请稍后查看日志' } }
-}
-
-const handleRunSubscriptionChannel = async (channel) => {
-  if (runningSubscriptionChannel.value) return
-  runningSubscriptionChannel.value = channel
-  runningTaskMessage.value = '任务已提交，等待执行...'
-  const loadingRef = channel === 'hdhive'
-    ? runningHdhive
-    : channel === 'pansou'
-      ? runningPansou
-      : runningTg
-  loadingRef.value = true
-  try {
-    const { data } = await subscriptionApi.runChannelCheckBackground(channel, true)
-    if (data?.already_running) {
-      ElMessage.info(`${channel} 已有任务在执行，正在跟踪当前任务进度`)
-    }
-    runningTaskId.value = data?.task_id || ''
-    const taskResult = await pollSubscriptionTask(runningTaskId.value)
-    if (taskResult.ok) {
-      const message = taskResult.task?.result?.message || taskResult.task?.message || `${channel} 执行完成`
-      if (taskResult.status === 'partial') {
-        ElMessage.warning(message)
-      } else {
-        ElMessage.success(message)
-      }
-    } else {
-      const errorMessage = taskResult.task?.error || taskResult.task?.message || `${channel} 执行失败`
-      ElMessage.error(errorMessage)
-    }
-    await fetchSubscriptionLogs()
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || `${channel} 执行失败`)
-  } finally {
-    loadingRef.value = false
-    runningSubscriptionChannel.value = ''
-    runningTaskId.value = ''
-    runningTaskMessage.value = ''
-  }
 }
 
 const handleRunAllChannels = async () => {
