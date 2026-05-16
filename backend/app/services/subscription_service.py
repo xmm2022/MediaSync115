@@ -114,6 +114,7 @@ class SubscriptionService:
         subs_result = await db.execute(
             select(
                 Subscription.id,
+                Subscription.douban_id,
                 Subscription.tmdb_id,
                 Subscription.title,
                 Subscription.media_type,

@@ -166,16 +166,20 @@ async def lifespan(app: FastAPI):
     kafka_producer.init(settings.KAFKA_BOOTSTRAP_SERVERS)
 
     await scheduler_manager.init()
-    await subscription_scheduler_service.ensure_subscription_tasks()
-    await subscription_scheduler_service.ensure_chart_subscription_task()
+    global _app_ready
+    _app_ready = True
+    await subscription_scheduler_service.ensure_subscription_tasks(
+        run_immediately=False,
+    )
+    await subscription_scheduler_service.ensure_chart_subscription_task(
+        run_immediately=False,
+    )
     await subscription_scheduler_service.ensure_tg_index_incremental_task()
     await hdhive_checkin_scheduler_service.ensure_checkin_task()
     await emby_sync_scheduler_service.ensure_sync_task()
     await feiniu_sync_scheduler_service.ensure_sync_task()
     await archive_scheduler_service.ensure_scan_task()
     await tg_bot_service.start()
-    global _app_ready
-    _app_ready = True
     yield
     await tg_bot_service.stop()
     await scheduler_manager.stop()

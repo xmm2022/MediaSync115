@@ -9,7 +9,7 @@ from app.services.runtime_settings_service import runtime_settings_service
 
 
 class SubscriptionSchedulerService:
-    async def ensure_subscription_tasks(self) -> None:
+    async def ensure_subscription_tasks(self, *, run_immediately: bool = True) -> None:
         """确保统一的订阅定时任务存在。"""
         settings_data = runtime_settings_service.get_all()
         enabled = bool(settings_data.get("subscription_enabled", False))
@@ -55,12 +55,12 @@ class SubscriptionSchedulerService:
 
             await db.commit()
 
-            if should_start:
+            if should_start and run_immediately:
                 await scheduler_manager.start(job_id=f"dynamic:{task.id}")
             elif should_remove:
                 await scheduler_manager.remove_dynamic_job(task.id)
 
-    async def ensure_chart_subscription_task(self) -> None:
+    async def ensure_chart_subscription_task(self, *, run_immediately: bool = True) -> None:
         """确保榜单订阅定时任务存在。"""
         settings_data = runtime_settings_service.get_all()
         enabled = bool(settings_data.get("chart_subscription_enabled", False))
@@ -106,7 +106,7 @@ class SubscriptionSchedulerService:
 
             await db.commit()
 
-            if should_start:
+            if should_start and run_immediately:
                 await scheduler_manager.start(job_id=f"dynamic:{task.id}")
             elif should_remove:
                 await scheduler_manager.remove_dynamic_job(task.id)
