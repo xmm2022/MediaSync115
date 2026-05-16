@@ -1405,6 +1405,66 @@ def _normalize_douban_items(
     return items, backfill_candidates
 
 
+def library_status_sync_prime_limit(limit: int) -> int:
+    """同步解析 TMDB ID 的上限，供 Emby/飞牛媒体库角标查询使用。"""
+    return min(max(int(limit), 0), TMDB_SYNC_PRIME_MAX_ITEMS_PER_SECTION)
+
+
+def _build_backfill_candidates_from_items(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("tmdb_id"):
+            continue
+        title = item.get("title")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        media_type = item.get("media_type")
+        if media_type not in {"movie", "tv"}:
+            continue
+        douban_id = str(item.get("douban_id") or item.get("id") or "").strip()
+        year = item.get("year") if isinstance(item.get("year"), str) else None
+        cache_key = _build_tmdb_cache_key(
+            title=title.strip(), year=year, media_type=media_type
+        )
+        if cache_key in seen:
+            continue
+        seen.add(cache_key)
+        candidates.append(
+            {
+                "douban_id": douban_id,
+                "cache_key": cache_key,
+                "title": title.strip(),
+                "media_type": media_type,
+                "year": year,
+            }
+        )
+    return candidates
+
+
+async def prepare_douban_items_for_library_status(
+    items: list[dict[str, Any]],
+    limit: int | None = None,
+) -> None:
+    """从缓存回填并在上限内同步解析 TMDB ID，便于构建媒体库角标状态。"""
+    if not items:
+        return
+    _hydrate_tmdb_ids_from_cache(items)
+    effective_limit = (
+        library_status_sync_prime_limit(limit)
+        if limit is not None
+        else TMDB_SYNC_PRIME_MAX_ITEMS_PER_SECTION
+    )
+    if effective_limit <= 0:
+        return
+    candidates = _build_backfill_candidates_from_items(items)
+    await _prime_tmdb_ids_for_home_screen(items, candidates, effective_limit)
+
+
 def _hydrate_tmdb_ids_from_cache(items: list[dict[str, Any]]) -> None:
     for item in items:
         if item.get("tmdb_id") is not None:

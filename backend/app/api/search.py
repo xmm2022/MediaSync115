@@ -18,6 +18,8 @@ from app.services.douban_explore_service import (
     DOUBAN_SECTION_SOURCES,
     fetch_douban_subject_detail,
     fetch_douban_section,
+    library_status_sync_prime_limit,
+    prepare_douban_items_for_library_status,
     resolve_douban_explore_item,
 )
 from app.services.explore_action_queue_service import explore_action_queue_service
@@ -442,6 +444,17 @@ async def _resolve_feiniu_status_payload(
         "status": status_text or "cache_unavailable",
         "matched_type": "movie" if exists_in_feiniu else "",
     }
+
+
+async def _build_douban_library_status_maps(
+    items: list[dict[str, Any]],
+    prime_limit: int | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    await prepare_douban_items_for_library_status(items, prime_limit)
+    return (
+        await _build_emby_status_map(items),
+        await _build_feiniu_status_map(items),
+    )
 
 
 async def _build_feiniu_status_map(
@@ -1726,10 +1739,18 @@ async def get_explore_section(
             if isinstance(cached_section.get("items"), list)
             else []
         )
+        if normalized_source == "douban":
+            emby_status_map, feiniu_status_map = await _build_douban_library_status_maps(
+                cached_items,
+                library_status_sync_prime_limit(len(cached_items)),
+            )
+        else:
+            emby_status_map = await _build_emby_status_map(cached_items)
+            feiniu_status_map = await _build_feiniu_status_map(cached_items)
         return {
             **home_cached,
-            "emby_status_map": await _build_emby_status_map(cached_items),
-            "feiniu_status_map": await _build_feiniu_status_map(cached_items),
+            "emby_status_map": emby_status_map,
+            "feiniu_status_map": feiniu_status_map,
             "cache_hit": True,
             "cache_source": "home_warmup",
         }
@@ -1780,14 +1801,15 @@ async def get_explore_section(
             status_code=404, detail=f"Unknown section key: {section_key}"
         )
 
+    library_prime_limit = library_status_sync_prime_limit(limit)
     try:
-        # 首屏先返回豆瓣列表，TMDB 匹配交给后台异步回填，避免外网抖动拖慢整页。
+        # 首屏同步解析有限条 TMDB ID，用于媒体库角标；其余条目仍异步回填。
         payload = await fetch_douban_section(
             section,
             limit,
             refresh,
             start=start,
-            sync_prime_limit=0,
+            sync_prime_limit=library_prime_limit,
             async_backfill_limit=limit,
         )
     except Exception as exc:
@@ -1835,13 +1857,14 @@ async def get_explore_douban_section(
             status_code=404, detail=f"Unknown section key: {section_key}"
         )
 
+    library_prime_limit = library_status_sync_prime_limit(limit)
     try:
         payload = await fetch_douban_section(
             source,
             limit,
             refresh,
             start=start,
-            sync_prime_limit=0,
+            sync_prime_limit=library_prime_limit,
             async_backfill_limit=limit,
         )
     except Exception as exc:
