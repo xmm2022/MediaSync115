@@ -44,11 +44,26 @@ ENV APP_BUILD_TAG=${APP_BUILD_TAG}
 ENV APP_BUILD_GIT_SHA=${APP_BUILD_GIT_SHA}
 ENV APP_BUILD_TIME=${APP_BUILD_TIME}
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates curl nginx tzdata \
-    && ln -snf "/usr/share/zoneinfo/${TZ}" /etc/localtime \
-    && echo "${TZ}" > /etc/timezone \
-    && rm -rf /var/lib/apt/lists/*
+# 使用国内镜像并带重试，避免 buildx 拉取 deb.debian.org 偶发 502
+RUN set -eux; \
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+      if [ -f "$f" ]; then \
+        sed -i \
+          -e 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' \
+          -e 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' \
+          "$f"; \
+      fi; \
+    done; \
+    for attempt in 1 2 3; do \
+      apt-get update \
+      && apt-get install -y --no-install-recommends bash ca-certificates curl nginx tzdata \
+      && break; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+      sleep $((attempt * 5)); \
+    done; \
+    ln -snf "/usr/share/zoneinfo/${TZ}" /etc/localtime; \
+    echo "${TZ}" > /etc/timezone; \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /install /usr/local
 COPY backend/ /app/
