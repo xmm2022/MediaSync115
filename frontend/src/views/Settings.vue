@@ -73,7 +73,7 @@
               <div class="pan115-qr-login">
                 <div class="pan115-qr-device">
                   <el-text size="small" type="info">登录设备</el-text>
-                  <el-select v-model="pan115QrApp" size="small" style="width: 180px">
+                  <el-select v-model="pan115QrApp" size="small" style="width: 220px">
                     <el-option
                       v-for="option in pan115QrAppOptions"
                       :key="option.value"
@@ -81,6 +81,7 @@
                       :value="option.value"
                     />
                   </el-select>
+                  <el-text v-if="pan115QrAppHint" size="small" type="info">{{ pan115QrAppHint }}</el-text>
                 </div>
                 <div class="pan115-qr-preview" v-if="pan115QrState.qrUrl">
                   <img :src="pan115QrState.qrUrl" alt="115 Login QR" />
@@ -103,7 +104,7 @@
               </div>
               <div class="cookie-tips">
                 <el-text size="small" type="info">
-                  请使用 115 官方客户端扫码并确认登录，成功后会自动更新系统 Cookie。
+                  优先使用支付宝/微信小程序扫码；选择手机客户端时请用对应 115 App 扫码。登录成功后会自动更新系统 Cookie。
                 </el-text>
               </div>
             </el-form-item>
@@ -2046,30 +2047,37 @@ const pan115QrState = reactive({
   active: false
 })
 const pan115QrApp = ref('alipaymini')
-const pan115QrAppOptions = [
-  { label: '支付宝小程序（推荐）', value: 'alipaymini' },
-  { label: '网页端', value: 'web' },
-  { label: '115浏览器', value: 'desktop' },
-  { label: 'iOS未知(bios)', value: 'bios' },
-  { label: '安卓未知(bandroid)', value: 'bandroid' },
-  { label: '安卓端', value: 'android' },
-  { label: '115安卓端', value: '115android' },
-  { label: 'iOS端', value: 'ios' },
-  { label: '115 iOS端', value: '115ios' },
-  { label: 'iPad未知(bipad)', value: 'bipad' },
-  { label: 'iPad端', value: 'ipad' },
-  { label: '115 iPad端', value: '115ipad' },
-  { label: '安卓电视端', value: 'tv' },
-  { label: '苹果电视端', value: 'apple_tv' },
-  { label: '115管理安卓端(qandriod)', value: 'qandriod' },
-  { label: '115管理iOS端(qios)', value: 'qios' },
-  { label: '115管理iPad端(qipad)', value: 'qipad' },
-  { label: '微信小程序', value: 'wechatmini' },
-  { label: '鸿蒙端', value: 'harmony' },
-  { label: 'Windows端', value: 'os_windows' },
-  { label: 'macOS端', value: 'os_mac' },
-  { label: 'Linux端', value: 'os_linux' }
-]
+const pan115QrAppOptions = ref([])
+const pan115QrAppHint = computed(() => {
+  const current = pan115QrAppOptions.value.find((item) => item.value === pan115QrApp.value)
+  return current?.hint || ''
+})
+
+const loadPan115QrApps = async () => {
+  try {
+    const { data } = await pan115Api.listQrLoginApps()
+    const items = Array.isArray(data?.items) ? data.items : []
+    pan115QrAppOptions.value = items
+    const allowed = new Set(items.map((item) => item.value))
+    if (!allowed.has(pan115QrApp.value)) {
+      const recommended = items.find((item) => item.recommended)
+      pan115QrApp.value = recommended?.value || 'alipaymini'
+    }
+  } catch {
+    pan115QrAppOptions.value = [
+      {
+        value: 'alipaymini',
+        label: '支付宝小程序（推荐）',
+        hint: '推荐：用支付宝扫二维码，不影响手机 115 App 已登录会话'
+      },
+      {
+        value: 'wechatmini',
+        label: '微信小程序（推荐）',
+        hint: '推荐：用微信扫二维码，不影响手机 115 App 已登录会话'
+      }
+    ]
+  }
+}
 
 const connectionResult = reactive({
   checked: false,
@@ -4408,6 +4416,7 @@ onMounted(() => {
   })
   fetchCookieInfo()
   checkCookie()
+  loadPan115QrApps()
   fetchDefaultFolder()
   fetchOfflineDefaultFolder()
   fetchPansouConfig()

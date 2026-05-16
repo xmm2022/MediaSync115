@@ -397,6 +397,7 @@ export const pan115Api = {
   checkCookie: () => api.get('/pan115/cookie/check'),
   updateCookie: (cookie) => api.post('/pan115/cookie/update', { cookie }),
   getCookieInfo: () => api.get('/pan115/cookie'),
+  listQrLoginApps: () => api.get('/pan115/login/qr/apps'),
   startQrLogin: (app = 'alipaymini') => api.post('/pan115/login/qr/start', { app }),
   checkQrLogin: (token) => api.post('/pan115/login/qr/status', { token }),
   cancelQrLogin: (token) => api.post('/pan115/login/qr/cancel', { token }),

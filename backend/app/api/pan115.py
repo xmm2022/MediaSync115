@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from app.services.media_postprocess_service import media_postprocess_service
 from app.services.operation_log_service import operation_log_service
+from app.constants.pan115_qr_login import list_pan115_qr_login_app_options
 from app.services.pan115_service import Pan115Service, pan115_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.sync_service import sync_service
@@ -330,6 +331,12 @@ async def get_current_cookie():
             masked = "*****"
         return {"masked_cookie": masked, "configured": True}
     return {"masked_cookie": "", "configured": False}
+
+
+@router.get("/login/qr/apps")
+async def list_qr_login_apps():
+    """返回扫码登录可选设备列表。"""
+    return {"items": list_pan115_qr_login_app_options()}
 
 
 @router.post("/login/qr/start")

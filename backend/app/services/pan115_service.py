@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Set
 from uuid import uuid4
 
+from app.constants.pan115_qr_login import normalize_pan115_qr_login_app
 from app.core.config import settings
 
 from app.core.timezone_utils import beijing_now
@@ -239,30 +240,6 @@ class Pan115Service:
     _QR_LOGIN_EXPIRE_SECONDS = 180
     _QR_LOGIN_PENDING: dict[str, dict[str, Any]] = {}
     _QR_LOGIN_LOCK = asyncio.Lock()
-    _QR_LOGIN_ALLOWED_APPS = {
-        "web",
-        "desktop",
-        "bios",
-        "ios",
-        "115ios",
-        "bandroid",
-        "android",
-        "115android",
-        "bipad",
-        "ipad",
-        "115ipad",
-        "tv",
-        "apple_tv",
-        "qandriod",
-        "qios",
-        "qipad",
-        "wechatmini",
-        "alipaymini",
-        "harmony",
-        "os_windows",
-        "os_mac",
-        "os_linux",
-    }
 
     def __init__(self, cookie: Optional[str] = None):
         """
@@ -1359,9 +1336,7 @@ class Pan115Service:
         启动115扫码登录，返回二维码链接和会话token。
         """
         await self._clear_expired_qr_sessions()
-        normalized_app = str(app or "alipaymini").strip() or "alipaymini"
-        if normalized_app not in self._QR_LOGIN_ALLOWED_APPS:
-            normalized_app = "alipaymini"
+        normalized_app = normalize_pan115_qr_login_app(app)
 
         raw_token = await asyncio.wait_for(
             _get_p115_client_cls().login_qrcode_token(async_=True, timeout=8),
