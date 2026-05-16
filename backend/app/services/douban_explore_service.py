@@ -27,6 +27,8 @@ TMDB_ID_NEGATIVE_CACHE_TTL_SECONDS = 60 * 10
 TMDB_BACKFILL_CONCURRENCY = 6
 TMDB_BACKFILL_MAX_ITEMS_PER_SECTION = 12
 TMDB_SYNC_PRIME_MAX_ITEMS_PER_SECTION = 12
+# 与库角标相关的 TMDB 同步解析条数上限（须覆盖 /explore/section 的 limit，默认 30、最大 50）
+DOUBAN_LIBRARY_BADGE_TMDB_SYNC_CAP = 50
 DOUBAN_SECTION_MAX_COUNT = 50
 WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
 WIKIDATA_CACHE_TTL_SECONDS = 60 * 60 * 24
@@ -1407,7 +1409,7 @@ def _normalize_douban_items(
 
 def library_status_sync_prime_limit(limit: int) -> int:
     """同步解析 TMDB ID 的上限，供 Emby/飞牛媒体库角标查询使用。"""
-    return min(max(int(limit), 0), TMDB_SYNC_PRIME_MAX_ITEMS_PER_SECTION)
+    return min(max(int(limit), 0), DOUBAN_LIBRARY_BADGE_TMDB_SYNC_CAP)
 
 
 def _build_backfill_candidates_from_items(

@@ -1,7 +1,7 @@
 """豆瓣探索媒体库角标辅助函数测试"""
 
 from app.services.douban_explore_service import (
-    TMDB_SYNC_PRIME_MAX_ITEMS_PER_SECTION,
+    DOUBAN_LIBRARY_BADGE_TMDB_SYNC_CAP,
     _build_backfill_candidates_from_items,
     library_status_sync_prime_limit,
 )
@@ -14,8 +14,7 @@ class TestDoubanLibraryStatusHelpers:
         assert library_status_sync_prime_limit(0) == 0
         assert library_status_sync_prime_limit(5) == 5
         assert (
-            library_status_sync_prime_limit(100)
-            == TMDB_SYNC_PRIME_MAX_ITEMS_PER_SECTION
+            library_status_sync_prime_limit(100) == DOUBAN_LIBRARY_BADGE_TMDB_SYNC_CAP
         )
 
     def test_build_backfill_candidates_skips_resolved_items(self) -> None:
