@@ -172,7 +172,7 @@
           <div v-if="cookieStatus.valid" class="default-folder-section">
             <el-divider />
             <h4>转存设置</h4>
-            <el-form :model="defaultFolderForm" label-width="120px">
+            <el-form :model="defaultFolderForm" label-width="120px" @submit.prevent>
               <el-form-item label="默认保存位置">
                 <div class="folder-selector">
                   <div class="folder-tag-row">
@@ -184,7 +184,7 @@
                   <el-button @click="openSettingsFolderPicker('default')">
                     选择目录
                   </el-button>
-                  <el-button type="primary" @click="handleSaveDefaultFolder" :loading="savingFolder">
+                  <el-button type="primary" native-type="button" @click="handleSaveDefaultFolder" :loading="savingFolder">
                     保存设置
                   </el-button>
                 </div>
@@ -195,7 +195,7 @@
           <div v-if="cookieStatus.valid" class="offline-folder-section">
             <el-divider />
             <h4>离线下载设置</h4>
-            <el-form label-width="120px">
+            <el-form label-width="120px" @submit.prevent>
               <el-form-item label="默认离线目录">
                 <div class="folder-selector">
                   <div class="folder-tag-row">
@@ -207,7 +207,7 @@
                   <el-button @click="openSettingsFolderPicker('offline')">
                     选择目录
                   </el-button>
-                  <el-button type="primary" :loading="savingOfflineFolder" @click="handleSaveOfflineDefaultFolder">
+                  <el-button type="primary" native-type="button" :loading="savingOfflineFolder" @click="handleSaveOfflineDefaultFolder">
                     保存设置
                   </el-button>
                 </div>
@@ -1268,7 +1268,7 @@
             自定义影视详情页中显示的资源标签页，取消勾选后对应标签页将在所有详情页中隐藏。
           </el-alert>
 
-          <el-form label-width="120px">
+          <el-form label-width="120px" @submit.prevent>
             <el-divider content-position="left">主标签页顺序</el-divider>
             <el-form-item label="顺序调整">
               <div class="subtab-order-list">
@@ -1345,8 +1345,10 @@
             </el-form-item>
 
             <el-form-item>
-              <el-button type="primary" @click="handleSaveDetailTabs">保存设置</el-button>
-              <el-button @click="handleResetDetailTabs">恢复默认</el-button>
+              <el-button type="primary" native-type="button" :loading="savingDetailTabs" @click="handleSaveDetailTabs">
+                保存设置
+              </el-button>
+              <el-button native-type="button" :loading="savingDetailTabs" @click="handleResetDetailTabs">恢复默认</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -1896,6 +1898,7 @@ const tgBotNewChatId = ref('')
 const tgBotStatus = ref({ checked: false, running: false })
 const savingTgBot = ref(false)
 const restartingTgBot = ref(false)
+const savingDetailTabs = ref(false)
 
 // ── 榜单订阅 ──
 const chartSubForm = reactive({
@@ -1972,7 +1975,7 @@ const savingUpdateSettings = ref(false)
 const checkingUpdates = ref(false)
 
 const appInfo = ref({
-  currentVersion: '1.1.25',
+  currentVersion: '1.1.26',
   currentImageTag: '',
   currentGitSha: '',
   currentBuildTime: '',
@@ -3773,8 +3776,13 @@ const handleCheckTgBotStatus = async () => {
 
 // Detail tabs visibility handlers
 const handleSaveDetailTabs = async () => {
+  const order =
+    detailTabsForm.main_order?.length > 0
+      ? [...detailTabsForm.main_order]
+      : ['pan115', 'magnet']
+
   const keys = []
-  for (const mainKey of detailTabsForm.main_order) {
+  for (const mainKey of order) {
     if (mainKey === 'pan115' && detailTabsForm.pan115) {
       keys.push('pan115')
       keys.push(...detailTabsForm.pan115_children)
@@ -3784,11 +3792,20 @@ const handleSaveDetailTabs = async () => {
       keys.push(...detailTabsForm.magnet_children)
     }
   }
+  if (!keys.length) {
+    ElMessage.warning('请至少勾选「115网盘」或「磁力链接」其中一个标签页后再保存')
+    return
+  }
+
+  savingDetailTabs.value = true
   try {
     await saveVisibleTabs(keys)
     ElMessage.success('详情页标签设置已保存，刷新详情页后生效')
-  } catch {
-    ElMessage.error('保存失败')
+  } catch (error) {
+    const detail = error.response?.data?.detail || error.message || ''
+    ElMessage.error(detail ? String(detail) : '保存失败')
+  } finally {
+    savingDetailTabs.value = false
   }
 }
 
@@ -3798,11 +3815,15 @@ const handleResetDetailTabs = async () => {
   detailTabsForm.pan115_children = [...ALL_PAN115_CHILDREN]
   detailTabsForm.magnet = true
   detailTabsForm.magnet_children = [...ALL_MAGNET_CHILDREN]
+  savingDetailTabs.value = true
   try {
     await saveVisibleTabs(ALL_TABS.map(t => t.key))
     ElMessage.success('已恢复默认设置，刷新详情页后生效')
-  } catch {
-    ElMessage.error('重置失败')
+  } catch (error) {
+    const detail = error.response?.data?.detail || error.message || ''
+    ElMessage.error(detail ? String(detail) : '重置失败')
+  } finally {
+    savingDetailTabs.value = false
   }
 }
 
@@ -3861,6 +3882,9 @@ const fetchRuntimeSettings = async () => {
     if (Array.isArray(data.detail_visible_tabs)) {
       const arr = data.detail_visible_tabs
       detailTabsForm.main_order = arr.filter(k => k === 'pan115' || k === 'magnet')
+      if (!detailTabsForm.main_order.length) {
+        detailTabsForm.main_order = ['pan115', 'magnet']
+      }
       detailTabsForm.pan115 = arr.includes('pan115')
       detailTabsForm.pan115_children = arr.filter(k => ALL_PAN115_CHILDREN.includes(k))
       detailTabsForm.magnet = arr.includes('magnet')
@@ -4309,8 +4333,8 @@ const handleSaveDefaultFolder = async () => {
     await pan115Api.setDefaultFolder(folderId, folderName)
     await fetchDefaultFolder()
     ElMessage.success('默认保存位置设置成功')
-  } catch (error) {
-    ElMessage.error('设置失败')
+  } catch {
+    // 失败提示由 axios 拦截器统一展示
   } finally {
     savingFolder.value = false
   }
@@ -4324,8 +4348,8 @@ const handleSaveOfflineDefaultFolder = async () => {
     await pan115Api.setOfflineDefaultFolder(folderId, folderName)
     await fetchOfflineDefaultFolder()
     ElMessage.success('默认离线目录设置成功')
-  } catch (error) {
-    ElMessage.error('设置失败')
+  } catch {
+    // 失败提示由 axios 拦截器统一展示
   } finally {
     savingOfflineFolder.value = false
   }

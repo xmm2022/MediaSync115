@@ -37,11 +37,17 @@ export function getVisibleTabs() {
   return visibleTabs
 }
 
+const RUNTIME_SAVE_TIMEOUT_MS = 120000
+
 export async function saveVisibleTabs(keys) {
   const arr = [...keys]
   visibleTabs.value = arr
   loaded = true
-  await settingsApi.updateRuntime({ detail_visible_tabs: arr })
+  // 后端 update_runtime 会同步多个定时任务 ensure_*，SQLite 繁忙时可能超过默认 30s
+  await settingsApi.updateRuntime(
+    { detail_visible_tabs: arr },
+    { timeout: RUNTIME_SAVE_TIMEOUT_MS, silentError: true }
+  )
 }
 
 export function isTabVisible(visibleArr, key) {

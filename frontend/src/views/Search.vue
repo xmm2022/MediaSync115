@@ -1268,23 +1268,29 @@ const clearHomePrefetchTimers = () => {
   homeSectionPrefetchTimers.clear()
 }
 
-/** 仅更新地址栏，不触发 Vue Router 导航 */
-const replaceSearchBarUrl = (keyword, page = 1) => {
-  if (typeof window === 'undefined') return
-  const url = new URL(window.location.href)
+/** 同步搜索关键词到地址栏（必须走 Vue Router，避免 replaceState 与路由状态脱节导致侧栏无法跳转） */
+const replaceSearchBarUrl = async (keyword, page = 1) => {
   const normalized = String(keyword || '').trim()
+  const nextQuery = { ...route.query }
   if (normalized) {
-    url.searchParams.set('q', normalized)
+    nextQuery.q = normalized
     if (page > 1) {
-      url.searchParams.set('page', String(page))
+      nextQuery.page = String(page)
     } else {
-      url.searchParams.delete('page')
+      delete nextQuery.page
     }
   } else {
-    url.searchParams.delete('q')
-    url.searchParams.delete('page')
+    delete nextQuery.q
+    delete nextQuery.page
   }
-  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`)
+  try {
+    await router.replace({
+      path: route.path,
+      query: nextQuery
+    })
+  } catch {
+    // 忽略重复导航
+  }
 }
 
 const resetSearchUI = () => {
@@ -1317,7 +1323,7 @@ const runSearchRequest = async (keyword, page = 1) => {
     applySubscribedFlags()
     const backendPages = Number(data.total_pages) || 0
     totalPages.value = backendPages || (results.value.length > 0 ? 1 : 0)
-    replaceSearchBarUrl(normalized, currentPage.value)
+    await replaceSearchBarUrl(normalized, currentPage.value)
   } catch (error) {
     console.error('Search failed:', error)
     ElMessage.error(error.response?.data?.detail || '搜索失败，请稍后重试')
@@ -1338,7 +1344,7 @@ const restoreSearchFromRoute = async () => {
 const handleBackToExplore = async () => {
   clearSearchReturnContext()
   resetSearchUI()
-  replaceSearchBarUrl('')
+  await replaceSearchBarUrl('')
   if (!exploreSections.value.length) {
     await initializeExploreHome()
   }
@@ -1770,7 +1776,7 @@ watch(
       if (searched.value) {
         clearSearchReturnContext()
         resetSearchUI()
-        replaceSearchBarUrl('')
+        await replaceSearchBarUrl('')
         if (!exploreSections.value.length) {
           await initializeExploreHome()
         }

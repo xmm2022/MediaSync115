@@ -41,9 +41,9 @@
         </div>
         <el-menu
           :default-active="activeMenu"
-          router
+          @select="handleSideMenuSelect"
         >
-          <el-sub-menu index="/explore">
+          <el-sub-menu index="explore-group">
             <template #title>
               <el-icon><Search /></el-icon>
               <span>探索</span>
@@ -257,7 +257,7 @@ const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 12
 const showMoreMenu = ref(false)
 const showExploreMenu = ref(false)
 const lastExplorePage = ref('/explore/douban')
-const appVersionLabel = ref('v1.1.25')
+const appVersionLabel = ref('v1.1.26')
 const isLoginRoute = computed(() => route.path === '/login')
 
 const activeMenu = computed(() => {
@@ -311,6 +311,14 @@ function handleGoHome() {
   router.replace({ path: homePath, query: {} })
 }
 
+/** 侧栏菜单导航（不用 el-menu router，避免子菜单 index 与 /explore 路由冲突） */
+function handleSideMenuSelect(index) {
+  const path = String(index || '').trim()
+  if (!path.startsWith('/')) return
+  if (path === route.path) return
+  router.push(path).catch(() => {})
+}
+
 const dockTabs = computed(() => {
   const path = route.path
   return [
@@ -323,6 +331,8 @@ const dockTabs = computed(() => {
 })
 
 function handleDockTab(tab) {
+  showExploreMenu.value = false
+  showMoreMenu.value = false
   if (tab.key === 'more') {
     showMoreMenu.value = true
   } else if (tab.key === 'explore') {
@@ -464,6 +474,8 @@ html, body, #app {
 }
 
 .app-aside {
+  position: relative;
+  z-index: 30;
   background: var(--ms-glass-bg-heavy);
   border-right: 1px solid transparent;
   /* 性能优化：条件启用 backdrop-filter */

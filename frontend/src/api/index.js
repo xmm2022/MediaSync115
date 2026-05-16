@@ -121,6 +121,10 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
+    if (error.config?.silentError === true) {
+      return Promise.reject(error)
+    }
+
     if (isTmdbKeyMissingDetail(detail)) {
       const now = Date.now()
       if (now - lastTmdbKeyMissingNoticeAt < 4000) {
@@ -241,7 +245,7 @@ export const pansouApi = {
 export const settingsApi = {
   getRuntime: () => api.get('/settings/runtime'),
   getAppInfo: () => api.get('/settings/app-info'),
-  updateRuntime: (payload) => api.put('/settings/runtime', payload),
+  updateRuntime: (payload, config = {}) => api.put('/settings/runtime', payload, config),
   checkUpdates: () => api.get('/settings/update-check'),
   checkHdhive: () => api.get('/settings/hdhive/check'),
   runHdhiveCheckin: (payload) => api.post('/settings/hdhive/checkin', payload),

@@ -165,6 +165,11 @@ router.beforeEach(async (to) => {
     return true
   }
 
+  // 已有登录缓存时直接放行，避免每次切页整页卸载侧栏（探索页并发请求时尤易误判为“点不动”）
+  if (authSessionCache?.authenticated) {
+    return true
+  }
+
   // 受保护路由：阻塞式检查认证
   isAuthChecking.value = true
   let session
