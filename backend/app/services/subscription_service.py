@@ -37,6 +37,13 @@ from app.services.pansou_service import pansou_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.seedhub_service import seedhub_service
 from app.services.tg_service import tg_service
+from app.services.subscription_cleanup_policy import (
+    build_tv_missing_status_kwargs,
+    evaluate_movie_cleanup,
+    evaluate_tv_cleanup,
+    has_upcoming_episodes_in_subscription_scope,
+    normalize_tv_follow_mode,
+)
 from app.services.tv_missing_service import tv_missing_service
 from app.utils.resource_tags import sort_by_preference, filter_and_sort_by_quality
 from app.utils.name_parser import name_parser
@@ -1025,19 +1032,10 @@ class SubscriptionService:
             message="正在检查剧集的缺集状态",
             payload={"tmdb_id": sub.tmdb_id},
         )
+        tv_kwargs = build_tv_missing_status_kwargs(sub)
         tv_missing_result = await tv_missing_service.get_tv_missing_status(
             sub.tmdb_id,
-            include_specials=bool(sub.tv_include_specials),
-            season_number=sub.tv_season_number
-            if sub.tv_scope in {"season", "episode_range"}
-            else None,
-            episode_start=sub.tv_episode_start
-            if sub.tv_scope == "episode_range"
-            else None,
-            episode_end=sub.tv_episode_end
-            if sub.tv_scope == "episode_range"
-            else None,
-            aired_only=sub.tv_follow_mode == "new",
+            **tv_kwargs,
         )
         status_text = str(tv_missing_result.get("status") or "")
         if status_text == "ok":
@@ -1047,6 +1045,12 @@ class SubscriptionService:
                 else {}
             )
             missing_count = int(counts.get("missing") or 0)
+            follow_mode = normalize_tv_follow_mode(sub.tv_follow_mode)
+            has_upcoming = False
+            if follow_mode == "new":
+                has_upcoming = await has_upcoming_episodes_in_subscription_scope(
+                    sub.tmdb_id, sub
+                )
             await self._create_step_log(
                 db,
                 run_id=run_id,
@@ -1060,9 +1064,16 @@ class SubscriptionService:
                     "aired_count": int(counts.get("aired") or 0),
                     "existing_count": int(counts.get("existing") or 0),
                     "missing_count": missing_count,
+                    "follow_mode": follow_mode,
+                    "has_upcoming_episodes": has_upcoming,
                 },
             )
-            if missing_count <= 0:
+            should_cleanup, cleanup_reason = evaluate_tv_cleanup(
+                tv_missing_result,
+                follow_mode=follow_mode,
+                has_upcoming_episodes=has_upcoming,
+            )
+            if should_cleanup:
                 await self._delete_subscription_with_records(db, sub.id)
                 await self._create_step_log(
                     db,
@@ -1072,58 +1083,29 @@ class SubscriptionService:
                     subscription_title=sub.title,
                     step="subscription_cleanup_tv_no_missing",
                     status="success",
-                    message="剧集已全部入库，无需继续订阅",
-                    payload={"tmdb_id": sub.tmdb_id, "missing_count": 0},
+                    message=cleanup_reason or "剧集已全部入库，无需继续订阅",
+                    payload={
+                        "tmdb_id": sub.tmdb_id,
+                        "missing_count": 0,
+                        "follow_mode": follow_mode,
+                    },
                 )
                 await operation_log_service.log_background_event(
                     source_type="background_task",
                     module="subscriptions",
                     action="subscription.item.cleanup_pre_scan",
                     status="success",
-                    message=f"[{sub.title}] 预扫描清理：剧集已不缺集，自动删除订阅",
+                    message=f"[{sub.title}] 预扫描清理：{cleanup_reason}，自动删除订阅",
                     trace_id=run_id,
                     extra={
                         "subscription_id": sub.id,
                         "title": sub.title,
-                        "reason": "tv_no_missing",
+                        "reason": cleanup_reason,
                         "tmdb_id": sub.tmdb_id,
                     },
                 )
                 return {"deleted": True, "tv_missing_snapshot": tv_missing_result}
             return {"deleted": False, "tv_missing_snapshot": tv_missing_result}
-
-        # Emby 缺集查询失败，尝试飞牛缺集检查
-        feiniu_missing_result = await self._check_feiniu_tv_missing_status(sub.tmdb_id)
-        if feiniu_missing_result.get("checked"):
-            feiniu_missing_count = int(feiniu_missing_result.get("missing_count") or -1)
-            if feiniu_missing_count == 0:
-                await self._delete_subscription_with_records(db, sub.id)
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="subscription_cleanup_tv_no_missing_feiniu",
-                    status="success",
-                    message="剧集在飞牛媒体库中已全部入库，无需继续订阅",
-                    payload={"tmdb_id": sub.tmdb_id, "missing_count": 0, "source": "feiniu"},
-                )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.cleanup_pre_scan",
-                    status="success",
-                    message=f"[{sub.title}] 预扫描清理：剧集在飞牛中已不缺集，自动删除订阅",
-                    trace_id=run_id,
-                    extra={
-                        "subscription_id": sub.id,
-                        "title": sub.title,
-                        "reason": "tv_no_missing_feiniu",
-                        "tmdb_id": sub.tmdb_id,
-                    },
-                )
-                return {"deleted": True, "tv_missing_snapshot": None}
 
         await self._create_step_log(
             db,
@@ -1207,69 +1189,10 @@ class SubscriptionService:
             media_type = row.media_type
             tmdb_id = int(row.tmdb_id) if row.tmdb_id is not None else None
             sub_has_transfer = bool(row.has_successful_transfer)
-
-            should_delete = False
-            reason = ""
-
-            if media_type == MediaType.MOVIE:
-                if sub_has_transfer:
-                    should_delete = True
-                    reason = "电影已有成功转存记录"
-                elif tmdb_id is not None:
-                    try:
-                        movie_status = await emby_service.get_movie_status_by_tmdb(
-                            tmdb_id
-                        )
-                        if str(movie_status.get("status") or "") == "ok" and bool(
-                            movie_status.get("exists")
-                        ):
-                            should_delete = True
-                            reason = "电影已存在于 Emby"
-                    except Exception:
-                        logger.exception(
-                            "离线完成后检查电影 Emby 状态失败: %s", title
-                        )
-                    if not should_delete:
-                        feiniu_movie = await self._check_feiniu_movie_status(tmdb_id)
-                        if feiniu_movie.get("checked") and feiniu_movie.get("exists"):
-                            should_delete = True
-                            reason = "电影已存在于飞牛"
-            elif media_type == MediaType.TV and tmdb_id is not None:
-                try:
-                    tv_missing_result = (
-                        await tv_missing_service.get_tv_missing_status(
-                            tmdb_id,
-                            include_specials=bool(row.tv_include_specials),
-                            season_number=row.tv_season_number
-                            if str(row.tv_scope or "all")
-                            in {"season", "episode_range"}
-                            else None,
-                            episode_start=row.tv_episode_start
-                            if str(row.tv_scope or "all") == "episode_range"
-                            else None,
-                            episode_end=row.tv_episode_end
-                            if str(row.tv_scope or "all") == "episode_range"
-                            else None,
-                            aired_only=str(row.tv_follow_mode or "missing") == "new",
-                        )
-                    )
-                    if str(tv_missing_result.get("status") or "") == "ok":
-                        counts = (
-                            tv_missing_result.get("counts")
-                            if isinstance(tv_missing_result.get("counts"), dict)
-                            else {}
-                        )
-                        missing_count = int(counts.get("missing") or 0)
-                        if missing_count <= 0:
-                            should_delete = True
-                            reason = "剧集已不缺集（Emby）"
-                    if not should_delete:
-                        feiniu_tv = await self._check_feiniu_tv_missing_status(tmdb_id)
-                        if feiniu_tv.get("checked") and feiniu_tv.get("missing_count", -1) == 0:
-                            should_delete = True
-                            reason = "剧集已不缺集（飞牛）"
-                except Exception:
-                    logger.exception("离线完成后检查剧集缺集状态失败: %s", title)
+            should_delete, reason = await self._evaluate_subscription_cleanup_eligibility(
+                row,
+                has_successful_transfer=sub_has_transfer,
+            )
 
             if should_delete:
                 await self._delete_subscription_with_records(db, sub_id)
@@ -1407,6 +1330,77 @@ class SubscriptionService:
             logger.exception("飞牛剧集缺集状态查询失败: tmdb_id=%s", tmdb_id)
             return {"checked": False}
 
+    async def _subscription_has_successful_transfer(
+        self, db: AsyncSession, subscription_id: int
+    ) -> bool:
+        exists_clause = (
+            select(DownloadRecord.id)
+            .where(
+                DownloadRecord.subscription_id == subscription_id,
+                or_(
+                    DownloadRecord.completed_at.is_not(None),
+                    DownloadRecord.status.in_(
+                        (MediaStatus.COMPLETED, MediaStatus.OFFLINE_COMPLETED)
+                    ),
+                ),
+            )
+            .exists()
+        )
+        result = await db.execute(select(exists_clause))
+        return bool(result.scalar())
+
+    async def _evaluate_subscription_cleanup_eligibility(
+        self,
+        sub: Subscription | "SubscriptionSnapshot",
+        *,
+        has_successful_transfer: bool,
+    ) -> tuple[bool, str]:
+        """按统一策略判断订阅是否应自动清理。"""
+        if sub.media_type == MediaType.MOVIE:
+            emby_exists = False
+            feiniu_exists = False
+            if sub.tmdb_id is not None:
+                try:
+                    movie_status = await emby_service.get_movie_status_by_tmdb(sub.tmdb_id)
+                    emby_exists = str(movie_status.get("status") or "") == "ok" and bool(
+                        movie_status.get("exists")
+                    )
+                except Exception:
+                    logger.exception("订阅清理检查 Emby 电影失败: %s", sub.title)
+                feiniu_movie = await self._check_feiniu_movie_status(sub.tmdb_id)
+                feiniu_exists = bool(
+                    feiniu_movie.get("checked") and feiniu_movie.get("exists")
+                )
+            return evaluate_movie_cleanup(
+                has_successful_transfer=has_successful_transfer,
+                emby_exists=emby_exists,
+                feiniu_exists=feiniu_exists,
+            )
+
+        if sub.media_type != MediaType.TV or sub.tmdb_id is None:
+            return False, ""
+
+        try:
+            tv_kwargs = build_tv_missing_status_kwargs(sub)
+            tv_missing_result = await tv_missing_service.get_tv_missing_status(
+                sub.tmdb_id,
+                **tv_kwargs,
+            )
+            follow_mode = normalize_tv_follow_mode(sub.tv_follow_mode)
+            has_upcoming = False
+            if follow_mode == "new":
+                has_upcoming = await has_upcoming_episodes_in_subscription_scope(
+                    sub.tmdb_id, sub
+                )
+            return evaluate_tv_cleanup(
+                tv_missing_result,
+                follow_mode=follow_mode,
+                has_upcoming_episodes=has_upcoming,
+            )
+        except Exception:
+            logger.exception("订阅清理检查剧集状态失败: %s", sub.title)
+            return False, ""
+
     async def cleanup_single_subscription(
         self, db: AsyncSession, subscription_id: int
     ) -> dict[str, Any]:
@@ -1420,80 +1414,11 @@ class SubscriptionService:
         if not sub.is_active:
             return {"deleted": False, "reason": "订阅未激活"}
 
-        # 检查是否有成功转存记录
-        has_successful_transfer = (
-            select(DownloadRecord.id)
-            .where(
-                DownloadRecord.subscription_id == sub.id,
-                or_(
-                    DownloadRecord.completed_at.is_not(None),
-                    DownloadRecord.status.in_(
-                        (MediaStatus.COMPLETED, MediaStatus.OFFLINE_COMPLETED)
-                    ),
-                ),
-            )
-            .exists()
+        sub_has_transfer = await self._subscription_has_successful_transfer(db, sub.id)
+        should_delete, reason = await self._evaluate_subscription_cleanup_eligibility(
+            sub,
+            has_successful_transfer=sub_has_transfer,
         )
-        has_transfer_result = await db.execute(
-            select(has_successful_transfer)
-        )
-        sub_has_transfer = bool(has_transfer_result.scalar())
-
-        should_delete = False
-        reason = ""
-
-        if sub.media_type == MediaType.MOVIE:
-            if sub_has_transfer:
-                should_delete = True
-                reason = "电影已有成功转存记录"
-            elif sub.tmdb_id is not None:
-                try:
-                    movie_status = await emby_service.get_movie_status_by_tmdb(sub.tmdb_id)
-                    if str(movie_status.get("status") or "") == "ok" and bool(
-                        movie_status.get("exists")
-                    ):
-                        should_delete = True
-                        reason = "电影已存在于 Emby"
-                except Exception:
-                    logger.exception("单订阅清理检查 Emby 失败: %s", sub.title)
-                if not should_delete:
-                    feiniu_movie = await self._check_feiniu_movie_status(sub.tmdb_id)
-                    if feiniu_movie.get("checked") and feiniu_movie.get("exists"):
-                        should_delete = True
-                        reason = "电影已存在于飞牛"
-        elif sub.media_type == MediaType.TV and sub.tmdb_id is not None:
-            try:
-                tv_missing_result = await tv_missing_service.get_tv_missing_status(
-                    sub.tmdb_id,
-                    include_specials=bool(sub.tv_include_specials),
-                    season_number=sub.tv_season_number
-                    if str(sub.tv_scope or "all") in {"season", "episode_range"}
-                    else None,
-                    episode_start=sub.tv_episode_start
-                    if str(sub.tv_scope or "all") == "episode_range"
-                    else None,
-                    episode_end=sub.tv_episode_end
-                    if str(sub.tv_scope or "all") == "episode_range"
-                    else None,
-                    aired_only=str(sub.tv_follow_mode or "missing") == "new",
-                )
-                if str(tv_missing_result.get("status") or "") == "ok":
-                    counts = (
-                        tv_missing_result.get("counts")
-                        if isinstance(tv_missing_result.get("counts"), dict)
-                        else {}
-                    )
-                    missing_count = int(counts.get("missing") or 0)
-                    if missing_count <= 0:
-                        should_delete = True
-                        reason = "剧集已不缺集（Emby）"
-                if not should_delete:
-                    feiniu_tv = await self._check_feiniu_tv_missing_status(sub.tmdb_id)
-                    if feiniu_tv.get("checked") and feiniu_tv.get("missing_count", -1) == 0:
-                        should_delete = True
-                        reason = "剧集已不缺集（飞牛）"
-            except Exception:
-                logger.exception("单订阅清理检查剧集状态失败: %s", sub.title)
 
         if not should_delete:
             return {"deleted": False, "reason": ""}
@@ -3154,19 +3079,36 @@ class SubscriptionService:
                     except Exception:
                         pass
                     if not missing_episodes:
-                        subscription_completed = True
-                        cleanup_step = (
-                            "subscription_cleanup_tv_completed_after_transfer"
+                        follow_mode = normalize_tv_follow_mode(sub.tv_follow_mode)
+                        has_upcoming = False
+                        if follow_mode == "new" and sub.tmdb_id is not None:
+                            has_upcoming = (
+                                await has_upcoming_episodes_in_subscription_scope(
+                                    sub.tmdb_id, sub
+                                )
+                            )
+                        should_cleanup, cleanup_reason = evaluate_tv_cleanup(
+                            {"status": "ok", "counts": {"missing": 0}},
+                            follow_mode=follow_mode,
+                            has_upcoming_episodes=has_upcoming,
                         )
-                        cleanup_message = "剧集缺集已补齐，已自动删除订阅"
-                        cleanup_payload = {
-                            "source": source,
-                            "record_id": record.id,
-                            "remaining_missing_count": 0,
-                            "target_parent_id": parent_folder_id,
-                            "save_mode": "direct",
-                        }
-                        break
+                        if should_cleanup:
+                            subscription_completed = True
+                            cleanup_step = (
+                                "subscription_cleanup_tv_completed_after_transfer"
+                            )
+                            cleanup_message = (
+                                cleanup_reason or "剧集缺集已补齐，已自动删除订阅"
+                            )
+                            cleanup_payload = {
+                                "source": source,
+                                "record_id": record.id,
+                                "remaining_missing_count": 0,
+                                "target_parent_id": parent_folder_id,
+                                "save_mode": "direct",
+                                "follow_mode": follow_mode,
+                            }
+                            break
                 else:
                     result = await pan_service.save_share_directly(
                         share_url=share_link,
