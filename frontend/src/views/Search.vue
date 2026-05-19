@@ -48,6 +48,8 @@
             :source="exploreSource"
             :card-width="cardWidth"
             :section="section"
+            :preloaded-items="section.items"
+            :preloaded-total="section.total"
             :subscribed-id-map="subscribedIdMap"
             :subscribed-douban-ids="subscribedDoubanIds"
             :subscribed-imdb-ids="subscribedImdbIds"
@@ -802,7 +804,7 @@ const getHomePrefetchCardThreshold = () => {
 
 const revealLoadedSectionCards = (sectionKey) => {
   const section = getExploreSectionByKey(sectionKey)
-  if (!section) return 0
+  if (!section || !Array.isArray(section.displayItems)) return 0
   const hiddenCount = Math.max(section.items.length - section.displayItems.length, 0)
   if (!hiddenCount) return 0
   const revealCount = Math.min(getHomeRevealStep(), hiddenCount)
@@ -814,7 +816,7 @@ const revealLoadedSectionCards = (sectionKey) => {
 
 const ensureSectionInitialViewportCount = (sectionKey) => {
   const section = getExploreSectionByKey(sectionKey)
-  if (!section) return
+  if (!section || !Array.isArray(section.displayItems)) return
   const minCount = Math.min(getHomeInitialRenderCount(), section.items.length)
   if (section.displayItems.length >= minCount) return
   section.displayItems = section.items.slice(0, minCount)
@@ -1190,24 +1192,46 @@ const normalizeSearchResultItem = (item, index = 0, fallbackService = '') => {
 const fetchExploreSections = async () => {
   exploreLoading.value = true
   try {
-    const { data } = await searchApi.getExploreMeta(exploreSource.value)
+    // 一次性把 9 个分区 + emby/feiniu 角标全部拉回，避免 row 各自请求带来的 9 次 RTT 与重复角标查询
+    const { data } = await searchApi.getExploreSections(exploreSource.value, 12, false)
+    const sourceSections = Array.isArray(data?.sections) ? data.sections : []
+
     if (exploreSource.value === 'tmdb') {
-      tmdbConfigured.value = data?.tmdb_configured !== false
+      const errors = Array.isArray(data?.errors) ? data.errors : []
+      const hasUnconfigured = errors.some((entry) => {
+        const detail = String(entry?.error || '')
+        return detail.includes('TMDB_API_KEY is not configured') || detail.includes('TMDB API Key 未配置')
+      })
+      if (hasUnconfigured && !sourceSections.length) {
+        tmdbConfigured.value = false
+        exploreSections.value = []
+        return
+      }
+      tmdbConfigured.value = true
     } else {
       tmdbConfigured.value = true
     }
-    if (exploreSource.value === 'tmdb' && !tmdbConfigured.value) {
-      exploreSections.value = []
-      return
-    }
-    const sections = Array.isArray(data.sections) ? data.sections : []
-    exploreSections.value = sections.map((section) => {
+
+    mergeEmbyStatusMap(data?.emby_status_map || {})
+    mergeFeiniuStatusMap(data?.feiniu_status_map || {})
+
+    exploreSections.value = sourceSections.map((section) => {
+      const items = Array.isArray(section?.items) ? section.items : []
       return {
         ...section,
-        total: Number(section.total) || 0
+        total: Number(section.total) || items.length,
+        items
       }
     })
   } catch (error) {
+    if (exploreSource.value === 'tmdb') {
+      const detail = String(error?.response?.data?.detail || error?.message || '')
+      if (detail.includes('TMDB API Key 未配置') || detail.includes('TMDB_API_KEY')) {
+        tmdbConfigured.value = false
+        exploreSections.value = []
+        return
+      }
+    }
     console.error('Failed to fetch explore sections:', error)
   } finally {
     exploreLoading.value = false

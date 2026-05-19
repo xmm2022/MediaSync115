@@ -1205,15 +1205,16 @@ def _find_tmdb_source(section_key: str):
     )
 
 
-# 分页偏移 start>0 时压低同步 TMDB 解析条数，降低滚动触底请求的延迟
-_DOUBAN_EXPLORE_PAGINATION_SYNC_PRIME_CAP = 18
-# 「更多」页首屏与首页横滑一致，仅同步解析前 N 条用于角标，其余异步回填
-_DOUBAN_EXPLORE_SECTION_FIRST_SCREEN_SYNC_PRIME_CAP = 12
+# 「更多」页首屏与分页统一不再同步解析 TMDB ID，依赖后台异步回填 + 前端 badge syncer 补齐角标
+# （首屏不再阻塞 6~12 次 TMDB 串行调用，冷启动延迟显著下降）
+_DOUBAN_EXPLORE_PAGINATION_SYNC_PRIME_CAP = 0
+_DOUBAN_EXPLORE_SECTION_FIRST_SCREEN_SYNC_PRIME_CAP = 0
 # 单批返回条目数较多时，Emby/飞牛角标查询也限制条数，避免首屏阻塞
 _EXPLORE_SECTION_LIBRARY_BADGE_CAP = 12
 
 
 def _douban_explore_sync_prime_limit(limit: int, start: int) -> int:
+    """豆瓣榜单首屏的 TMDB 同步解析上限。当前已统一为 0，全部异步回填。"""
     base = library_status_sync_prime_limit(limit)
     if start > 0:
         return min(base, _DOUBAN_EXPLORE_PAGINATION_SYNC_PRIME_CAP)

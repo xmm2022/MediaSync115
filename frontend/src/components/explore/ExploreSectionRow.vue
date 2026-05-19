@@ -125,6 +125,15 @@ const props = defineProps({
     type: Number,
     default: 0
   },
+  /** 父组件预先抓取好的条目（来自 /explore/sections 单接口）。提供时跳过自身的 IntersectionObserver 抓取。 */
+  preloadedItems: {
+    type: Array,
+    default: null
+  },
+  preloadedTotal: {
+    type: Number,
+    default: 0
+  },
   subscribedIdMap: {
     type: Object,
     default: () => new Map()
@@ -376,9 +385,33 @@ const fetchSection = async (force = false) => {
   }
 }
 
+/** 父组件已通过 /explore/sections 一次拉全后，直接喂条目；跳过 row 自身的请求与 IntersectionObserver。 */
+const applyPreloadedItems = (items, total) => {
+  const incoming = Array.isArray(items) ? items : []
+  rowItems.value = normalizeItems(incoming, 1)
+  remoteTotal.value = Number(total) || rowItems.value.length
+  loaded.value = true
+  loading.value = false
+  loadError.value = ''
+}
+
 const handleOpenSection = () => {
   emit('open-section', props.section.key)
 }
+
+watch(
+  () => props.preloadedItems,
+  (next) => {
+    if (Array.isArray(next)) {
+      applyPreloadedItems(next, props.preloadedTotal)
+      nextTick(() => {
+        applyStateToItems()
+        updateScrollState()
+      })
+    }
+  },
+  { immediate: false }
+)
 
 watch(
   () => [
@@ -403,13 +436,28 @@ watch(
     loading.value = false
     loadError.value = ''
     await nextTick()
-    fetchSection()
+    if (Array.isArray(props.preloadedItems)) {
+      applyPreloadedItems(props.preloadedItems, props.preloadedTotal)
+      await nextTick()
+      applyStateToItems()
+      updateScrollState()
+    } else {
+      fetchSection()
+    }
   }
 )
 
 onMounted(() => {
   updateSkeletonMetrics()
-  fetchSection()
+  if (Array.isArray(props.preloadedItems)) {
+    applyPreloadedItems(props.preloadedItems, props.preloadedTotal)
+    nextTick(() => {
+      applyStateToItems()
+      updateScrollState()
+    })
+  } else {
+    fetchSection()
+  }
   if (typeof ResizeObserver !== 'undefined' && containerRef.value) {
     resizeObserver = new ResizeObserver(() => {
       updateSkeletonMetrics()
