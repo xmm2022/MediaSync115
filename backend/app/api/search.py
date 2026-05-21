@@ -40,7 +40,7 @@ from app.utils.proxy import proxy_manager
 router = APIRouter(prefix="/search", tags=["search"])
 logger = logging.getLogger(__name__)
 EXPLORE_HOME_SECTION_LIMIT = 12
-DOUBAN_HOME_SYNC_PRIME_LIMIT = 0
+DOUBAN_HOME_SYNC_PRIME_LIMIT = 6
 
 POPULAR_MOVIES_URL = "https://popular-movies-data.stevenlu.com/movies.json"
 POPULAR_CACHE_TTL_SECONDS = 60 * 60 * 6
@@ -1222,16 +1222,16 @@ def _find_tmdb_source(section_key: str):
     )
 
 
-# 「更多」页首屏与分页统一不再同步解析 TMDB ID，依赖后台异步回填 + 前端 badge syncer 补齐角标
-# （首屏不再阻塞 6~12 次 TMDB 串行调用，冷启动延迟显著下降）
+# 「更多」页首屏与分页的 TMDB 同步解析上限
+# 首屏同步解析前 6 条用于角标（平衡首屏速度与角标可用性），分页不同步解析
 _DOUBAN_EXPLORE_PAGINATION_SYNC_PRIME_CAP = 0
-_DOUBAN_EXPLORE_SECTION_FIRST_SCREEN_SYNC_PRIME_CAP = 0
+_DOUBAN_EXPLORE_SECTION_FIRST_SCREEN_SYNC_PRIME_CAP = 6
 # 单批返回条目数较多时，Emby/飞牛角标查询也限制条数，避免首屏阻塞
 _EXPLORE_SECTION_LIBRARY_BADGE_CAP = 12
 
 
 def _douban_explore_sync_prime_limit(limit: int, start: int) -> int:
-    """豆瓣榜单首屏的 TMDB 同步解析上限。当前已统一为 0，全部异步回填。"""
+    """豆瓣榜单的 TMDB 同步解析上限。首屏解析前 6 条用于角标，分页不同步解析。"""
     base = library_status_sync_prime_limit(limit)
     if start > 0:
         return min(base, _DOUBAN_EXPLORE_PAGINATION_SYNC_PRIME_CAP)

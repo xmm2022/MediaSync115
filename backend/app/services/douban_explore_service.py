@@ -996,29 +996,46 @@ async def _resolve_tmdb_id_by_tmdb_with_status(
             year_int = int(year)
         except Exception:
             year_int = None
-    for query in title_variants:
-        try:
-            result = await tmdb_service.search_by_media_type(
-                query, media_type, page=1, year=year_int
-            )
-            success_count += 1
-        except Exception:
-            result = None
 
-        if isinstance(result, dict):
-            items = result.get("items") or result.get("results") or []
-            if isinstance(items, list):
-                typed_rows.extend([row for row in items if isinstance(row, dict)])
+    # 对所有 title variants 并行发起 typed search + multi search
+    async def _search_variant(query: str) -> tuple[list[dict], list[dict], int]:
+        local_typed: list[dict] = []
+        local_multi: list[dict] = []
+        local_success = 0
 
-        try:
-            multi = await tmdb_service.search_multi(query, 1)
-            success_count += 1
-        except Exception:
-            multi = None
-        if isinstance(multi, dict):
-            items = multi.get("items") or multi.get("results") or []
+        # 并行发起 typed 和 multi 两个搜索
+        typed_task = tmdb_service.search_by_media_type(
+            query, media_type, page=1, year=year_int
+        )
+        multi_task = tmdb_service.search_multi(query, 1)
+
+        results = await asyncio.gather(typed_task, multi_task, return_exceptions=True)
+
+        typed_result = results[0]
+        multi_result = results[1]
+
+        if not isinstance(typed_result, Exception) and isinstance(typed_result, dict):
+            local_success += 1
+            items = typed_result.get("items") or typed_result.get("results") or []
             if isinstance(items, list):
-                normalized_rows.extend([row for row in items if isinstance(row, dict)])
+                local_typed.extend([row for row in items if isinstance(row, dict)])
+
+        if not isinstance(multi_result, Exception) and isinstance(multi_result, dict):
+            local_success += 1
+            items = multi_result.get("items") or multi_result.get("results") or []
+            if isinstance(items, list):
+                local_multi.extend([row for row in items if isinstance(row, dict)])
+
+        return local_typed, local_multi, local_success
+
+    variant_results = await asyncio.gather(
+        *[_search_variant(query) for query in title_variants]
+    )
+
+    for local_typed, local_multi, local_success in variant_results:
+        typed_rows.extend(local_typed)
+        normalized_rows.extend(local_multi)
+        success_count += local_success
 
     normalized_rows = typed_rows + normalized_rows
 
