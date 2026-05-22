@@ -110,7 +110,7 @@
           <router-view v-slot="{ Component, route: currentRoute }">
             <transition name="page-fade" mode="out-in">
               <keep-alive :include="keepAlivePages" :max="keepAliveMax">
-                <component :is="Component" :key="currentRoute.fullPath" />
+                <component :is="Component" :key="currentRoute.path" />
               </keep-alive>
             </transition>
           </router-view>

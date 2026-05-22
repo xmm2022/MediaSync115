@@ -104,6 +104,10 @@ const router = createRouter({
     if (savedPosition) {
       return savedPosition
     }
+    // 同一路径下仅 query 变化（如搜索关键词）时不滚动
+    if (to.path === from.path) {
+      return false
+    }
     // 新导航默认滚动到顶部
     return { top: 0 }
   }
