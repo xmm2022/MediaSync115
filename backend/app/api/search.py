@@ -1081,53 +1081,115 @@ def _extract_pansou_quark_share_link(row: dict) -> str:
     return ""
 
 
-def _normalize_pansou_quark_list(payload: Any) -> list[dict]:
-    """从 pansou 返回中提取夸克网盘资源"""
-    rows = _extract_pansou_rows(payload)
+def _normalize_pansou_quark_list(
+    payload: Any,
+    *,
+    expected_title: str = "",
+    expected_original_title: str = "",
+    expected_year: str = "",
+) -> list[dict]:
+    """从 pansou 返回中提取夸克网盘资源
+
+    Pansou 返回结构：data.results[*] 每条带 title + content + links[]，
+    一个 result 可能含多个不同网盘的 link，需要按 link.type=='quark' 过滤。
+
+    同时按 expected_title 等做相关性过滤，避免大量无关资源（pansou 夸克
+    搜索结果质量较低）。
+    """
     items: list[dict] = []
     seen_links: set[str] = set()
 
-    for index, row in enumerate(rows):
-        if not isinstance(row, dict):
+    # 提取 results 数组（兼容多种返回结构）
+    results: list[dict] = []
+    if isinstance(payload, dict):
+        data = payload.get("data") or payload
+        if isinstance(data, dict):
+            cand = data.get("results") or data.get("list") or data.get("items")
+            if isinstance(cand, list):
+                results = [r for r in cand if isinstance(r, dict)]
+        if not results:
+            cand = payload.get("results") or payload.get("list") or payload.get("items")
+            if isinstance(cand, list):
+                results = [r for r in cand if isinstance(r, dict)]
+
+    title_norm = _normalize_keyword_fingerprint(expected_title)
+    original_norm = _normalize_keyword_fingerprint(expected_original_title)
+    year_norm = str(expected_year or "").strip()
+
+    def _is_relevant(row_title: str, row_content: str) -> bool:
+        """简单相关性判定：标题或简介中应至少包含 expected_title 或 expected_original_title 的归一化形式"""
+        if not title_norm and not original_norm:
+            return True  # 没有期望标题就不过滤
+        full = _normalize_keyword_fingerprint(f"{row_title} {row_content}")
+        if not full:
+            return False
+        if title_norm and title_norm in full:
+            return True
+        if original_norm and original_norm in full:
+            return True
+        return False
+
+    for index, row in enumerate(results):
+        row_title = str(row.get("title") or row.get("name") or "").strip()
+        row_content = str(row.get("content") or row.get("desc") or row.get("description") or "").strip()
+        if not row_title and not row_content:
             continue
 
-        share_link = _extract_pansou_quark_share_link(row)
-        if not share_link:
+        # 相关性过滤：标题/简介不含期望关键词的整体直接丢弃
+        if not _is_relevant(row_title, row_content):
             continue
 
-        link_key = share_link.strip().lower()
-        if link_key in seen_links:
-            continue
-        seen_links.add(link_key)
+        # 提取 quark 类型的 link
+        links = row.get("links") if isinstance(row.get("links"), list) else []
+        quark_links: list[str] = []
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            link_type = str(link.get("type") or "").strip().lower()
+            link_url = str(link.get("url") or "").strip()
+            if not link_url:
+                continue
+            # 优先看 type 字段，其次 fallback 到 URL 域名识别
+            if link_type == "quark" or "pan.quark.cn" in link_url.lower():
+                if "pan.quark.cn" in link_url.lower():
+                    quark_links.append(link_url)
 
-        title = _extract_first_string_value(
-            row,
-            ["title", "name", "resource_name", "file_name", "filename", "text"],
-        )
-        if not title or title == "盘搜资源":
-            title = f"夸克资源 #{len(items) + 1}"
+        # 兜底：result 顶层也扫一下文本，避免 links 为空的情况
+        if not quark_links:
+            for text in _iter_string_values(row):
+                found = _extract_quark_share_link_from_text(text)
+                if found:
+                    quark_links.append(found)
+                    break
 
-        size = _extract_first_string_value(row, ["size"])
-        resolution = _extract_first_string_value(row, ["resolution"])
-        quality = _extract_first_string_value(row, ["quality"])
+        for link_url in quark_links:
+            link_key = link_url.strip().lower()
+            if link_key in seen_links:
+                continue
+            seen_links.add(link_key)
 
-        resource_id = row.get("id")
-        if resource_id is None:
-            resource_id = f"pansou-quark-{hashlib.md5(link_key.encode('utf-8')).hexdigest()[:12]}-{index}"
+            title = row_title or f"夸克资源 #{len(items) + 1}"
+            size = _extract_first_string_value(row, ["size"])
+            resolution = _extract_first_string_value(row, ["resolution"])
+            quality = _extract_first_string_value(row, ["quality"])
 
-        items.append(
-            {
-                "id": resource_id,
-                "title": title,
-                "size": size,
-                "resolution": resolution,
-                "quality": quality,
-                "share_link": share_link,
-                "cloud_type": "quark",
-                "source_service": "pansou",
-                "raw_item": row,
-            }
-        )
+            resource_id = row.get("unique_id") or row.get("id") or (
+                f"pansou-quark-{hashlib.md5(link_key.encode('utf-8')).hexdigest()[:12]}-{index}"
+            )
+
+            items.append(
+                {
+                    "id": resource_id,
+                    "title": title,
+                    "size": size,
+                    "resolution": resolution,
+                    "quality": quality,
+                    "share_link": link_url,
+                    "cloud_type": "quark",
+                    "source_service": "pansou",
+                    "raw_item": row,
+                }
+            )
 
     return items
 
@@ -2363,6 +2425,29 @@ async def _search_pansou_quark_resources(
     selected_keyword = (
         keyword_candidates[0] if keyword_candidates else f"TMDB {tmdb_id}"
     )
+    # 用于结果相关性过滤
+    if media_type == "tv":
+        expected_title = _normalize_keyword_text(
+            media_payload.get("name") or media_payload.get("title")
+        )
+        expected_original = _normalize_keyword_text(
+            media_payload.get("original_name") or media_payload.get("original_title")
+        )
+        date_like = (
+            media_payload.get("first_air_date")
+            or media_payload.get("release_date")
+            or media_payload.get("release")
+        )
+    else:
+        expected_title = _normalize_keyword_text(
+            media_payload.get("title") or media_payload.get("name")
+        )
+        expected_original = _normalize_keyword_text(
+            media_payload.get("original_title") or media_payload.get("original_name")
+        )
+        date_like = media_payload.get("release_date") or media_payload.get("release")
+    expected_year = _extract_year_from_date_like(date_like)
+
     attempted_keywords: list[str] = []
     attempts: list[dict[str, Any]] = []
 
@@ -2373,7 +2458,12 @@ async def _search_pansou_quark_resources(
                 cloud_types=["quark"],
                 res="results",
             )
-            quark_list = _normalize_pansou_quark_list(pansou_payload)
+            quark_list = _normalize_pansou_quark_list(
+                pansou_payload,
+                expected_title=expected_title,
+                expected_original_title=expected_original,
+                expected_year=expected_year,
+            )
             return {
                 "keyword": kw,
                 "list": quark_list,
