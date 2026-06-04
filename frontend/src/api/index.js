@@ -85,13 +85,20 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   response => response,
   error => {
-    const detail = String(error.response?.data?.detail || '').trim()
+    const rawDetail = error.response?.data?.detail
+    const detail = (rawDetail && typeof rawDetail === 'object')
+      ? String(rawDetail.message || '').trim()
+      : String(rawDetail || '').trim()
     const requestUrl = String(error.config?.url || '')
     const isOfflineTasksRequest = requestUrl.includes('/pan115/offline/tasks')
     const isAuthSessionRequest = requestUrl.includes('/auth/session')
     const isAuthLoginRequest = requestUrl.includes('/auth/login')
     const isAuthLogoutRequest = requestUrl.includes('/auth/logout')
     const isUnauthorized = error.response?.status === 401
+    // 资源级凭证错误（如夸克/115 Cookie 失效）会返回对象型 detail（带 code），
+    // 这类 401 不代表应用登录态失效，不能跳转登录页。
+    // 仅 auth 中间件的会话失效（detail 为「请先登录」字符串）才视为登出。
+    const isResourceCredentialError = Boolean(rawDetail && typeof rawDetail === 'object')
 
     // 离线任务列表错误由 Downloads 页面自己处理，避免干扰转存等场景。
     if (isOfflineTasksRequest) {
@@ -107,7 +114,7 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    if (isUnauthorized && !isAuthLoginRequest && !isAuthLogoutRequest) {
+    if (isUnauthorized && !isAuthLoginRequest && !isAuthLogoutRequest && !isResourceCredentialError) {
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
         // 使用 SPA 路由导航，避免整页刷新导致白屏和状态丢失
         import('@/router').then(({ default: router, resetAuthSessionCache }) => {
@@ -309,6 +316,7 @@ export const logsApi = {
 }
 
 export const archiveApi = {
+  getSubdirOptions: () => api.get('/archive/subdir-options'),
   getConfig: () => api.get('/archive/config'),
   updateConfig: (payload) => api.put('/archive/config', payload),
   listFolders: (cid = '0') => api.get('/archive/folders', { params: { cid } }),

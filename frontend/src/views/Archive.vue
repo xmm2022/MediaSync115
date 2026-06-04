@@ -55,7 +55,7 @@
               </el-tag>
               <el-button size="small" @click="openPicker('output')">选择目录</el-button>
             </div>
-            <div class="form-hint">归档后的文件将整理到此目录下的 电影/剧集 子目录中</div>
+            <div class="form-hint">归档后的文件将整理到此目录下的一级/二级子目录中（可在下方自定义目录名）</div>
           </el-form-item>
         </div>
 
@@ -63,6 +63,60 @@
           <el-button type="primary" :loading="saving" @click="saveConfig">保存配置</el-button>
         </div>
       </el-form>
+    </el-card>
+
+    <el-card class="section-card">
+      <template #header>
+        <div class="subdir-header">
+          <div>
+            <div class="card-title">二级目录配置</div>
+            <p class="subdir-subtitle">自定义输出目录下「电影/剧集」一级目录名，以及其下的分类文件夹（如华语电影、国产剧）。</p>
+          </div>
+          <el-button size="small" @click="resetSubdirDefaults">恢复默认</el-button>
+        </div>
+      </template>
+
+      <div class="subdir-root-row">
+        <el-form-item label="电影一级目录">
+          <el-input v-model="config.archive_subdirs.movie_root" maxlength="64" placeholder="电影" style="max-width: 220px" />
+        </el-form-item>
+        <el-form-item label="剧集一级目录">
+          <el-input v-model="config.archive_subdirs.tv_root" maxlength="64" placeholder="剧集" style="max-width: 220px" />
+        </el-form-item>
+      </div>
+
+      <el-tabs v-model="subdirTab" class="subdir-tabs">
+        <el-tab-pane label="电影二级目录" name="movie">
+          <ArchiveSubdirCategoryTable
+            media-type="movie"
+            :categories="config.archive_subdirs.movie_categories"
+            :country-groups="subdirOptions.country_groups"
+            :match-type-options="subdirOptions.movie_match_types"
+            @add="(row) => config.archive_subdirs.movie_categories.push(row)"
+            @remove="(index) => removeSubdirCategory('movie', index)"
+          />
+        </el-tab-pane>
+
+        <el-tab-pane label="剧集二级目录" name="tv">
+          <ArchiveSubdirCategoryTable
+            media-type="tv"
+            :categories="config.archive_subdirs.tv_categories"
+            :country-groups="subdirOptions.country_groups"
+            :tv-genres="subdirOptions.tv_genres"
+            :match-type-options="subdirOptions.tv_match_types"
+            @add="(row) => config.archive_subdirs.tv_categories.push(row)"
+            @remove="(index) => removeSubdirCategory('tv', index)"
+          />
+        </el-tab-pane>
+      </el-tabs>
+
+      <div class="form-hint subdir-hint">
+        路径示例：输出目录 / {{ config.archive_subdirs.movie_root || '电影' }} / 华语电影 / 片名 (2024)。修改后仅影响新归档文件。
+      </div>
+
+      <div class="config-actions">
+        <el-button type="primary" :loading="saving" @click="saveConfig">保存配置</el-button>
+      </div>
     </el-card>
 
     <el-card class="section-card">
@@ -217,6 +271,14 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { archiveApi, pan115Api } from '@/api'
+import ArchiveSubdirCategoryTable from '@/components/ArchiveSubdirCategoryTable.vue'
+import {
+  applyArchiveSubdirs,
+  buildArchiveSubdirsPayload,
+  enrichSubdirOptions,
+  FALLBACK_SUBDIR_OPTIONS,
+  validateArchiveSubdirs
+} from '@/utils/archiveSubdirs'
 import { formatBeijingTableCell } from '@/utils/timezone'
 
 const refreshing = ref(false)
@@ -227,6 +289,8 @@ const total = ref(0)
 const tasks = ref([])
 let scanPollingTimer = null
 
+const subdirOptions = reactive({ ...FALLBACK_SUBDIR_OPTIONS })
+
 const config = reactive({
   archive_enabled: false,
   archive_watch_cid: '',
@@ -236,8 +300,11 @@ const config = reactive({
   archive_interval_minutes: 10,
   archive_auto_on_transfer: true,
   archive_auto_on_offline: true,
-  offline_monitor_interval_minutes: 3
+  offline_monitor_interval_minutes: 3,
+  archive_subdirs: applyArchiveSubdirs()
 })
+
+const subdirTab = ref('movie')
 
 const runtime = reactive({
   scan_running: false,
@@ -285,6 +352,42 @@ const getCurrentFolderName = () => {
   return getFolderDisplayName(found) || pickerCurrentCid.value
 }
 
+const applySubdirOptions = (rawOptions) => {
+  const enriched = enrichSubdirOptions(rawOptions, config.archive_subdirs)
+  subdirOptions.country_groups = enriched.country_groups
+  subdirOptions.tv_genres = enriched.tv_genres
+  subdirOptions.movie_match_types = enriched.movie_match_types
+  subdirOptions.tv_match_types = enriched.tv_match_types
+}
+
+const loadSubdirOptions = async () => {
+  try {
+    const { data } = await archiveApi.getSubdirOptions()
+    applySubdirOptions({
+      country_groups: data.country_groups || FALLBACK_SUBDIR_OPTIONS.country_groups,
+      tv_genres: data.tv_genres || FALLBACK_SUBDIR_OPTIONS.tv_genres,
+      movie_match_types: data.movie_match_types || FALLBACK_SUBDIR_OPTIONS.movie_match_types,
+      tv_match_types: data.tv_match_types || FALLBACK_SUBDIR_OPTIONS.tv_match_types
+    })
+  } catch {
+    applySubdirOptions(FALLBACK_SUBDIR_OPTIONS)
+  }
+}
+
+const removeSubdirCategory = (mediaType, index) => {
+  const list = mediaType === 'movie'
+    ? config.archive_subdirs.movie_categories
+    : config.archive_subdirs.tv_categories
+  const row = list[index]
+  if (!row || row.is_fallback) return
+  list.splice(index, 1)
+}
+
+const resetSubdirDefaults = () => {
+  Object.assign(config.archive_subdirs, applyArchiveSubdirs())
+  ElMessage.success('已恢复默认二级目录配置（保存后生效）')
+}
+
 const mediaTypeLabel = (v) => v === 'movie' ? '电影' : v === 'tv' ? '剧集' : '-'
 const statusLabel = (v) => ({ processing: '处理中', success: '成功', failed: '失败', skipped: '跳过' }[v] || '待处理')
 const statusTagType = (v) => ({ success: 'success', failed: 'danger', processing: 'warning' }[v] || 'info')
@@ -307,6 +410,21 @@ const loadConfig = async () => {
   config.archive_auto_on_transfer = data.archive_auto_on_transfer !== false
   config.archive_auto_on_offline = data.archive_auto_on_offline !== false
   config.offline_monitor_interval_minutes = Number(data.offline_monitor_interval_minutes || 3)
+  Object.assign(config.archive_subdirs, applyArchiveSubdirs(data.archive_subdirs))
+  applySubdirOptions({
+    country_groups: subdirOptions.country_groups.length
+      ? subdirOptions.country_groups
+      : FALLBACK_SUBDIR_OPTIONS.country_groups,
+    tv_genres: subdirOptions.tv_genres.length
+      ? subdirOptions.tv_genres
+      : FALLBACK_SUBDIR_OPTIONS.tv_genres,
+    movie_match_types: subdirOptions.movie_match_types.length
+      ? subdirOptions.movie_match_types
+      : FALLBACK_SUBDIR_OPTIONS.movie_match_types,
+    tv_match_types: subdirOptions.tv_match_types.length
+      ? subdirOptions.tv_match_types
+      : FALLBACK_SUBDIR_OPTIONS.tv_match_types
+  })
   runtime.scan_running = !!data.runtime?.scan_running
   runtime.last_scan_started_at = data.runtime?.last_scan_started_at || ''
   runtime.last_scan_finished_at = data.runtime?.last_scan_finished_at || ''
@@ -338,17 +456,29 @@ const refreshAll = async () => {
 }
 
 const saveConfig = async () => {
+  const validationError = validateArchiveSubdirs(config.archive_subdirs)
+  if (validationError) {
+    ElMessage.warning(validationError)
+    return
+  }
   saving.value = true
   try {
-    await archiveApi.updateConfig({
+    const { data } = await archiveApi.updateConfig({
       archive_enabled: config.archive_enabled,
       archive_watch_cid: config.archive_watch_cid,
       archive_watch_name: config.archive_watch_name,
       archive_output_cid: config.archive_output_cid,
       archive_output_name: config.archive_output_name,
-      archive_interval_minutes: config.archive_interval_minutes
+      archive_interval_minutes: config.archive_interval_minutes,
+      archive_auto_on_transfer: config.archive_auto_on_transfer,
+      archive_auto_on_offline: config.archive_auto_on_offline,
+      offline_monitor_interval_minutes: config.offline_monitor_interval_minutes,
+      archive_subdirs: buildArchiveSubdirsPayload(config.archive_subdirs)
     })
+    Object.assign(config.archive_subdirs, applyArchiveSubdirs(data.archive_subdirs))
     ElMessage.success('归档配置已保存')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '保存归档配置失败')
   } finally {
     saving.value = false
   }
@@ -522,6 +652,7 @@ const confirmPicker = () => {
 }
 
 onMounted(async () => {
+  await loadSubdirOptions()
   await refreshAll()
   if (runtime.scan_running) {
     startScanPolling()
@@ -583,6 +714,37 @@ onBeforeUnmount(() => {
     font-size: 12px;
     color: var(--ms-text-secondary);
   }
+
+  .subdir-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .subdir-subtitle {
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: var(--ms-text-secondary);
+  }
+
+  .subdir-root-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 20px;
+    margin-bottom: 8px;
+  }
+
+  .subdir-tabs { margin-top: 4px; }
+
+  .subdir-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+  }
+
+  .subdir-hint { margin-top: 12px; }
+
 
   .status-grid {
     display: grid;
@@ -665,6 +827,7 @@ onBeforeUnmount(() => {
     .header-actions, .tasks-toolbar { width: 100%; }
     .config-form .config-grid, .status-grid { grid-template-columns: 1fr; }
     .config-form .grid-span-2 { grid-column: span 1; }
+    .subdir-root-row { grid-template-columns: 1fr; }
     .table-wrap .el-table { min-width: 980px; }
   }
 }

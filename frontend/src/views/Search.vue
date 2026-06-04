@@ -199,9 +199,14 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { clearSearchReturnContext, saveSearchReturnContext } from '@/utils/navigation'
+import {
+  getSearchRouteSyncToken,
+  markSearchRouteLeave,
+  restorePendingLeaveNavigation
+} from '@/utils/searchRouteSync'
 import { ElMessage } from 'element-plus'
 import { searchApi, subscriptionApi, pan115Api, settingsApi } from '@/api'
 import ExploreSectionRow from '@/components/explore/ExploreSectionRow.vue'
@@ -229,6 +234,14 @@ defineOptions({ name: 'Search' })
 
 const router = useRouter()
 const route = useRoute()
+
+/** 仅探索首页处于激活展示时允许改路由，避免 keep-alive 缓存页在离开后继续 replace */
+const searchPageEngaged = ref(true)
+const isSearchRouteActive = () => (
+  searchPageEngaged.value
+  && route.name === 'Search'
+  && (route.path.startsWith('/explore/') || route.path === '/' || route.path === '/search')
+)
 
 const normalizeExploreSource = (rawSource) => (String(rawSource || '').toLowerCase() === 'tmdb' ? 'tmdb' : 'douban')
 const exploreSource = computed(() => normalizeExploreSource(route.params.source))
@@ -1280,6 +1293,9 @@ const clearHomePrefetchTimers = () => {
 
 /** 同步搜索关键词到地址栏（必须走 Vue Router，避免 replaceState 与路由状态脱节导致侧栏无法跳转） */
 const replaceSearchBarUrl = async (keyword, page = 1) => {
+  if (!isSearchRouteActive() || router.currentRoute.value.name !== 'Search') return
+  const syncToken = getSearchRouteSyncToken()
+  const targetPath = `/explore/${exploreSource.value}`
   const normalized = String(keyword || '').trim()
   const nextQuery = { ...route.query }
   if (normalized) {
@@ -1293,13 +1309,22 @@ const replaceSearchBarUrl = async (keyword, page = 1) => {
     delete nextQuery.q
     delete nextQuery.page
   }
+  await nextTick()
+  if (syncToken !== getSearchRouteSyncToken() || !isSearchRouteActive()) {
+    await restorePendingLeaveNavigation(router)
+    return
+  }
   try {
     await router.replace({
-      path: route.path,
+      path: targetPath,
       query: nextQuery
     })
   } catch {
     // 忽略重复导航
+  }
+  if (syncToken !== getSearchRouteSyncToken()) {
+    await nextTick()
+    await restorePendingLeaveNavigation(router)
   }
 }
 
@@ -1794,9 +1819,29 @@ onMounted(async () => {
   startExploreQueuePolling()
 })
 
+onBeforeRouteLeave((to) => {
+  searchPageEngaged.value = false
+  markSearchRouteLeave(to.fullPath)
+  stopExploreQueuePolling()
+})
+
+onActivated(() => {
+  searchPageEngaged.value = true
+  startExploreQueuePolling()
+})
+
+onDeactivated(() => {
+  searchPageEngaged.value = false
+  stopExploreQueuePolling()
+})
+
 watch(
-  () => `${String(route.query.q || '').trim()}|${String(route.query.page || '1')}`,
+  () => {
+    if (!isSearchRouteActive()) return null
+    return `${String(route.query.q || '').trim()}|${String(route.query.page || '1')}`
+  },
   async (signature, previous) => {
+    if (signature === null) return
     if (previous === undefined) return
     if (signature === previous) return
     const keyword = String(route.query.q || '').trim()
@@ -1824,6 +1869,7 @@ watch(
 )
 
 watch(exploreSource, async (newSource, oldSource) => {
+  if (!isSearchRouteActive()) return
   if (newSource === oldSource) return
   resetExploreState()
   await initializeExploreHome()

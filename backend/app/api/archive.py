@@ -1,10 +1,14 @@
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.services.archive_scheduler_service import archive_scheduler_service
 from app.services.archive_service import archive_service
+from app.services.archive_subdir_config import (
+    get_archive_subdir_options,
+    normalize_archive_subdirs,
+)
 from app.services.pan115_service import Pan115Service
 from app.services.runtime_settings_service import runtime_settings_service
 
@@ -41,9 +45,19 @@ class ArchiveConfigRequest(BaseModel):
     archive_auto_on_transfer: Optional[bool] = None
     archive_auto_on_offline: Optional[bool] = None
     offline_monitor_interval_minutes: Optional[int] = None
+    archive_subdirs: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="归档二级目录配置（电影/剧集分类文件夹）",
+    )
 
     class Config:
         extra = "allow"
+
+
+@router.get("/subdir-options")
+async def get_archive_subdir_options_api():
+    """归档二级目录匹配规则的可视化选项（国家/地区、TMDB 类型等）"""
+    return get_archive_subdir_options()
 
 
 @router.get("/config")
@@ -82,6 +96,14 @@ async def update_archive_config(payload: ArchiveConfigRequest):
         raise HTTPException(
             status_code=400, detail="启用归档前必须配置 115 输出目录 ID"
         )
+
+    if "archive_subdirs" in updates and updates["archive_subdirs"] is not None:
+        try:
+            updates["archive_subdirs"] = normalize_archive_subdirs(
+                updates["archive_subdirs"]
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     config = runtime_settings_service.update_archive_config(updates)
     await archive_scheduler_service.ensure_scan_task()

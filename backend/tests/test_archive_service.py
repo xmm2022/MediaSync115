@@ -57,3 +57,15 @@ class TestArchiveService:
         assert (
             archive_service._normalize_title("The.Matrix.1080p.BluRay") == "The Matrix"
         )
+
+    def test_build_target_desc_with_custom_roots(self) -> None:
+        """测试自定义一级目录的目标路径描述"""
+        subdirs = {"movie_root": "Movies", "tv_root": "TV Shows"}
+        movie_desc = archive_service._build_target_desc(
+            "movie", subdirs, "华语电影", "黑客帝国 (1999)"
+        )
+        tv_desc = archive_service._build_target_desc(
+            "tv", subdirs, "国产剧", "庆余年 (2019)", season=1
+        )
+        assert movie_desc == "Movies/华语电影/黑客帝国 (1999)"
+        assert tv_desc == "TV Shows/国产剧/庆余年 (2019)/第1季"

@@ -11,6 +11,11 @@ from app.models.archive import ArchiveStatus, ArchiveTask
 from app.services.media_postprocess_service import media_postprocess_service
 from app.services.operation_log_service import operation_log_service
 from app.services.pan115_service import Pan115Service
+from app.services.archive_subdir_config import (
+    normalize_archive_subdirs,
+    resolve_movie_category,
+    resolve_tv_category,
+)
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.tmdb_service import tmdb_service
 
@@ -87,6 +92,7 @@ TV_REGION_DEFAULT_FOR_GENRE = {
     "综艺": "",
 }
 TV_REGION_DEFAULT = "美英剧"
+TV_GENRE_DEFAULT = "其他"
 
 
 class _AuthExpiredError(Exception):
@@ -114,6 +120,10 @@ class ArchiveService:
 
     def get_config(self) -> dict[str, Any]:
         return runtime_settings_service.get_archive_config()
+
+    def _get_archive_subdirs(self) -> dict[str, Any]:
+        config = self.get_config()
+        return normalize_archive_subdirs(config.get("archive_subdirs"))
 
     def get_runtime_status(self) -> dict[str, Any]:
         config = self.get_config()
@@ -511,6 +521,7 @@ class ArchiveService:
             year = str(matched.get("year") or parsed.get("year") or "")
             title_folder = f"{title} ({year})" if year else title
 
+            subdirs = self._get_archive_subdirs()
             if parsed["media_type"] == "tv":
                 target_cid = await self._ensure_tv_path(
                     pan115,
@@ -519,9 +530,12 @@ class ArchiveService:
                     title_folder,
                     parsed,
                     folder_cache=folder_cache,
+                    subdirs=subdirs,
                 )
                 season = int(parsed.get("season") or 1)
-                target_desc = f"剧集/{region_name}/{title_folder}/第{season}季"
+                target_desc = self._build_target_desc(
+                    "tv", subdirs, region_name, title_folder, season=season
+                )
             else:
                 target_cid = await self._ensure_movie_path(
                     pan115,
@@ -529,8 +543,11 @@ class ArchiveService:
                     region_name,
                     title_folder,
                     folder_cache=folder_cache,
+                    subdirs=subdirs,
                 )
-                target_desc = f"电影/{region_name}/{title_folder}"
+                target_desc = self._build_target_desc(
+                    "movie", subdirs, region_name, title_folder
+                )
 
             await self._update_task(
                 db_task.id,
@@ -628,6 +645,7 @@ class ArchiveService:
             year = str(matched.get("year") or parsed.get("year") or "")
             title_folder = f"{title} ({year})" if year else title
 
+            subdirs = self._get_archive_subdirs()
             if parsed["media_type"] == "tv":
                 target_cid = await self._ensure_tv_path(
                     pan115,
@@ -636,9 +654,12 @@ class ArchiveService:
                     title_folder,
                     parsed,
                     folder_cache=folder_cache,
+                    subdirs=subdirs,
                 )
                 season = int(parsed.get("season") or 1)
-                target_desc = f"剧集/{region_name}/{title_folder}/第{season}季"
+                target_desc = self._build_target_desc(
+                    "tv", subdirs, region_name, title_folder, season=season
+                )
             else:
                 target_cid = await self._ensure_movie_path(
                     pan115,
@@ -646,8 +667,11 @@ class ArchiveService:
                     region_name,
                     title_folder,
                     folder_cache=folder_cache,
+                    subdirs=subdirs,
                 )
-                target_desc = f"电影/{region_name}/{title_folder}"
+                target_desc = self._build_target_desc(
+                    "movie", subdirs, region_name, title_folder
+                )
 
             await self._update_task(
                 db_task.id,
@@ -880,6 +904,22 @@ class ArchiveService:
     #  参考QMediaSync：预创建分类目录（带缓存）
     # ================================================================
 
+    @staticmethod
+    def _build_target_desc(
+        media_type: str,
+        subdirs: dict[str, Any],
+        category_name: str,
+        title_folder: str,
+        *,
+        season: int | None = None,
+    ) -> str:
+        if media_type == "tv":
+            tv_root = str(subdirs.get("tv_root") or "剧集")
+            season_num = int(season or 1)
+            return f"{tv_root}/{category_name}/{title_folder}/第{season_num}季"
+        movie_root = str(subdirs.get("movie_root") or "电影")
+        return f"{movie_root}/{category_name}/{title_folder}"
+
     async def _ensure_movie_path(
         self,
         pan115: Pan115Service,
@@ -887,12 +927,15 @@ class ArchiveService:
         region: str,
         title_folder: str,
         folder_cache: dict[tuple[str, ...], str] | None = None,
+        subdirs: dict[str, Any] | None = None,
     ) -> str:
-        cache_key = ("movie", str(root_cid), str(region), str(title_folder))
+        subdir_config = normalize_archive_subdirs(subdirs)
+        movie_root = str(subdir_config.get("movie_root") or "电影")
+        cache_key = ("movie", str(root_cid), movie_root, str(region), str(title_folder))
         if folder_cache and cache_key in folder_cache:
             return folder_cache[cache_key]
 
-        movies_cid = await pan115.get_or_create_folder(root_cid, "电影")
+        movies_cid = await pan115.get_or_create_folder(root_cid, movie_root)
         region_cid = await pan115.get_or_create_folder(movies_cid, region)
         folder_cid = await pan115.get_or_create_folder(region_cid, title_folder)
         if folder_cache is not None:
@@ -907,11 +950,15 @@ class ArchiveService:
         title_folder: str,
         parsed: dict[str, Any],
         folder_cache: dict[tuple[str, ...], str] | None = None,
+        subdirs: dict[str, Any] | None = None,
     ) -> str:
+        subdir_config = normalize_archive_subdirs(subdirs)
+        tv_root = str(subdir_config.get("tv_root") or "剧集")
         season = int(parsed.get("season") or 1)
         cache_key = (
             "tv",
             str(root_cid),
+            tv_root,
             str(genre),
             str(title_folder),
             f"S{season:02d}",
@@ -919,7 +966,7 @@ class ArchiveService:
         if folder_cache and cache_key in folder_cache:
             return folder_cache[cache_key]
 
-        tv_cid = await pan115.get_or_create_folder(root_cid, "剧集")
+        tv_cid = await pan115.get_or_create_folder(root_cid, tv_root)
         genre_cid = await pan115.get_or_create_folder(tv_cid, genre)
         title_cid = await pan115.get_or_create_folder(genre_cid, title_folder)
         season_dir = f"第{season}季"
@@ -984,10 +1031,11 @@ class ArchiveService:
             else str(parsed.get("year") or "")
         )
         genre_name = self._extract_genre_name(detail, media_type)
+        subdirs = self._get_archive_subdirs()
         region_name = (
-            self._extract_movie_region(detail)
+            self._extract_movie_region(detail, subdirs=subdirs)
             if media_type == "movie"
-            else self._extract_tv_category(detail)
+            else self._extract_tv_category(detail, subdirs=subdirs)
         )
 
         return {
@@ -1236,63 +1284,21 @@ class ArchiveService:
                     return n
         return TV_GENRE_DEFAULT
 
-    @staticmethod
-    def _extract_movie_region(detail: dict[str, Any]) -> str:
-        origin_country = detail.get("origin_country")
-        if isinstance(origin_country, list) and origin_country:
-            for country in origin_country:
-                country_str = str(country).upper().strip()
-                if country_str in MOVIE_REGION_MAP:
-                    return MOVIE_REGION_MAP[country_str]
-            first = str(origin_country[0]).upper().strip()
-            if first in MOVIE_REGION_MAP:
-                return MOVIE_REGION_MAP[first]
+    def _extract_movie_region(
+        self,
+        detail: dict[str, Any],
+        *,
+        subdirs: dict[str, Any] | None = None,
+    ) -> str:
+        return resolve_movie_category(detail, subdirs or self._get_archive_subdirs())
 
-        production_countries = detail.get("production_countries")
-        if isinstance(production_countries, list) and production_countries:
-            for pc in production_countries:
-                if isinstance(pc, dict):
-                    iso = str(pc.get("iso_3166_1") or "").upper().strip()
-                    if iso in MOVIE_REGION_MAP:
-                        return MOVIE_REGION_MAP[iso]
-
-        return MOVIE_REGION_DEFAULT
-
-    @staticmethod
-    def _extract_tv_category(detail: dict[str, Any]) -> str:
-        genres = detail.get("genres") if isinstance(detail.get("genres"), list) else []
-        for g in genres:
-            if isinstance(g, dict):
-                gid = g.get("id")
-                if isinstance(gid, int) and gid in TV_GENRE_MAP:
-                    genre_cat = TV_GENRE_MAP[gid]
-                    if genre_cat in TV_REGION_DEFAULT_FOR_GENRE:
-                        return genre_cat
-
-        origin_country = detail.get("origin_country")
-        origin_countries = []
-        if isinstance(origin_country, list):
-            origin_countries = [str(c).upper().strip() for c in origin_country]
-        elif isinstance(origin_country, str) and origin_country.strip():
-            origin_countries = [origin_country.strip().upper()]
-
-        for country in origin_countries:
-            if country in TV_REGION_MAP:
-                return TV_REGION_MAP[country]
-
-        production_countries = detail.get("production_countries")
-        if isinstance(production_countries, list) and production_countries:
-            for pc in production_countries:
-                if isinstance(pc, dict):
-                    iso = str(pc.get("iso_3166_1") or "").upper().strip()
-                    if iso in TV_REGION_MAP:
-                        return TV_REGION_MAP[iso]
-
-        origin_strs = ",".join(origin_countries) if origin_countries else ""
-        if "US" in origin_countries or "GB" in origin_countries:
-            return "美英剧"
-
-        return TV_REGION_DEFAULT
+    def _extract_tv_category(
+        self,
+        detail: dict[str, Any],
+        *,
+        subdirs: dict[str, Any] | None = None,
+    ) -> str:
+        return resolve_tv_category(detail, subdirs or self._get_archive_subdirs())
 
 
 archive_service = ArchiveService()

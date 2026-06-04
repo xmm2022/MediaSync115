@@ -34,39 +34,36 @@
             <span class="logo-subtitle">Search • Save • Sync</span>
           </div>
         </div>
-        <el-menu
-          :default-active="activeMenu"
-          @select="handleSideMenuSelect"
-        >
-          <el-sub-menu index="explore-group">
+        <el-menu :default-active="activeMenu" class="side-menu">
+          <el-sub-menu index="__explore__">
             <template #title>
               <el-icon><Search /></el-icon>
               <span>探索</span>
             </template>
-            <el-menu-item index="/explore/douban">豆瓣榜单</el-menu-item>
-            <el-menu-item index="/explore/tmdb">TMDB榜单</el-menu-item>
+            <el-menu-item index="/explore/douban" @click="navigateSideMenu('/explore/douban')">豆瓣榜单</el-menu-item>
+            <el-menu-item index="/explore/tmdb" @click="navigateSideMenu('/explore/tmdb')">TMDB榜单</el-menu-item>
           </el-sub-menu>
-          <el-menu-item index="/subscriptions">
+          <el-menu-item index="/subscriptions" @click="navigateSideMenu('/subscriptions')">
             <el-icon><Star /></el-icon>
             <span>订阅</span>
           </el-menu-item>
-          <el-menu-item index="/downloads">
+          <el-menu-item index="/downloads" @click="navigateSideMenu('/downloads')">
             <el-icon><Download /></el-icon>
             <span>离线下载</span>
           </el-menu-item>
-          <el-menu-item index="/archive">
+          <el-menu-item index="/archive" @click="navigateSideMenu('/archive')">
             <el-icon><FolderOpened /></el-icon>
             <span>归档刮削</span>
           </el-menu-item>
-          <el-menu-item index="/strm">
+          <el-menu-item index="/strm" @click="navigateSideMenu('/strm')">
             <el-icon><Link /></el-icon>
             <span>STRM</span>
           </el-menu-item>
-          <el-menu-item index="/logs">
+          <el-menu-item index="/logs" @click="navigateSideMenu('/logs')">
             <el-icon><Document /></el-icon>
             <span>日志</span>
           </el-menu-item>
-          <el-menu-item index="/settings">
+          <el-menu-item index="/settings" @click="navigateSideMenu('/settings')">
             <el-icon><Setting /></el-icon>
             <span>设置</span>
           </el-menu-item>
@@ -225,6 +222,7 @@ import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import { authApi, settingsApi } from '@/api'
 import { resetAuthSessionCache } from '@/router'
 import { formatBeijingDateTime } from '@/utils/timezone'
+import { prepareSidebarNavigation } from '@/utils/searchRouteSync'
 import {
   Search,
   Star,
@@ -265,6 +263,7 @@ const activeMenu = computed(() => {
   if (route.path === '/' || route.path === '/search') return '/explore/douban'
   if (route.path.startsWith('/explore/tmdb')) return '/explore/tmdb'
   if (route.path.startsWith('/explore/douban')) return '/explore/douban'
+  if (route.path.startsWith('/settings')) return '/settings'
   // 处理详情页等其他页面，返回最近访问的探索页面
   if (route.path.startsWith('/movie/') || route.path.startsWith('/tv/') || route.path.startsWith('/douban/')) {
     return '/explore/douban'
@@ -311,12 +310,15 @@ function handleGoHome() {
   router.replace({ path: homePath, query: {} })
 }
 
-/** 侧栏菜单导航（不用 el-menu router，避免子菜单 index 与 /explore 路由冲突） */
-function handleSideMenuSelect(index) {
-  const path = String(index || '').trim()
-  if (!path.startsWith('/')) return
-  if (path === route.path && !Object.keys(route.query).length) return
-  router.push({ path, query: {} }).catch(() => {})
+/** 侧栏菜单点击导航（显式 push，避免 el-menu router 与 keep-alive 探索页路由冲突） */
+function navigateSideMenu(path) {
+  const target = String(path || '').trim()
+  if (!target.startsWith('/')) return
+  const samePath = target === route.path
+  const emptyQuery = Object.keys(route.query || {}).length === 0
+  if (samePath && emptyQuery) return
+  prepareSidebarNavigation()
+  router.push({ path: target, query: {} }).catch(() => {})
 }
 
 const dockTabs = computed(() => {
@@ -342,6 +344,7 @@ function handleDockTab(tab) {
       router.push(lastExplorePage.value)
     }
   } else {
+    prepareSidebarNavigation()
     router.push(tab.route)
   }
 }
@@ -349,11 +352,13 @@ function handleDockTab(tab) {
 function handleExploreNav(path) {
   showExploreMenu.value = false
   lastExplorePage.value = path
+  prepareSidebarNavigation()
   router.push(path)
 }
 
 function handleMoreNav(path) {
   showMoreMenu.value = false
+  prepareSidebarNavigation()
   router.push(path)
 }
 
@@ -586,8 +591,11 @@ html, body, #app {
     }
   }
 
+  .side-menu,
   .el-menu {
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     border-right: none;
     background: transparent;
     padding: 16px 0;
