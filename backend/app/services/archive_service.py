@@ -16,6 +16,10 @@ from app.services.archive_subdir_config import (
     resolve_movie_category,
     resolve_tv_category,
 )
+from app.services.archive_naming_config import (
+    normalize_archive_naming,
+    render_archive_name,
+)
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.tmdb_service import tmdb_service
 
@@ -124,6 +128,10 @@ class ArchiveService:
     def _get_archive_subdirs(self) -> dict[str, Any]:
         config = self.get_config()
         return normalize_archive_subdirs(config.get("archive_subdirs"))
+
+    def _get_archive_naming(self) -> dict[str, str]:
+        config = self.get_config()
+        return normalize_archive_naming(config.get("archive_naming"))
 
     def get_runtime_status(self) -> dict[str, Any]:
         config = self.get_config()
@@ -519,7 +527,16 @@ class ArchiveService:
             region_name = str(matched.get("region_name") or MOVIE_REGION_DEFAULT)
             title = str(matched.get("title") or parsed["query_title"])
             year = str(matched.get("year") or parsed.get("year") or "")
-            title_folder = f"{title} ({year})" if year else title
+            naming = self._get_archive_naming()
+            title_folder = self._build_title_folder(
+                parsed["media_type"],
+                title,
+                year,
+                naming,
+                matched=matched,
+                parsed=parsed,
+                source_filename=filename,
+            )
 
             subdirs = self._get_archive_subdirs()
             if parsed["media_type"] == "tv":
@@ -531,10 +548,16 @@ class ArchiveService:
                     parsed,
                     folder_cache=folder_cache,
                     subdirs=subdirs,
+                    naming=naming,
                 )
                 season = int(parsed.get("season") or 1)
                 target_desc = self._build_target_desc(
-                    "tv", subdirs, region_name, title_folder, season=season
+                    "tv",
+                    subdirs,
+                    region_name,
+                    title_folder,
+                    season=season,
+                    naming=naming,
                 )
             else:
                 target_cid = await self._ensure_movie_path(
@@ -546,7 +569,7 @@ class ArchiveService:
                     subdirs=subdirs,
                 )
                 target_desc = self._build_target_desc(
-                    "movie", subdirs, region_name, title_folder
+                    "movie", subdirs, region_name, title_folder, naming=naming
                 )
 
             await self._update_task(
@@ -561,7 +584,7 @@ class ArchiveService:
 
             await pan115.move_file(fid, target_cid)
 
-            new_filename = self._build_target_filename(parsed, matched, filename)
+            new_filename = self._build_target_filename(parsed, matched, filename, naming)
             try:
                 await pan115.rename_file(fid, new_filename)
             except Exception:
@@ -571,7 +594,13 @@ class ArchiveService:
 
             if subtitle_items:
                 await self._move_subtitles(
-                    pan115, item, subtitle_items, target_cid, parsed, matched
+                    pan115,
+                    item,
+                    subtitle_items,
+                    target_cid,
+                    parsed,
+                    matched,
+                    naming=naming,
                 )
 
             await self._mark_task_success(db_task.id)
@@ -643,7 +672,16 @@ class ArchiveService:
             region_name = str(matched.get("region_name") or MOVIE_REGION_DEFAULT)
             title = str(matched.get("title") or parsed["query_title"])
             year = str(matched.get("year") or parsed.get("year") or "")
-            title_folder = f"{title} ({year})" if year else title
+            naming = self._get_archive_naming()
+            title_folder = self._build_title_folder(
+                parsed["media_type"],
+                title,
+                year,
+                naming,
+                matched=matched,
+                parsed=parsed,
+                source_filename=filename,
+            )
 
             subdirs = self._get_archive_subdirs()
             if parsed["media_type"] == "tv":
@@ -655,10 +693,16 @@ class ArchiveService:
                     parsed,
                     folder_cache=folder_cache,
                     subdirs=subdirs,
+                    naming=naming,
                 )
                 season = int(parsed.get("season") or 1)
                 target_desc = self._build_target_desc(
-                    "tv", subdirs, region_name, title_folder, season=season
+                    "tv",
+                    subdirs,
+                    region_name,
+                    title_folder,
+                    season=season,
+                    naming=naming,
                 )
             else:
                 target_cid = await self._ensure_movie_path(
@@ -670,7 +714,7 @@ class ArchiveService:
                     subdirs=subdirs,
                 )
                 target_desc = self._build_target_desc(
-                    "movie", subdirs, region_name, title_folder
+                    "movie", subdirs, region_name, title_folder, naming=naming
                 )
 
             await self._update_task(
@@ -695,7 +739,7 @@ class ArchiveService:
             await pan115.move_file(fid, target_cid)
 
             # --- 参考QMediaSync：移动后重命名为规范文件名 ---
-            new_filename = self._build_target_filename(parsed, matched, filename)
+            new_filename = self._build_target_filename(parsed, matched, filename, naming)
             try:
                 await pan115.rename_file(fid, new_filename)
             except Exception:
@@ -706,7 +750,13 @@ class ArchiveService:
             # --- 参考QMediaSync：关联移动字幕文件 ---
             if subtitle_items:
                 await self._move_subtitles(
-                    pan115, item, subtitle_items, target_cid, parsed, matched
+                    pan115,
+                    item,
+                    subtitle_items,
+                    target_cid,
+                    parsed,
+                    matched,
+                    naming=naming,
                 )
 
             await self._mark_task_success(db_task.id)
@@ -750,26 +800,63 @@ class ArchiveService:
     # ================================================================
 
     @staticmethod
+    def _build_title_folder(
+        media_type: str,
+        title: str,
+        year: str,
+        naming: dict[str, str] | None = None,
+        *,
+        matched: dict[str, Any] | None = None,
+        parsed: dict[str, Any] | None = None,
+        source_filename: str = "",
+    ) -> str:
+        template_key = "tv_folder" if media_type == "tv" else "movie_folder"
+        matched = matched or {}
+        parsed = parsed or {}
+        return render_archive_name(
+            naming,
+            template_key,
+            title=title,
+            year=year,
+            tmdb_id=matched.get("tmdb_id"),
+            media_type=str(parsed.get("media_type") or media_type),
+            category=str(matched.get("region_name") or ""),
+            source_filename=source_filename or str(parsed.get("source_filename") or ""),
+        )
+
     def _build_target_filename(
-        parsed: dict[str, Any], matched: dict[str, Any], original_filename: str
+        self,
+        parsed: dict[str, Any],
+        matched: dict[str, Any],
+        original_filename: str,
+        naming: dict[str, str] | None = None,
     ) -> str:
         title = str(matched.get("title") or parsed.get("query_title") or "")
         year = str(matched.get("year") or parsed.get("year") or "")
-        ext = parsed.get("extension", "")
+        ext = str(parsed.get("extension") or "")
+        if not ext and original_filename:
+            dot_index = original_filename.rfind(".")
+            if dot_index > 0:
+                ext = original_filename[dot_index:]
 
-        title = re.sub(r'[\\/:*?"<>|]', "", title).strip()
-        if not title:
+        if not title.strip():
             return original_filename
 
-        if parsed["media_type"] == "tv":
-            season = int(parsed.get("season") or 1)
-            return (
-                f"{title} ({year}) - S{season:02d}E{parsed.get('episode', 1):02d}{ext}"
-                if year
-                else f"{title} - S{season:02d}E{parsed.get('episode', 1):02d}{ext}"
-            )
-        else:
-            return f"{title} ({year}){ext}" if year else f"{title}{ext}"
+        template_key = "tv_file" if parsed.get("media_type") == "tv" else "movie_file"
+        rendered = render_archive_name(
+            naming,
+            template_key,
+            title=title,
+            year=year,
+            season=int(parsed.get("season") or 1),
+            episode=int(parsed.get("episode") or 1),
+            ext=ext,
+            tmdb_id=matched.get("tmdb_id"),
+            media_type=str(parsed.get("media_type") or "movie"),
+            category=str(matched.get("region_name") or ""),
+            source_filename=original_filename,
+        )
+        return rendered or original_filename
 
     async def _move_subtitles(
         self,
@@ -779,6 +866,7 @@ class ArchiveService:
         target_cid: str,
         parsed: dict[str, Any],
         matched: dict[str, Any],
+        naming: dict[str, str] | None = None,
     ) -> None:
         video_base = re.sub(r"\.[^.]+$", "", video_item["name"]).lower()
         video_cid = video_item.get("cid", "")
@@ -794,7 +882,13 @@ class ArchiveService:
 
             try:
                 await pan115.move_file(sub["fid"], target_cid)
-                new_sub_name = self._build_target_filename(parsed, matched, sub["name"])
+                sub_ext = sub["name"][sub["name"].rfind(".") :] if "." in sub["name"] else ""
+                sub_parsed = dict(parsed)
+                if sub_ext:
+                    sub_parsed["extension"] = sub_ext
+                new_sub_name = self._build_target_filename(
+                    sub_parsed, matched, sub["name"], naming
+                )
                 try:
                     await pan115.rename_file(sub["fid"], new_sub_name)
                 except Exception:
@@ -912,11 +1006,20 @@ class ArchiveService:
         title_folder: str,
         *,
         season: int | None = None,
+        naming: dict[str, str] | None = None,
     ) -> str:
         if media_type == "tv":
             tv_root = str(subdirs.get("tv_root") or "剧集")
             season_num = int(season or 1)
-            return f"{tv_root}/{category_name}/{title_folder}/第{season_num}季"
+            season_folder = render_archive_name(
+                naming,
+                "tv_season_folder",
+                title="",
+                season=season_num,
+            )
+            if not season_folder:
+                season_folder = f"第{season_num}季"
+            return f"{tv_root}/{category_name}/{title_folder}/{season_folder}"
         movie_root = str(subdirs.get("movie_root") or "电影")
         return f"{movie_root}/{category_name}/{title_folder}"
 
@@ -951,17 +1054,26 @@ class ArchiveService:
         parsed: dict[str, Any],
         folder_cache: dict[tuple[str, ...], str] | None = None,
         subdirs: dict[str, Any] | None = None,
+        naming: dict[str, str] | None = None,
     ) -> str:
         subdir_config = normalize_archive_subdirs(subdirs)
         tv_root = str(subdir_config.get("tv_root") or "剧集")
         season = int(parsed.get("season") or 1)
+        season_dir = render_archive_name(
+            naming,
+            "tv_season_folder",
+            title="",
+            season=season,
+        )
+        if not season_dir:
+            season_dir = f"第{season}季"
         cache_key = (
             "tv",
             str(root_cid),
             tv_root,
             str(genre),
             str(title_folder),
-            f"S{season:02d}",
+            season_dir,
         )
         if folder_cache and cache_key in folder_cache:
             return folder_cache[cache_key]
@@ -969,7 +1081,6 @@ class ArchiveService:
         tv_cid = await pan115.get_or_create_folder(root_cid, tv_root)
         genre_cid = await pan115.get_or_create_folder(tv_cid, genre)
         title_cid = await pan115.get_or_create_folder(genre_cid, title_folder)
-        season_dir = f"第{season}季"
         season_cid = await pan115.get_or_create_folder(title_cid, season_dir)
         if folder_cache is not None:
             folder_cache[cache_key] = season_cid

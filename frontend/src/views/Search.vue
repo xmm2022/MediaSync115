@@ -35,7 +35,7 @@
         <p>榜单支持横向拖动浏览，按住卡片区域左右拖动即可完整查看。</p>
       </div>
 
-      <div class="recommend-sections" v-loading="exploreLoading && tmdbConfigured">
+      <div class="recommend-sections">
         <TmdbSetupPrompt
           v-if="exploreSource === 'tmdb' && !tmdbConfigured"
           @configured="handleTmdbConfigured"
@@ -67,10 +67,25 @@
 
         <template v-else-if="exploreLoading && tmdbConfigured">
           <div class="explore-skeleton">
-            <div v-for="n in 3" :key="`skeleton-${n}`" class="skeleton-section">
-              <div class="skeleton-section-title" />
-              <div class="skeleton-cards">
-                <div v-for="m in 6" :key="`card-${m}`" class="skeleton-card">
+            <div
+              v-for="n in EXPLORE_SKELETON_SECTION_COUNT"
+              :key="`skeleton-section-${n}`"
+              class="recommend-group skeleton-group"
+            >
+              <div class="group-header skeleton-group-header">
+                <div class="group-title">
+                  <div class="skeleton-line skeleton-title-line" />
+                  <div class="skeleton-line skeleton-tag-line" />
+                  <div class="skeleton-line skeleton-sub-line" />
+                </div>
+                <div class="skeleton-line skeleton-action-line" />
+              </div>
+              <div class="skeleton-row">
+                <div
+                  v-for="m in exploreSkeletonCardCount"
+                  :key="`skeleton-card-${n}-${m}`"
+                  class="skeleton-card"
+                >
                   <div class="skeleton-poster" />
                   <div class="skeleton-title" />
                 </div>
@@ -612,6 +627,11 @@ let pressScrollTimer = null
 let scrollStateRafId = 0
 const pendingScrollStateKeys = new Set()
 const cardsPerViewRef = ref(initialExploreCardLayout.cardsPerView)
+const EXPLORE_SKELETON_SECTION_COUNT = 4
+const exploreSkeletonCardCount = computed(() => {
+  const perView = Number(cardsPerViewRef.value) || 6
+  return Math.max(4, Math.min(8, perView))
+})
 const homeSectionMetaMap = new Map()
 const homeSectionLoadPromises = new Map()
 const homeSectionPrefetchTimers = new Map()
@@ -1978,48 +1998,97 @@ onBeforeUnmount(() => {
     }
 
     .explore-skeleton {
-      .skeleton-section {
-        margin-bottom: 32px;
+      .skeleton-group {
+        padding-top: 16px;
 
-        .skeleton-section-title {
-          width: 200px;
-          height: 28px;
-          background: linear-gradient(90deg, var(--ms-bg-elevated) 25%, var(--ms-bg-hover) 50%, var(--ms-bg-elevated) 75%);
-          background-size: 200% 100%;
-          animation: skeleton-loading 1.5s ease-in-out infinite;
-          border-radius: 8px;
-          margin-bottom: 16px;
+        &:not(:first-child) {
+          margin-top: 12px;
+          border-top: 1px solid var(--ms-border-color);
+        }
+      }
+
+      .skeleton-group-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+
+        .group-title {
+          display: flex;
+          align-items: center;
+          gap: 10px;
         }
 
-        .skeleton-cards {
-          display: flex;
-          gap: 16px;
-          overflow: hidden;
+        .skeleton-title-line {
+          width: 120px;
+          height: 18px;
+        }
 
-          .skeleton-card {
-            flex: 0 0 auto;
-            width: var(--recommend-card-width, 188px);
-            min-width: var(--recommend-card-width, 188px);
+        .skeleton-tag-line {
+          width: 52px;
+          height: 22px;
+          border-radius: 999px;
+        }
 
-            .skeleton-poster {
-              width: 100%;
-              height: 282px;
-              background: linear-gradient(90deg, var(--ms-bg-elevated) 25%, var(--ms-bg-hover) 50%, var(--ms-bg-elevated) 75%);
-              background-size: 200% 100%;
-              animation: skeleton-loading 1.5s ease-in-out infinite;
-              border-radius: 12px;
-              margin-bottom: 12px;
-            }
+        .skeleton-sub-line {
+          width: 48px;
+          height: 14px;
+        }
 
-            .skeleton-title {
-              width: 80%;
-              height: 20px;
-              background: linear-gradient(90deg, var(--ms-bg-elevated) 25%, var(--ms-bg-hover) 50%, var(--ms-bg-elevated) 75%);
-              background-size: 200% 100%;
-              animation: skeleton-loading 1.5s ease-in-out infinite;
-              border-radius: 4px;
-            }
-          }
+        .skeleton-action-line {
+          width: 40px;
+          height: 16px;
+        }
+      }
+
+      .skeleton-line {
+        border-radius: 8px;
+        background: linear-gradient(
+          90deg,
+          rgba(89, 151, 226, 0.18) 25%,
+          rgba(148, 205, 255, 0.3) 37%,
+          rgba(89, 151, 226, 0.18) 63%
+        );
+        background-size: 300% 100%;
+        animation: explore-skeleton-shimmer 1.2s ease-in-out infinite;
+      }
+
+      .skeleton-row {
+        display: flex;
+        gap: 16px;
+        overflow: hidden;
+        padding-bottom: 8px;
+
+        .skeleton-card {
+          width: var(--recommend-card-width, 188px);
+          min-width: var(--recommend-card-width, 188px);
+        }
+
+        .skeleton-poster {
+          aspect-ratio: 2 / 3;
+          border-radius: 14px;
+          background: linear-gradient(
+            90deg,
+            rgba(89, 151, 226, 0.22) 25%,
+            rgba(148, 205, 255, 0.34) 37%,
+            rgba(89, 151, 226, 0.22) 63%
+          );
+          background-size: 300% 100%;
+          animation: explore-skeleton-shimmer 1.2s ease-in-out infinite;
+        }
+
+        .skeleton-title {
+          height: 14px;
+          margin: 10px 12px 0;
+          border-radius: 6px;
+          background: linear-gradient(
+            90deg,
+            rgba(89, 151, 226, 0.22) 25%,
+            rgba(148, 205, 255, 0.34) 37%,
+            rgba(89, 151, 226, 0.22) 63%
+          );
+          background-size: 300% 100%;
+          animation: explore-skeleton-shimmer 1.2s ease-in-out infinite;
         }
       }
     }
@@ -2718,6 +2787,11 @@ onBeforeUnmount(() => {
 @keyframes explorePageFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes explore-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 @keyframes skeleton-loading {

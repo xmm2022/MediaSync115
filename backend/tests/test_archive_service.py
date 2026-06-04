@@ -69,3 +69,20 @@ class TestArchiveService:
         )
         assert movie_desc == "Movies/华语电影/黑客帝国 (1999)"
         assert tv_desc == "TV Shows/国产剧/庆余年 (2019)/第1季"
+
+    def test_build_target_filename_with_custom_naming(self) -> None:
+        """测试自定义文件命名模板"""
+        parsed = {
+            "media_type": "movie",
+            "query_title": "The Matrix",
+            "extension": ".mkv",
+        }
+        matched = {"title": "黑客帝国", "year": "1999", "tmdb_id": 603, "region_name": "华语电影"}
+        naming = {"movie_file": "{title}.{year}.{format}{ext}"}
+        filename = archive_service._build_target_filename(
+            parsed,
+            matched,
+            "The.Matrix.1999.2160p.HDR10.HEVC.WEB-DL.mkv",
+            naming,
+        )
+        assert filename == "黑客帝国.1999.4K HDR10 HEVC.mkv"

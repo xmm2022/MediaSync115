@@ -9,6 +9,10 @@ from app.services.archive_subdir_config import (
     get_archive_subdir_options,
     normalize_archive_subdirs,
 )
+from app.services.archive_naming_config import (
+    get_archive_naming_options,
+    normalize_archive_naming,
+)
 from app.services.pan115_service import Pan115Service
 from app.services.runtime_settings_service import runtime_settings_service
 
@@ -49,6 +53,10 @@ class ArchiveConfigRequest(BaseModel):
         default=None,
         description="归档二级目录配置（电影/剧集分类文件夹）",
     )
+    archive_naming: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="归档命名格式配置（文件名/文件夹名模板）",
+    )
 
     class Config:
         extra = "allow"
@@ -58,6 +66,12 @@ class ArchiveConfigRequest(BaseModel):
 async def get_archive_subdir_options_api():
     """归档二级目录匹配规则的可视化选项（国家/地区、TMDB 类型等）"""
     return get_archive_subdir_options()
+
+
+@router.get("/naming-options")
+async def get_archive_naming_options_api():
+    """归档命名格式模板变量说明与默认值"""
+    return get_archive_naming_options()
 
 
 @router.get("/config")
@@ -101,6 +115,14 @@ async def update_archive_config(payload: ArchiveConfigRequest):
         try:
             updates["archive_subdirs"] = normalize_archive_subdirs(
                 updates["archive_subdirs"]
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if "archive_naming" in updates and updates["archive_naming"] is not None:
+        try:
+            updates["archive_naming"] = normalize_archive_naming(
+                updates["archive_naming"]
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

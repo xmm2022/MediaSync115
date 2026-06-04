@@ -10,6 +10,10 @@ from app.services.archive_subdir_config import (
     DEFAULT_ARCHIVE_SUBDIRS,
     normalize_archive_subdirs,
 )
+from app.services.archive_naming_config import (
+    DEFAULT_ARCHIVE_NAMING,
+    normalize_archive_naming,
+)
 from app.services.hdhive_service import hdhive_service
 from app.services.pansou_service import pansou_service
 from app.services.tg_service import tg_service
@@ -175,6 +179,7 @@ class RuntimeSettingsService:
             "archive_auto_on_offline": True,
             "offline_monitor_interval_minutes": 3,
             "archive_subdirs": DEFAULT_ARCHIVE_SUBDIRS,
+            "archive_naming": DEFAULT_ARCHIVE_NAMING,
             "strm_enabled": False,
             "strm_output_dir": "",
             "strm_base_url": "",
@@ -841,6 +846,13 @@ class RuntimeSettingsService:
         except ValueError:
             return normalize_archive_subdirs(DEFAULT_ARCHIVE_SUBDIRS)
 
+    def get_archive_naming(self) -> dict[str, str]:
+        raw = self._data.get("archive_naming")
+        try:
+            return normalize_archive_naming(raw)
+        except ValueError:
+            return normalize_archive_naming(DEFAULT_ARCHIVE_NAMING)
+
     def get_archive_config(self) -> dict[str, Any]:
         return {
             "archive_enabled": self.get_archive_enabled(),
@@ -853,6 +865,7 @@ class RuntimeSettingsService:
             "archive_auto_on_offline": self.get_archive_auto_on_offline(),
             "offline_monitor_interval_minutes": self.get_offline_monitor_interval_minutes(),
             "archive_subdirs": self.get_archive_subdirs(),
+            "archive_naming": self.get_archive_naming(),
         }
 
     def get_strm_enabled(self) -> bool:
@@ -1007,6 +1020,10 @@ class RuntimeSettingsService:
         if "archive_subdirs" in payload and payload["archive_subdirs"] is not None:
             self._data["archive_subdirs"] = normalize_archive_subdirs(
                 payload["archive_subdirs"]
+            )
+        if "archive_naming" in payload and payload["archive_naming"] is not None:
+            self._data["archive_naming"] = normalize_archive_naming(
+                payload["archive_naming"]
             )
 
         self._save()

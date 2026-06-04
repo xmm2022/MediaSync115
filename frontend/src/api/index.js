@@ -317,6 +317,7 @@ export const logsApi = {
 
 export const archiveApi = {
   getSubdirOptions: () => api.get('/archive/subdir-options'),
+  getNamingOptions: () => api.get('/archive/naming-options'),
   getConfig: () => api.get('/archive/config'),
   updateConfig: (payload) => api.put('/archive/config', payload),
   listFolders: (cid = '0') => api.get('/archive/folders', { params: { cid } }),

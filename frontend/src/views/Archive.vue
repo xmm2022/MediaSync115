@@ -121,6 +121,58 @@
 
     <el-card class="section-card">
       <template #header>
+        <div class="subdir-header">
+          <div>
+            <div class="card-title">命名格式配置</div>
+            <p class="subdir-subtitle">自定义归档后的文件名与文件夹名，使用变量组合模板。</p>
+          </div>
+          <el-button size="small" @click="resetNamingDefaults">恢复默认</el-button>
+        </div>
+      </template>
+
+      <div class="naming-vars-groups">
+        <div v-for="group in namingVariableGroups" :key="group.key" class="naming-var-group">
+          <div class="naming-var-group-title">{{ group.label }}</div>
+          <div class="naming-vars">
+            <el-tag
+              v-for="item in group.variables"
+              :key="item.key"
+              size="small"
+              type="info"
+              class="naming-var-tag"
+            >
+              {{ formatNamingVar(item.key) }} · {{ item.label }}
+              <span v-if="item.example" class="naming-var-example">（{{ item.example }}）</span>
+            </el-tag>
+          </div>
+        </div>
+      </div>
+
+      <div class="naming-table">
+        <div v-for="item in namingTemplateMeta" :key="item.key" class="naming-row">
+          <div class="naming-label">{{ item.label }}</div>
+          <el-input
+            v-model="config.archive_naming[item.key]"
+            :placeholder="defaultNaming[item.key]"
+            maxlength="200"
+          />
+          <div class="naming-preview" :title="previewNaming(item.key)">
+            {{ previewNaming(item.key) }}
+          </div>
+        </div>
+      </div>
+
+      <div class="form-hint naming-hint">
+        示例电影路径：{{ moviePathPreview }}。画质变量从源文件名解析（如 2160p、HDR10、HEVC）。修改后仅影响新归档文件。
+      </div>
+
+      <div class="config-actions">
+        <el-button type="primary" :loading="saving" @click="saveConfig">保存配置</el-button>
+      </div>
+    </el-card>
+
+    <el-card class="section-card">
+      <template #header>
         <div class="card-title">运行状态</div>
       </template>
 
@@ -279,6 +331,15 @@ import {
   FALLBACK_SUBDIR_OPTIONS,
   validateArchiveSubdirs
 } from '@/utils/archiveSubdirs'
+import {
+  applyArchiveNaming,
+  buildArchiveNamingPayload,
+  buildNamingVariableGroups,
+  DEFAULT_ARCHIVE_NAMING,
+  NAMING_TEMPLATE_META,
+  previewArchiveNaming,
+  validateArchiveNaming
+} from '@/utils/archiveNaming'
 import { formatBeijingTableCell } from '@/utils/timezone'
 
 const refreshing = ref(false)
@@ -290,6 +351,9 @@ const tasks = ref([])
 let scanPollingTimer = null
 
 const subdirOptions = reactive({ ...FALLBACK_SUBDIR_OPTIONS })
+const defaultNaming = { ...DEFAULT_ARCHIVE_NAMING }
+const namingTemplateMeta = NAMING_TEMPLATE_META
+const namingVariableGroups = ref(buildNamingVariableGroups())
 
 const config = reactive({
   archive_enabled: false,
@@ -301,7 +365,8 @@ const config = reactive({
   archive_auto_on_transfer: true,
   archive_auto_on_offline: true,
   offline_monitor_interval_minutes: 3,
-  archive_subdirs: applyArchiveSubdirs()
+  archive_subdirs: applyArchiveSubdirs(),
+  archive_naming: applyArchiveNaming()
 })
 
 const subdirTab = ref('movie')
@@ -374,6 +439,15 @@ const loadSubdirOptions = async () => {
   }
 }
 
+const loadNamingOptions = async () => {
+  try {
+    const { data } = await archiveApi.getNamingOptions()
+    namingVariableGroups.value = buildNamingVariableGroups(data)
+  } catch {
+    namingVariableGroups.value = buildNamingVariableGroups()
+  }
+}
+
 const removeSubdirCategory = (mediaType, index) => {
   const list = mediaType === 'movie'
     ? config.archive_subdirs.movie_categories
@@ -387,6 +461,22 @@ const resetSubdirDefaults = () => {
   Object.assign(config.archive_subdirs, applyArchiveSubdirs())
   ElMessage.success('已恢复默认二级目录配置（保存后生效）')
 }
+
+const resetNamingDefaults = () => {
+  Object.assign(config.archive_naming, applyArchiveNaming())
+  ElMessage.success('已恢复默认命名格式（保存后生效）')
+}
+
+const previewNaming = (templateKey) => previewArchiveNaming(config.archive_naming, templateKey)
+
+const formatNamingVar = (key) => `{${key}}`
+
+const moviePathPreview = computed(() => {
+  const movieRoot = config.archive_subdirs.movie_root || '电影'
+  const folder = previewArchiveNaming(config.archive_naming, 'movie_folder')
+  const file = previewArchiveNaming(config.archive_naming, 'movie_file')
+  return `${movieRoot}/华语电影/${folder}/${file}`
+})
 
 const mediaTypeLabel = (v) => v === 'movie' ? '电影' : v === 'tv' ? '剧集' : '-'
 const statusLabel = (v) => ({ processing: '处理中', success: '成功', failed: '失败', skipped: '跳过' }[v] || '待处理')
@@ -411,6 +501,7 @@ const loadConfig = async () => {
   config.archive_auto_on_offline = data.archive_auto_on_offline !== false
   config.offline_monitor_interval_minutes = Number(data.offline_monitor_interval_minutes || 3)
   Object.assign(config.archive_subdirs, applyArchiveSubdirs(data.archive_subdirs))
+  Object.assign(config.archive_naming, applyArchiveNaming(data.archive_naming))
   applySubdirOptions({
     country_groups: subdirOptions.country_groups.length
       ? subdirOptions.country_groups
@@ -456,9 +547,14 @@ const refreshAll = async () => {
 }
 
 const saveConfig = async () => {
-  const validationError = validateArchiveSubdirs(config.archive_subdirs)
-  if (validationError) {
-    ElMessage.warning(validationError)
+  const subdirError = validateArchiveSubdirs(config.archive_subdirs)
+  if (subdirError) {
+    ElMessage.warning(subdirError)
+    return
+  }
+  const namingError = validateArchiveNaming(config.archive_naming)
+  if (namingError) {
+    ElMessage.warning(namingError)
     return
   }
   saving.value = true
@@ -473,9 +569,11 @@ const saveConfig = async () => {
       archive_auto_on_transfer: config.archive_auto_on_transfer,
       archive_auto_on_offline: config.archive_auto_on_offline,
       offline_monitor_interval_minutes: config.offline_monitor_interval_minutes,
-      archive_subdirs: buildArchiveSubdirsPayload(config.archive_subdirs)
+      archive_subdirs: buildArchiveSubdirsPayload(config.archive_subdirs),
+      archive_naming: buildArchiveNamingPayload(config.archive_naming)
     })
     Object.assign(config.archive_subdirs, applyArchiveSubdirs(data.archive_subdirs))
+    Object.assign(config.archive_naming, applyArchiveNaming(data.archive_naming))
     ElMessage.success('归档配置已保存')
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '保存归档配置失败')
@@ -652,7 +750,7 @@ const confirmPicker = () => {
 }
 
 onMounted(async () => {
-  await loadSubdirOptions()
+  await Promise.all([loadSubdirOptions(), loadNamingOptions()])
   await refreshAll()
   if (runtime.scan_running) {
     startScanPolling()
@@ -745,6 +843,74 @@ onBeforeUnmount(() => {
 
   .subdir-hint { margin-top: 12px; }
 
+  .naming-vars-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .naming-var-group-title {
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ms-text-secondary);
+  }
+
+  .naming-vars {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .naming-var-tag {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .naming-var-example {
+    opacity: 0.75;
+    font-size: 11px;
+  }
+
+  .naming-table {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .naming-row {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr) minmax(180px, 240px);
+    gap: 12px;
+    align-items: center;
+  }
+
+  .naming-label {
+    font-size: 14px;
+    color: var(--ms-text-primary);
+    font-weight: 500;
+  }
+
+  .naming-preview {
+    font-size: 12px;
+    color: var(--ms-text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--ms-bg-elevated);
+  }
+
+  .naming-hint { margin-top: 12px; }
+
+  @media (max-width: 900px) {
+    .naming-row {
+      grid-template-columns: 1fr;
+    }
+  }
 
   .status-grid {
     display: grid;
