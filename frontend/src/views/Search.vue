@@ -158,7 +158,18 @@
               </div>
               <div class="action-buttons">
                 <el-button
-                  v-if="!item.isPansouResult"
+                  v-if="!item.isPansouResult && item.media_type === 'person'"
+                  class="action-btn subscribe-btn"
+                  :type="item.isFollowed ? 'success' : 'primary'"
+                  size="small"
+                  :loading="item.following"
+                  @click.stop="handleFollowPerson(item)"
+                >
+                  <el-icon><User /></el-icon>
+                  {{ item.isFollowed ? '已关注(取消)' : '关注' }}
+                </el-button>
+                <el-button
+                  v-else-if="!item.isPansouResult && item.media_type !== 'person'"
                   class="action-btn subscribe-btn"
                   :type="item.isSubscribed ? 'success' : 'primary'"
                   size="small"
@@ -169,6 +180,18 @@
                   {{ item.isSubscribed ? '已订阅(取消)' : '订阅' }}
                 </el-button>
                 <el-button
+                  v-if="!item.isPansouResult && (item.media_type === 'movie' || item.media_type === 'tv')"
+                  class="action-btn watchlist-btn"
+                  type="info"
+                  size="small"
+                  :loading="item.addingToWatchlist"
+                  @click.stop="openWatchlistDialog(item)"
+                >
+                  <el-icon><Collection /></el-icon>
+                  片单
+                </el-button>
+                <el-button
+                  v-if="item.media_type !== 'person'"
                   class="action-btn save-btn"
                   type="warning"
                   size="small"
@@ -206,6 +229,28 @@
 
       <el-empty v-else-if="!loading && searched" description="没有找到相关内容" />
     </section>
+
+    <el-dialog v-model="watchlistDialogVisible" title="加入片单" width="420px">
+      <el-form label-width="80px">
+        <el-form-item label="选择片单">
+          <el-select v-model="selectedWatchlistId" placeholder="请选择片单" style="width: 100%">
+            <el-option
+              v-for="list in watchlists"
+              :key="list.id"
+              :label="`${list.name} (${list.item_count || 0})`"
+              :value="list.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button text type="primary" @click="openQuickCreateWatchlist">新建片单</el-button>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="watchlistDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="addingToWatchlist" @click="confirmAddToWatchlist">确认加入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -219,14 +264,16 @@ import {
   restorePendingLeaveNavigation
 } from '@/utils/searchRouteSync'
 import { ElMessage } from 'element-plus'
-import { searchApi, subscriptionApi, pan115Api, settingsApi } from '@/api'
+import { searchApi, subscriptionApi, pan115Api, settingsApi, watchlistApi, personFollowApi } from '@/api'
 import ExploreSectionRow from '@/components/explore/ExploreSectionRow.vue'
 import TmdbSetupPrompt from '@/components/explore/TmdbSetupPrompt.vue'
 import LibraryBadge from '@/components/media/LibraryBadge.vue'
 import {
   Search as SearchIcon,
   Star,
-  FolderAdd
+  FolderAdd,
+  Collection,
+  User
 } from '@element-plus/icons-vue'
 import {
   EXPLORE_CARD_GAP,
@@ -325,6 +372,12 @@ const toValidTmdbId = (rawId) => {
 const subscribedKeys = ref(new Set())
 const subscribedIdMap = ref(new Map())
 const subscribedDoubanIds = ref(new Set()) // 存储豆瓣ID订阅集合
+const followedPersonIds = ref(new Set())
+const watchlists = ref([])
+const watchlistDialogVisible = ref(false)
+const selectedWatchlistId = ref(null)
+const watchlistTargetItem = ref(null)
+const addingToWatchlist = ref(false)
 const subscribedImdbIds = ref(new Set()) // 存储IMDB ID订阅集合
 const embyStatusMap = ref(new Map())
 const feiniuStatusMap = ref(new Map())
@@ -579,7 +632,9 @@ const refreshSubscribedKeys = async () => {
 const goToDetail = (mediaType, tmdbId) => {
   if (!tmdbId) return
   clearSearchReturnContext()
-  const path = mediaType === 'tv' ? `/tv/${tmdbId}` : `/movie/${tmdbId}`
+  let path = `/movie/${tmdbId}`
+  if (mediaType === 'tv') path = `/tv/${tmdbId}`
+  if (mediaType === 'person') path = `/person/${tmdbId}`
   router.push({
     path,
     query: { from: route.fullPath }
@@ -1137,7 +1192,7 @@ const getMediaTypeLabel = (type) => {
     movie: '电影',
     tv: '电视剧',
     collection: '合集',
-    person: '浜虹墿',
+    person: '人物',
     resource: '网盘资源'
   }
   return labels[type] || type
@@ -1191,7 +1246,11 @@ const normalizeSearchResultItem = (item, index = 0, fallbackService = '') => {
     ...item,
     id: normalizedId,
     media_type: item.media_type || (isPansouResult ? 'resource' : ''),
-    poster_path: item.poster || item.poster_path,
+    poster_path: item.media_type === 'person'
+      ? (item.profile_path || item.poster || item.poster_path)
+      : (item.poster || item.poster_path),
+    profile_path: item.profile_path || (item.media_type === 'person' ? item.poster_path : ''),
+    known_for_department: item.known_for_department || '',
     name: item.title || item.name,
     vote_average: item.vote || item.vote_average,
     source_service: sourceService,
@@ -1282,6 +1341,8 @@ const initializeExploreHome = async () => {
   const tasks = [
     fetchExploreSections(),
     refreshSubscribedKeys(),
+    refreshFollowedPersonIds(),
+    refreshWatchlists(),
     fetchExploreQueueActiveTasks()
   ]
   await Promise.allSettled(tasks)
@@ -1365,6 +1426,7 @@ const runSearchRequest = async (keyword, page = 1) => {
       normalizeSearchResultItem(item, index, activeSearchService.value)
     )
     applySubscribedFlags()
+    applyFollowedFlags()
     const backendPages = Number(data.total_pages) || 0
     totalPages.value = backendPages || (results.value.length > 0 ? 1 : 0)
     await replaceSearchBarUrl(normalized, currentPage.value)
@@ -1435,6 +1497,13 @@ const handleItemClick = (item) => {
     openSearchResultDetail('tv', id)
   } else if (type === 'collection') {
     openSearchResultDetail('movie', id)
+  } else if (type === 'person') {
+    saveSearchReturnContext({
+      path: route.path,
+      keyword: lastSearchKeyword.value,
+      page: currentPage.value
+    })
+    router.push({ path: `/person/${id}`, query: { from: route.fullPath } })
   }
 }
 
@@ -1523,13 +1592,130 @@ const handleExploreItemClick = async (item) => {
   goToDetail(routeInfo.media_type, routeInfo.tmdb_id)
 }
 
+const refreshFollowedPersonIds = async () => {
+  try {
+    const { data } = await personFollowApi.getStatusMap()
+    const map = data?.person_id_map || {}
+    followedPersonIds.value = new Set(Object.keys(map))
+    applyFollowedFlags()
+  } catch (error) {
+    console.error('Failed to refresh followed persons:', error)
+  }
+}
+
+const applyFollowedFlags = () => {
+  for (const item of results.value) {
+    if (item.media_type === 'person') {
+      const personId = String(item.tmdb_id || item.id || '')
+      item.isFollowed = followedPersonIds.value.has(personId)
+    }
+  }
+}
+
+const refreshWatchlists = async () => {
+  try {
+    const { data } = await watchlistApi.list()
+    watchlists.value = Array.isArray(data) ? data : []
+  } catch (error) {
+    console.error('Failed to refresh watchlists:', error)
+  }
+}
+
+const openWatchlistDialog = async (item) => {
+  watchlistTargetItem.value = item
+  selectedWatchlistId.value = watchlists.value[0]?.id || null
+  if (!watchlists.value.length) {
+    await refreshWatchlists()
+    selectedWatchlistId.value = watchlists.value[0]?.id || null
+  }
+  watchlistDialogVisible.value = true
+}
+
+const openQuickCreateWatchlist = async () => {
+  const name = window.prompt('请输入片单名称')
+  if (!name || !String(name).trim()) return
+  try {
+    const { data } = await watchlistApi.create({ name: String(name).trim() })
+    await refreshWatchlists()
+    selectedWatchlistId.value = data.id
+    ElMessage.success('片单已创建')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '创建片单失败')
+  }
+}
+
+const confirmAddToWatchlist = async () => {
+  const item = watchlistTargetItem.value
+  const watchlistId = selectedWatchlistId.value
+  if (!item || !watchlistId) {
+    ElMessage.warning('请选择片单')
+    return
+  }
+  const mediaType = item.media_type
+  const tmdbId = toValidTmdbId(item.tmdb_id || item.id)
+  if (!tmdbId || (mediaType !== 'movie' && mediaType !== 'tv')) {
+    ElMessage.warning('仅支持电影或电视剧加入片单')
+    return
+  }
+  item.addingToWatchlist = true
+  addingToWatchlist.value = true
+  try {
+    await watchlistApi.addItem(watchlistId, {
+      tmdb_id: tmdbId,
+      media_type: mediaType,
+      title: item.name || item.title || `TMDB ${tmdbId}`,
+      poster_path: item.poster_path,
+      year: getYear(item),
+      rating: item.vote_average
+    })
+    watchlistDialogVisible.value = false
+    ElMessage.success('已加入片单')
+    await refreshWatchlists()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '加入片单失败')
+  } finally {
+    item.addingToWatchlist = false
+    addingToWatchlist.value = false
+  }
+}
+
+const handleFollowPerson = async (item) => {
+  const personId = toValidTmdbId(item.tmdb_id || item.id)
+  if (!personId) {
+    ElMessage.warning('未找到有效的演职员 ID')
+    return
+  }
+  item.following = true
+  try {
+    const { data } = await personFollowApi.toggle({
+      tmdb_person_id: personId,
+      name: item.name || item.title,
+      profile_path: item.profile_path || item.poster_path,
+      known_for_department: item.known_for_department
+    })
+    if (data.followed) {
+      followedPersonIds.value.add(String(personId))
+      item.isFollowed = true
+      ElMessage.success('已关注')
+    } else {
+      followedPersonIds.value.delete(String(personId))
+      item.isFollowed = false
+      ElMessage.success('已取消关注')
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '关注操作失败')
+  } finally {
+    item.following = false
+  }
+}
+
 const handleSubscribe = async (item) => {
   if (item.isPansouResult || item.media_type === 'resource') {
     ElMessage.warning('盘搜资源不支持订阅')
     return
   }
   if (item.media_type === 'person') {
-    ElMessage.warning('暂不支持订阅人物')
+    await handleFollowPerson(item)
     return
   }
 
@@ -1821,6 +2007,8 @@ const resetExploreState = () => {
 onMounted(async () => {
   calculateCardWidth()
   loadResourcePriority()
+  refreshFollowedPersonIds()
+  refreshWatchlists()
   const restored = await restoreSearchFromRoute()
   if (!restored) {
     await initializeExploreHome()

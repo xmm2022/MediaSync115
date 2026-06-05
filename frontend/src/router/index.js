@@ -41,6 +41,21 @@ const routes = [
     component: () => import('@/views/Subscriptions.vue')
   },
   {
+    path: '/watchlists',
+    name: 'Watchlists',
+    component: () => import('@/views/Watchlists.vue')
+  },
+  {
+    path: '/person-follows',
+    name: 'PersonFollows',
+    component: () => import('@/views/PersonFollows.vue')
+  },
+  {
+    path: '/person/:id',
+    name: 'PersonDetail',
+    component: () => import('@/views/PersonDetail.vue')
+  },
+  {
     path: '/downloads',
     name: 'Downloads',
     component: () => import('@/views/Downloads.vue')

@@ -169,6 +169,9 @@ class RuntimeSettingsService:
             "chart_subscription_sources": [],
             "chart_subscription_limit": 20,
             "chart_subscription_interval_hours": 24,
+            "person_follow_enabled": False,
+            "person_follow_interval_hours": 24,
+            "person_follow_auto_subscribe": True,
             "archive_enabled": False,
             "archive_watch_cid": "",
             "archive_watch_name": "",
@@ -1303,6 +1306,15 @@ class RuntimeSettingsService:
             ),
             "chart_subscription_interval_hours": int(
                 self._data.get("chart_subscription_interval_hours", 24) or 24
+            ),
+            "person_follow_enabled": bool(
+                self._data.get("person_follow_enabled", False)
+            ),
+            "person_follow_interval_hours": int(
+                self._data.get("person_follow_interval_hours", 24) or 24
+            ),
+            "person_follow_auto_subscribe": bool(
+                self._data.get("person_follow_auto_subscribe", True)
             ),
             "archive_enabled": self.get_archive_enabled(),
             "archive_watch_cid": self.get_archive_watch_cid(),

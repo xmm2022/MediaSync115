@@ -245,7 +245,35 @@ export const searchApi = {
   getSeedhubMagnetTask: (taskId) => api.get(`/search/magnet/seedhub/tasks/${taskId}`),
   cancelSeedhubMagnetTask: (taskId) => api.delete(`/search/magnet/seedhub/tasks/${taskId}`),
   getBridgeByImdbId: (imdbId, mediaType = 'movie') => api.get(`/search/bridge/imdb/${imdbId}`, { params: { media_type: mediaType } }),
-  getCollection: (collectionId) => api.get(`/search/collection/${collectionId}`)
+  getCollection: (collectionId) => api.get(`/search/collection/${collectionId}`),
+  getPerson: (personId) => api.get(`/persons/${personId}`)
+}
+
+export const watchlistApi = {
+  list: () => api.get('/watchlists'),
+  get: (id) => api.get(`/watchlists/${id}`),
+  create: (data) => api.post('/watchlists', data),
+  update: (id, data) => api.put(`/watchlists/${id}`, data),
+  delete: (id) => api.delete(`/watchlists/${id}`),
+  addItem: (id, data) => api.post(`/watchlists/${id}/items`, data),
+  removeItem: (id, itemId) => api.delete(`/watchlists/${id}/items/${itemId}`),
+  fill: (id) => api.post(`/watchlists/${id}/fill`, null, { timeout: 120000 }),
+  listForStatus: () => api.get('/watchlists/status-map'),
+  getImportCatalog: () => api.get('/watchlists/import/catalog'),
+  getImportSources: () => api.get('/watchlists/import/sources'),
+  previewImport: (data) => api.post('/watchlists/import/preview', data),
+  importFromTmdb: (data) => api.post('/watchlists/import', data, { timeout: 120000 })
+}
+
+export const personFollowApi = {
+  list: () => api.get('/person-follows'),
+  getStatusMap: () => api.get('/person-follows/status-map'),
+  getFeed: (limit = 30) => api.get('/person-follows/feed', { params: { limit } }),
+  create: (data) => api.post('/person-follows', data),
+  toggle: (data) => api.post('/person-follows/toggle', data),
+  update: (id, data) => api.put(`/person-follows/${id}`, data),
+  delete: (id) => api.delete(`/person-follows/${id}`),
+  sync: () => api.post('/person-follows/sync', null, { timeout: 120000 })
 }
 
 export const authApi = {
@@ -300,6 +328,7 @@ export const settingsApi = {
   // 榜单订阅
   getAvailableCharts: () => api.get('/settings/chart-subscription/charts'),
   runChartSubscription: () => api.post('/settings/chart-subscription/run', null, { timeout: 120000 }),
+  runPersonFollow: () => api.post('/settings/person-follow/run', null, { timeout: 120000 }),
 }
 
 export const licenseApi = {

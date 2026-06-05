@@ -23,6 +23,8 @@ from app.models.douban_tmdb_mapping import (
     DoubanSubjectTmdbMapping,
     DoubanTitleTmdbMapping,
 )
+from app.models.watchlist import Watchlist, WatchlistItem
+from app.models.person_follow import PersonFollow, PersonFollowCredit
 
 __all__ = [
     "Subscription",
@@ -47,4 +49,8 @@ __all__ = [
     "FeiniuSyncState",
     "DoubanSubjectTmdbMapping",
     "DoubanTitleTmdbMapping",
+    "Watchlist",
+    "WatchlistItem",
+    "PersonFollow",
+    "PersonFollowCredit",
 ]

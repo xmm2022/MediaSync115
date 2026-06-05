@@ -47,6 +47,14 @@
             <el-icon><Star /></el-icon>
             <span>订阅</span>
           </el-menu-item>
+          <el-sub-menu index="__collection__">
+            <template #title>
+              <el-icon><Collection /></el-icon>
+              <span>收藏</span>
+            </template>
+            <el-menu-item index="/watchlists" @click="navigateSideMenu('/watchlists')">片单</el-menu-item>
+            <el-menu-item index="/person-follows" @click="navigateSideMenu('/person-follows')">演职员</el-menu-item>
+          </el-sub-menu>
           <el-menu-item index="/downloads" @click="navigateSideMenu('/downloads')">
             <el-icon><Download /></el-icon>
             <span>离线下载</span>
@@ -139,6 +147,14 @@
               <span class="more-sheet-title">更多操作</span>
             </div>
             <div class="more-sheet-body">
+              <button class="more-item" @click="handleMoreNav('/watchlists')">
+                <el-icon><Collection /></el-icon>
+                <span>片单</span>
+              </button>
+              <button class="more-item" @click="handleMoreNav('/person-follows')">
+                <el-icon><User /></el-icon>
+                <span>演职员</span>
+              </button>
               <button class="more-item" @click="handleMoreNav('/settings')">
                 <el-icon><Setting /></el-icon>
                 <span>设置</span>
@@ -226,6 +242,8 @@ import { prepareSidebarNavigation } from '@/utils/searchRouteSync'
 import {
   Search,
   Star,
+  Collection,
+  User,
   Download,
   FolderOpened,
   Link,
@@ -251,7 +269,7 @@ const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 12
 const showMoreMenu = ref(false)
 const showExploreMenu = ref(false)
 const lastExplorePage = ref('/explore/douban')
-const appVersionLabel = ref('v1.2.0')
+const appVersionLabel = ref('v1.2.1')
 const isLoginRoute = computed(() => route.path === '/login')
 
 // 需要缓存的页面组件名（探索首页 + 更多页），返回时保持滚动位置和数据状态
@@ -324,7 +342,7 @@ function navigateSideMenu(path) {
 const dockTabs = computed(() => {
   const path = route.path
   return [
-    { key: 'explore', label: '发现', icon: Search, route: lastExplorePage.value, active: path === '/' || path === '/search' || path.startsWith('/explore') || path.startsWith('/movie/') || path.startsWith('/tv/') || path.startsWith('/douban/') || showExploreMenu.value },
+    { key: 'explore', label: '发现', icon: Search, route: lastExplorePage.value, active: path === '/' || path === '/search' || path.startsWith('/explore') || path.startsWith('/movie/') || path.startsWith('/tv/') || path.startsWith('/douban/') || path.startsWith('/person/') || showExploreMenu.value },
     { key: 'subscriptions', label: '订阅', icon: Star, route: '/subscriptions', active: path.startsWith('/subscriptions') },
     { key: 'downloads', label: '下载', icon: Download, route: '/downloads', active: path.startsWith('/downloads') },
     { key: 'archive', label: '归档', icon: FolderOpened, route: '/archive', active: path.startsWith('/archive') },

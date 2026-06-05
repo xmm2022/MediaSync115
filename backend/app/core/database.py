@@ -35,6 +35,8 @@ MODEL_MODULES = (
     "app.models.emby_sync_index",
     "app.models.feiniu_sync_index",
     "app.models.archive",
+    "app.models.watchlist",
+    "app.models.person_follow",
 )
 
 

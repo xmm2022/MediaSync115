@@ -1380,6 +1380,48 @@
         </el-card>
       </el-tab-pane>
 
+      <el-tab-pane label="演职员关注" name="personFollow">
+        <el-card class="settings-card">
+          <template #header>
+            <span>演职员关注同步</span>
+          </template>
+
+          <el-alert type="info" :closable="false" style="margin-bottom: 16px">
+            启用后，系统将定时检查你关注的导演/演员是否有新作品（上映/首播日期晚于今天），并可按配置自动创建订阅。
+          </el-alert>
+
+          <el-form label-width="140px">
+            <el-form-item label="启用定时同步">
+              <el-switch v-model="personFollowForm.enabled" />
+            </el-form-item>
+            <el-form-item label="检查间隔(小时)">
+              <el-input-number
+                v-model="personFollowForm.intervalHours"
+                :min="1"
+                :max="72"
+                :disabled="!personFollowForm.enabled"
+              />
+            </el-form-item>
+            <el-form-item label="新作自动订阅">
+              <el-switch v-model="personFollowForm.autoSubscribe" :disabled="!personFollowForm.enabled" />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :loading="savingPersonFollow" @click="handleSavePersonFollow">保存</el-button>
+              <el-button type="success" :loading="runningPersonFollow" @click="handleRunPersonFollow">立即同步</el-button>
+            </el-form-item>
+            <el-form-item v-if="personFollowResult">
+              <el-alert
+                :title="personFollowResult"
+                :type="personFollowResultType"
+                :closable="true"
+                show-icon
+                @close="personFollowResult = ''"
+              />
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </el-tab-pane>
+
       <el-tab-pane label="执行日志" name="taskLogs">
         <el-card class="settings-card">
           <template #header>
@@ -2129,6 +2171,17 @@ const runningChartSub = ref(false)
 const chartSubResult = ref('')
 const chartSubResultType = ref('success')
 
+// ── 演职员关注 ──
+const personFollowForm = reactive({
+  enabled: false,
+  intervalHours: 24,
+  autoSubscribe: true
+})
+const savingPersonFollow = ref(false)
+const runningPersonFollow = ref(false)
+const personFollowResult = ref('')
+const personFollowResultType = ref('success')
+
 // ── 许可证 ──
 const licenseForm = reactive({ key: '' })
 const savingLicense = ref(false)
@@ -2194,7 +2247,7 @@ const savingUpdateSettings = ref(false)
 const checkingUpdates = ref(false)
 
 const appInfo = ref({
-  currentVersion: '1.2.0',
+  currentVersion: '1.2.1',
   currentImageTag: '',
   currentGitSha: '',
   currentBuildTime: '',
@@ -4007,6 +4060,48 @@ const loadChartSubSettings = (settings) => {
   chartSubForm.selectedKeys = sources.map(s => `${s.source}:${s.key}`)
 }
 
+const loadPersonFollowSettings = (settings) => {
+  personFollowForm.enabled = !!settings.person_follow_enabled
+  personFollowForm.intervalHours = settings.person_follow_interval_hours || 24
+  personFollowForm.autoSubscribe = settings.person_follow_auto_subscribe !== false
+}
+
+const handleSavePersonFollow = async () => {
+  savingPersonFollow.value = true
+  try {
+    await settingsApi.updateRuntime({
+      person_follow_enabled: personFollowForm.enabled,
+      person_follow_interval_hours: personFollowForm.intervalHours,
+      person_follow_auto_subscribe: personFollowForm.autoSubscribe
+    })
+    ElMessage.success('演职员关注设置已保存')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '保存失败')
+  } finally {
+    savingPersonFollow.value = false
+  }
+}
+
+const handleRunPersonFollow = async () => {
+  runningPersonFollow.value = true
+  personFollowResult.value = ''
+  try {
+    await settingsApi.updateRuntime({
+      person_follow_enabled: true,
+      person_follow_interval_hours: personFollowForm.intervalHours,
+      person_follow_auto_subscribe: personFollowForm.autoSubscribe
+    })
+    const { data } = await settingsApi.runPersonFollow()
+    personFollowResult.value = data.message || '同步完成'
+    personFollowResultType.value = 'success'
+  } catch (error) {
+    personFollowResult.value = error.response?.data?.detail || '同步失败'
+    personFollowResultType.value = 'error'
+  } finally {
+    runningPersonFollow.value = false
+  }
+}
+
 const handleSaveChartSub = async () => {
   savingChartSub.value = true
   try {
@@ -4407,6 +4502,7 @@ const fetchRuntimeSettings = async () => {
 
     // 榜单订阅
     loadChartSubSettings(data)
+    loadPersonFollowSettings(data)
   } catch (error) {
     console.error('Failed to fetch runtime settings:', error)
   }

@@ -124,6 +124,9 @@ class RuntimeSettingsRequest(BaseModel):
     chart_subscription_sources: Optional[list] = None
     chart_subscription_limit: Optional[int] = None
     chart_subscription_interval_hours: Optional[int] = None
+    person_follow_enabled: Optional[bool] = None
+    person_follow_interval_hours: Optional[int] = None
+    person_follow_auto_subscribe: Optional[bool] = None
 
 
 _SUBSCRIPTION_SCHEDULER_SETTING_KEYS = frozenset(
@@ -145,6 +148,13 @@ _CHART_SUBSCRIPTION_SETTING_KEYS = frozenset(
         "chart_subscription_sources",
         "chart_subscription_limit",
         "chart_subscription_interval_hours",
+    }
+)
+_PERSON_FOLLOW_SETTING_KEYS = frozenset(
+    {
+        "person_follow_enabled",
+        "person_follow_interval_hours",
+        "person_follow_auto_subscribe",
     }
 )
 _TG_INDEX_SETTING_KEYS = frozenset(
@@ -736,6 +746,10 @@ async def update_runtime_settings(request: RuntimeSettingsRequest):
             await subscription_scheduler_service.ensure_chart_subscription_task(
                 run_immediately=False
             )
+        if payload_keys & _PERSON_FOLLOW_SETTING_KEYS:
+            await subscription_scheduler_service.ensure_person_follow_task(
+                run_immediately=False
+            )
         if payload_keys & _TG_INDEX_SETTING_KEYS:
             await subscription_scheduler_service.ensure_tg_index_incremental_task()
         if payload_keys & _HDHIVE_CHECKIN_SETTING_KEYS:
@@ -1305,3 +1319,14 @@ async def run_chart_subscription_now():
         return result
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"榜单订阅执行失败: {str(exc)}")
+
+
+@router.post("/person-follow/run")
+async def run_person_follow_now():
+    from app.services.person_follow_service import run_person_follow_sync
+
+    try:
+        result = await run_person_follow_sync()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"演职员关注同步失败: {str(exc)}")

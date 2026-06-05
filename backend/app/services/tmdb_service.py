@@ -132,6 +132,10 @@ class TmdbService:
                 continue
 
             title = raw.get("title") or raw.get("name") or ""
+            profile_path = str(raw.get("profile_path") or "").strip()
+            poster_path = str(raw.get("poster_path") or "").strip()
+            if media_type == "person" and profile_path:
+                poster_path = profile_path
             item = {
                 "id": raw.get("id"),
                 "tmdb_id": raw.get("id"),
@@ -139,7 +143,9 @@ class TmdbService:
                 "title": title,
                 "name": title,
                 "overview": raw.get("overview") or "",
-                "poster_path": raw.get("poster_path") or "",
+                "poster_path": poster_path,
+                "profile_path": profile_path,
+                "known_for_department": raw.get("known_for_department") or "",
                 "vote_average": raw.get("vote_average"),
                 "release_date": raw.get("release_date") or "",
                 "first_air_date": raw.get("first_air_date") or "",
@@ -319,6 +325,85 @@ class TmdbService:
         cache_key = f"collection:{collection_id}"
         return await self._get_cached(
             cache_key, f"/collection/{collection_id}", params
+        )
+
+    async def get_list_detail(self, list_id: int) -> dict[str, Any]:
+        params = self._required_params()
+        cache_key = f"tmdb_list:{list_id}"
+        return await self._get_cached(cache_key, f"/list/{list_id}", params)
+
+    async def get_keyword_movies(self, keyword_id: int, page: int = 1) -> dict[str, Any]:
+        params = self._required_params(page=page)
+        cache_key = f"keyword_movies:{keyword_id}:{page}"
+        return await self._get_cached(
+            cache_key, f"/keyword/{keyword_id}/movies", params
+        )
+
+    async def search_collections(self, query: str, page: int = 1) -> dict[str, Any]:
+        params = self._required_params(page=page)
+        params["query"] = str(query or "").strip()
+        cache_key = f"search_collection:{params['query']}:{page}"
+        return await self._get_cached(cache_key, "/search/collection", params)
+
+    async def search_lists(self, query: str, page: int = 1) -> dict[str, Any]:
+        params = self._required_params(page=page)
+        params["query"] = str(query or "").strip()
+        cache_key = f"search_list:{params['query']}:{page}"
+        return await self._get_cached(cache_key, "/search/list", params)
+
+    async def get_watch_providers(
+        self,
+        media_type: str,
+        *,
+        watch_region: str | None = None,
+    ) -> dict[str, Any]:
+        scope = str(media_type or "movie").strip().lower()
+        path = "/watch/providers/movie" if scope == "movie" else "/watch/providers/tv"
+        region = str(watch_region or settings.TMDB_REGION or "US").strip().upper() or "US"
+        params = self._required_params()
+        params["watch_region"] = region
+        cache_key = f"watch_providers:{scope}:{region}"
+        return await self._get_cached(cache_key, path, params)
+
+    async def discover_movies(
+        self,
+        *,
+        page: int = 1,
+        watch_region: str | None = None,
+        extra_params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        params = self._required_params(page=page)
+        params["watch_region"] = str(watch_region or settings.TMDB_REGION or "US").strip().upper() or "US"
+        if extra_params:
+            params.update(extra_params)
+        cache_key = f"discover_movie:{page}:{sorted(params.items())}"
+        return await self._get_cached(cache_key, "/discover/movie", params)
+
+    async def discover_tv(
+        self,
+        *,
+        page: int = 1,
+        watch_region: str | None = None,
+        extra_params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        params = self._required_params(page=page)
+        params["watch_region"] = str(watch_region or settings.TMDB_REGION or "US").strip().upper() or "US"
+        if extra_params:
+            params.update(extra_params)
+        cache_key = f"discover_tv:{page}:{sorted(params.items())}"
+        return await self._get_cached(cache_key, "/discover/tv", params)
+
+    async def get_person_detail(self, person_id: int) -> dict[str, Any]:
+        params = self._required_params()
+        params["append_to_response"] = "combined_credits,external_ids"
+        cache_key = f"person:{person_id}"
+        return await self._get_cached(cache_key, f"/person/{person_id}", params)
+
+    async def get_person_combined_credits(self, person_id: int) -> dict[str, Any]:
+        params = self._required_params()
+        cache_key = f"person_credits:{person_id}"
+        return await self._get_cached(
+            cache_key, f"/person/{person_id}/combined_credits", params
         )
 
     async def find_by_imdb_id(self, imdb_id: str) -> dict[str, Any]:

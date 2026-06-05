@@ -25,6 +25,8 @@ from app.api import (
     settings as runtime_settings_api,
     strm as strm_api,
     subscriptions,
+    watchlists,
+    person_follows,
     workflow,
 )
 from app.scheduler import scheduler_manager
@@ -226,6 +228,9 @@ async def lifespan(app: FastAPI):
     await subscription_scheduler_service.ensure_chart_subscription_task(
         run_immediately=False,
     )
+    await subscription_scheduler_service.ensure_person_follow_task(
+        run_immediately=False,
+    )
     await subscription_scheduler_service.ensure_tg_index_incremental_task()
     await hdhive_checkin_scheduler_service.ensure_checkin_task()
     await emby_sync_scheduler_service.ensure_sync_task()
@@ -421,6 +426,9 @@ app.include_router(search.router, prefix="/api")
 app.include_router(archive_api.router, prefix="/api")
 app.include_router(auth_api.router, prefix="/api")
 app.include_router(subscriptions.router, prefix="/api")
+app.include_router(watchlists.router, prefix="/api")
+app.include_router(person_follows.router, prefix="/api")
+app.include_router(person_follows.person_follow_router, prefix="/api")
 app.include_router(pan115.router, prefix="/api")
 app.include_router(quark.router, prefix="/api")
 app.include_router(pansou.router, prefix="/api")

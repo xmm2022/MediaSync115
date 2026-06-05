@@ -31,6 +31,7 @@ class JobRegistry:
             "hdhive.checkin": self._hdhive_checkin,
             "subscription.check": self._check_subscription,
             "chart_subscription.sync": self._chart_subscription_sync,
+            "person_follow.sync": self._person_follow_sync,
             "tg.index.incremental": self._tg_index_incremental,
         }
 
@@ -163,6 +164,11 @@ class JobRegistry:
         from app.services.chart_subscription_service import run_chart_subscription
 
         return await run_chart_subscription()
+
+    async def _person_follow_sync(self, **kwargs) -> dict[str, Any]:
+        from app.services.person_follow_service import run_person_follow_sync
+
+        return await run_person_follow_sync()
 
     async def _tg_index_incremental(self, **kwargs) -> dict[str, Any]:
         from app.services.tg_sync_service import tg_sync_service
