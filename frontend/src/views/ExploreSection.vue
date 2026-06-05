@@ -4,8 +4,6 @@
       <el-button text @click="goBack">返回探索</el-button>
       <div class="title-wrap">
         <h2>{{ sectionMeta.title || '完整榜单' }}</h2>
-        <el-tag size="small" type="info">{{ sectionMeta.tag || '' }}</el-tag>
-        <span class="count">{{ formatExploreCount(remoteTotal) }} 部</span>
       </div>
     </div>
 
@@ -432,12 +430,6 @@ const hasMoreRemote = computed(() => {
   return allItems.value.length < remoteTotal.value
 })
 const hasMoreItems = computed(() => hasHiddenLocal.value || hasMoreRemote.value)
-
-const formatExploreCount = (value) => {
-  const total = Number(value) || 0
-  if (total > 100) return '100+'
-  return String(total)
-}
 
 const getExploreItemRating = (item) => {
   const rating = Number(item?.rating ?? item?.vote_average)
@@ -1035,17 +1027,16 @@ onBeforeUnmount(() => {
     margin-bottom: 16px;
 
     .title-wrap {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      flex: 1;
+      min-width: 0;
+      margin-left: 8px;
 
       h2 {
         margin: 0;
-      }
-
-      .count {
-        font-size: 12px;
-        color: var(--ms-text-muted);
+        font-size: 18px;
+        font-weight: 600;
+        line-height: 1.35;
+        color: var(--ms-text-primary);
       }
     }
   }

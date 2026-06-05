@@ -3,8 +3,6 @@
     <div class="group-header">
       <div class="group-title">
         <h3>{{ section.title }}</h3>
-        <el-tag size="small" type="info">{{ section.tag }}</el-tag>
-        <span class="group-sub">{{ formatExploreCount(remoteTotal) }} 部</span>
       </div>
       <div class="group-actions">
         <el-button type="primary" link @click="handleOpenSection" style="font-size: 14px; padding: 8px 12px;">
@@ -287,12 +285,6 @@ const normalizeItems = (items = [], rankStart = 1) => {
   })
 }
 
-const formatExploreCount = (value) => {
-  const total = Number(value) || 0
-  if (total > 100) return '100+'
-  return String(total)
-}
-
 const getExploreItemRating = (item) => {
   const rating = Number(item?.rating ?? item?.vote_average)
   if (!Number.isFinite(rating) || rating <= 0) return null
@@ -511,22 +503,16 @@ onBeforeUnmount(() => {
     margin-bottom: 14px;
 
     .group-title {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+      flex: 1;
+      min-width: 0;
 
-    .group-sub {
-      color: var(--ms-text-muted);
-      font-size: 12px;
-      font-weight: 500;
-    }
-
-    h3 {
-      margin: 0;
-      color: var(--ms-text-primary);
-      font-size: 16px;
-      font-weight: 600;
+      h3 {
+        margin: 0;
+        color: var(--ms-text-primary);
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.35;
+      }
     }
   }
 
@@ -720,6 +706,26 @@ onBeforeUnmount(() => {
         -webkit-box-orient: vertical;
         overflow: hidden;
       }
+    }
+  }
+}
+
+@media (max-width: 1024px) {
+  .recommend-group {
+    .group-header {
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .group-title h3 {
+      font-size: 15px;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+
+    .group-actions {
+      flex-shrink: 0;
+      padding-top: 2px;
     }
   }
 }

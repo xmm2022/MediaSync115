@@ -30,9 +30,7 @@
       <div class="section-header">
         <div class="section-title">
           <h2>{{ exploreSourceLabel }}</h2>
-          <el-tag type="warning" size="small">{{ exploreSourceTag }}</el-tag>
         </div>
-        <p>榜单支持横向拖动浏览，按住卡片区域左右拖动即可完整查看。</p>
       </div>
 
       <div class="recommend-sections">
@@ -75,8 +73,6 @@
               <div class="group-header skeleton-group-header">
                 <div class="group-title">
                   <div class="skeleton-line skeleton-title-line" />
-                  <div class="skeleton-line skeleton-tag-line" />
-                  <div class="skeleton-line skeleton-sub-line" />
                 </div>
                 <div class="skeleton-line skeleton-action-line" />
               </div>
@@ -261,7 +257,6 @@ const isSearchRouteActive = () => (
 const normalizeExploreSource = (rawSource) => (String(rawSource || '').toLowerCase() === 'tmdb' ? 'tmdb' : 'douban')
 const exploreSource = computed(() => normalizeExploreSource(route.params.source))
 const exploreSourceLabel = computed(() => (exploreSource.value === 'tmdb' ? 'TMDB 榜单探索' : '豆瓣榜单探索'))
-const exploreSourceTag = computed(() => (exploreSource.value === 'tmdb' ? 'TMDB' : 'Douban Frodo'))
 
 const searchQuery = ref('')
 const results = ref([])
@@ -660,12 +655,6 @@ const getSectionRowEl = (sectionKey) => {
 
 const getSectionScrollState = (sectionKey) => {
   return sectionScrollStates.value[sectionKey] || { hasLeft: false, hasRight: false }
-}
-
-const formatExploreCount = (value) => {
-  const total = Number(value) || 0
-  if (total > 100) return '100+'
-  return String(total)
 }
 
 const updateSectionScrollState = (sectionKey) => {
@@ -1963,14 +1952,11 @@ onBeforeUnmount(() => {
       margin-bottom: 20px;
 
       .section-title {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-
         h2 {
           margin: 0;
           font-size: 22px;
           font-weight: 700;
+          line-height: 1.35;
           color: var(--ms-text-primary);
         }
       }
@@ -2007,17 +1993,6 @@ onBeforeUnmount(() => {
         .skeleton-title-line {
           width: 120px;
           height: 18px;
-        }
-
-        .skeleton-tag-line {
-          width: 52px;
-          height: 22px;
-          border-radius: 999px;
-        }
-
-        .skeleton-sub-line {
-          width: 48px;
-          height: 14px;
         }
 
         .skeleton-action-line {
@@ -2080,17 +2055,12 @@ onBeforeUnmount(() => {
           gap: 10px;
         }
 
-        .group-sub {
-          color: var(--ms-text-muted);
-          font-size: 12px;
-          font-weight: 500;
-        }
-
-        h3 {
+        .group-title h3 {
           margin: 0;
           color: var(--ms-text-primary);
           font-size: 16px;
           font-weight: 600;
+          line-height: 1.35;
         }
 
         .group-actions {
@@ -2470,24 +2440,48 @@ onBeforeUnmount(() => {
 
     .explore-section {
       .section-header {
-        .section-title {
-          flex-wrap: wrap;
+        margin-bottom: 16px;
+
+        .section-title h2 {
+          font-size: 18px;
         }
       }
 
-      .recommend-group {
-        .group-header {
+      .recommend-group,
+      .skeleton-group {
+        .group-header,
+        .skeleton-group-header {
           align-items: flex-start;
-          flex-wrap: wrap;
-          gap: 10px;
+          gap: 8px;
+        }
+
+        .group-title {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .group-title h3,
+        .skeleton-group-header .group-title .skeleton-title-line {
+          font-size: 15px;
         }
       }
     }
 
     .search-results {
       .results-header {
+        flex-direction: column;
         align-items: flex-start;
-        flex-wrap: wrap;
+        gap: 8px;
+
+        h3 {
+          font-size: 16px;
+          line-height: 1.35;
+        }
+
+        .results-meta {
+          flex-wrap: wrap;
+          gap: 6px;
+        }
       }
     }
 
@@ -2512,34 +2506,20 @@ onBeforeUnmount(() => {
 
     .explore-section {
       .section-header {
-        margin-bottom: 16px;
+        margin-bottom: 14px;
 
         .section-title h2 {
-          font-size: 18px;
-        }
-
-        p {
-          font-size: 12px;
-          line-height: 1.5;
+          font-size: 17px;
+          line-height: 1.3;
         }
       }
 
-      .recommend-group {
+      .recommend-group,
+      .skeleton-group {
         padding-top: 12px;
+      }
 
-        .group-header {
-          gap: 8px;
-
-          h3 {
-            font-size: 15px;
-          }
-
-          .group-actions {
-            width: 100%;
-            justify-content: flex-end;
-          }
-        }
-
+      .recommend-group {
         .row-shell {
           .side-scroll-btn {
             display: none;
@@ -2549,7 +2529,6 @@ onBeforeUnmount(() => {
         .recommend-row {
           gap: 10px;
         }
-
       }
     }
 
@@ -2563,8 +2542,10 @@ onBeforeUnmount(() => {
       }
 
       .results-header {
-        .results-meta {
-          flex-wrap: wrap;
+        gap: 6px;
+
+        h3 {
+          font-size: 15px;
         }
       }
     }
