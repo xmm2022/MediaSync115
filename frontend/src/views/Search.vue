@@ -46,8 +46,8 @@
             :source="exploreSource"
             :card-width="cardWidth"
             :section="section"
-            :preloaded-items="section.items"
-            :preloaded-total="section.total"
+            :preloaded-items="exploreUseLazySections ? null : section.items"
+            :preloaded-total="exploreUseLazySections ? 0 : section.total"
             :subscribed-id-map="subscribedIdMap"
             :subscribed-douban-ids="subscribedDoubanIds"
             :subscribed-imdb-ids="subscribedImdbIds"
@@ -180,17 +180,6 @@
                   {{ item.isSubscribed ? '已订阅(取消)' : '订阅' }}
                 </el-button>
                 <el-button
-                  v-if="!item.isPansouResult && (item.media_type === 'movie' || item.media_type === 'tv')"
-                  class="action-btn watchlist-btn"
-                  type="info"
-                  size="small"
-                  :loading="item.addingToWatchlist"
-                  @click.stop="openWatchlistDialog(item)"
-                >
-                  <el-icon><Collection /></el-icon>
-                  片单
-                </el-button>
-                <el-button
                   v-if="item.media_type !== 'person'"
                   class="action-btn save-btn"
                   type="warning"
@@ -238,27 +227,6 @@
       <el-empty v-else-if="!loading && searched" description="没有找到相关内容" />
     </section>
 
-    <el-dialog v-model="watchlistDialogVisible" title="加入片单" width="420px">
-      <el-form label-width="80px">
-        <el-form-item label="选择片单">
-          <el-select v-model="selectedWatchlistId" placeholder="请选择片单" style="width: 100%">
-            <el-option
-              v-for="list in watchlists"
-              :key="list.id"
-              :label="`${list.name} (${list.item_count || 0})`"
-              :value="list.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button text type="primary" @click="openQuickCreateWatchlist">新建片单</el-button>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="watchlistDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="addingToWatchlist" @click="confirmAddToWatchlist">确认加入</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -272,7 +240,7 @@ import {
   restorePendingLeaveNavigation
 } from '@/utils/searchRouteSync'
 import { ElMessage } from 'element-plus'
-import { searchApi, subscriptionApi, pan115Api, settingsApi, watchlistApi, personFollowApi } from '@/api'
+import { searchApi, subscriptionApi, pan115Api, settingsApi, personFollowApi } from '@/api'
 import ExploreSectionRow from '@/components/explore/ExploreSectionRow.vue'
 import TmdbSetupPrompt from '@/components/explore/TmdbSetupPrompt.vue'
 import LibraryBadge from '@/components/media/LibraryBadge.vue'
@@ -280,7 +248,6 @@ import {
   Search as SearchIcon,
   Star,
   FolderAdd,
-  Collection,
   User
 } from '@element-plus/icons-vue'
 import {
@@ -296,7 +263,7 @@ import {
   setExploreSectionBatchInflight
 } from '@/utils/exploreSectionBatchCache'
 import { copyText } from '@/utils/clipboard'
-import { parseReceiveCodeFromShareLink } from '@/utils/panShare'
+import { buildExploreQueuePayload, buildTmdbSavePayload } from '@/utils/exploreQueuePayload'
 
 defineOptions({ name: 'Search' })
 
@@ -325,6 +292,7 @@ const totalPages = ref(0)
 const exploreLoading = ref(false)
 const tmdbConfigured = ref(true)
 const exploreSections = shallowRef([])
+const exploreUseLazySections = ref(false)
 let exploreSectionsRequestId = 0
 const exploreContainerRef = ref(null)
 const sectionRowRefs = ref({})
@@ -384,11 +352,6 @@ const subscribedKeys = ref(new Set())
 const subscribedIdMap = ref(new Map())
 const subscribedDoubanIds = ref(new Set()) // 存储豆瓣ID订阅集合
 const followedPersonIds = ref(new Set())
-const watchlists = ref([])
-const watchlistDialogVisible = ref(false)
-const selectedWatchlistId = ref(null)
-const watchlistTargetItem = ref(null)
-const addingToWatchlist = ref(false)
 const subscribedImdbIds = ref(new Set()) // 存储IMDB ID订阅集合
 const embyStatusMap = ref(new Map())
 const feiniuStatusMap = ref(new Map())
@@ -397,10 +360,7 @@ const queueActiveSaveKeys = ref(new Set())
 let exploreQueuePollTimer = null
 let exploreQueuePolling = false
 
-// 搜索结果页转存队列（FIFO）
-const saveQueue = ref([])
-let saveQueueProcessing = false
-
+// 探索页转存队列状态（与后端 explore queue 同步）
 const buildSubscribedKey = (mediaType, tmdbId) => {
   const normalizedType = mediaType === 'tv' ? 'tv' : (mediaType === 'movie' ? 'movie' : '')
   const normalizedTmdbId = toValidTmdbId(tmdbId)
@@ -486,38 +446,18 @@ const buildExploreQueueItemKeyFromTask = (task) => {
   return ''
 }
 
-const buildExploreQueuePayload = (item) => {
-  const mediaType = normalizeExploreQueueMediaType(item?.media_type)
-  const tmdbId = toValidTmdbId(item?.tmdb_id || item?.tmdbid)
-  const idValue = item?.id === undefined || item?.id === null ? '' : String(item.id).trim()
-  const doubanId = String(item?.douban_id || idValue || '').trim()
-  const year = String(item?.year || getYear(item) || '').trim()
-  return {
-    source: exploreSource.value,
-    id: idValue || null,
-    douban_id: doubanId || null,
-    title: String(item?.title || item?.name || '').trim(),
-    name: String(item?.name || item?.title || '').trim(),
-    original_title: String(item?.original_title || '').trim(),
-    original_name: String(item?.original_name || '').trim(),
-    aliases: Array.isArray(item?.aliases) ? item.aliases : [],
-    year,
-    media_type: mediaType,
-    tmdb_id: tmdbId,
-    poster_path: String(item?.poster_path || '').trim(),
-    poster_url: String(item?.poster_url || '').trim(),
-    overview: String(item?.overview || '').trim(),
-    intro: String(item?.intro || '').trim(),
-    rating: item?.rating ?? item?.vote_average ?? null,
-    vote_average: item?.vote_average ?? item?.rating ?? null
-  }
-}
-
 const syncExploreQueueItemStates = () => {
   for (const section of exploreSections.value) {
     for (const item of section.items || []) {
       const itemKey = buildExploreQueueItemKeyFromItem(item)
       item.saving = Boolean(itemKey) && queueActiveSaveKeys.value.has(itemKey)
+    }
+  }
+  for (const item of results.value) {
+    const itemKey = buildExploreQueueItemKeyFromItem(item)
+    item.saving = Boolean(itemKey) && queueActiveSaveKeys.value.has(itemKey)
+    if (!item.saving) {
+      item.queuePosition = null
     }
   }
   triggerRef(exploreSections)
@@ -860,11 +800,14 @@ const handleExploreSubscribe = async (item) => {
   }
 }
 
-const handleExploreSave = async (item) => {
-  if (!item) return
-  const payload = buildExploreQueuePayload(item)
+const enqueueMediaSaveTask = async (item, payload) => {
+  if (!item || !payload) return
   if (!payload.tmdb_id && !payload.douban_id && !payload.id) {
     ElMessage.warning(withTitleHint(item, '缺少可用条目标识，无法加入转存队列'))
+    return
+  }
+  if (item.saving) {
+    ElMessage.info(withTitleHint(item, '该条目已在转存队列中'))
     return
   }
   item.saving = true
@@ -882,6 +825,12 @@ const handleExploreSave = async (item) => {
     const reason = error.response?.data?.detail || error.message || '加入转存队列失败'
     ElMessage.error(withTitleHint(item, reason))
   }
+}
+
+const handleExploreSave = async (item) => {
+  if (!item) return
+  const payload = buildExploreQueuePayload(item, { exploreSource: exploreSource.value })
+  await enqueueMediaSaveTask(item, payload)
 }
 
 const getHomeInitialRenderCount = () => {
@@ -1269,10 +1218,12 @@ const normalizeSearchResultItem = (item, index = 0, fallbackService = '') => {
   const sourceService = item.source_service || fallbackService || 'tmdb'
   const shareLink = item.pan115_share_link || item.share_link || item.share_url || item.url || item.link || ''
   const isPansouResult = sourceService === 'pansou'
-  const normalizedId = item.tmdbid || item.tmdb_id || item.id || `${sourceService}-${index}`
+  const explicitTmdbId = toValidTmdbId(item.tmdbid || item.tmdb_id)
+  const normalizedId = explicitTmdbId || item.id || `${sourceService}-${index}`
   const normalized = {
     ...item,
     id: normalizedId,
+    tmdb_id: explicitTmdbId || (sourceService === 'tmdb' ? toValidTmdbId(item.id) : null),
     media_type: item.media_type || (isPansouResult ? 'resource' : ''),
     poster_path: item.media_type === 'person'
       ? (item.profile_path || item.poster || item.poster_path)
@@ -1304,6 +1255,7 @@ const fetchExploreSections = async () => {
   const requestId = ++exploreSectionsRequestId
   const source = exploreSource.value
   exploreLoading.value = true
+  exploreUseLazySections.value = false
   try {
     // 一次性把 9 个分区 + emby/feiniu 角标全部拉回，避免 row 各自请求带来的 9 次 RTT 与重复角标查询
     const { data } = await searchApi.getExploreSections(source, 12, false)
@@ -1352,6 +1304,11 @@ const fetchExploreSections = async () => {
         return
       }
     }
+    const loaded = await loadExploreSectionsFromMeta(source)
+    if (loaded) {
+      ElMessage.warning('批量榜单加载失败，已切换为分区按需加载')
+      return
+    }
     const detail = String(error?.response?.data?.detail || error?.message || '')
     if (source === 'tmdb') {
       ElMessage.error(detail.includes('TMDB') ? detail : `TMDB 榜单加载失败：${detail || '请检查代理或 API Key 配置'}`)
@@ -1366,6 +1323,35 @@ const fetchExploreSections = async () => {
   }
 }
 
+const loadExploreSectionsFromMeta = async (source) => {
+  try {
+    const { data } = await searchApi.getExploreMeta(source)
+    const rows = Array.isArray(data?.sections) ? data.sections : []
+    if (!rows.length) return false
+    if (source === 'tmdb') {
+      tmdbConfigured.value = data?.tmdb_configured !== false
+      if (!tmdbConfigured.value) {
+        exploreSections.value = []
+        return true
+      }
+    } else {
+      tmdbConfigured.value = true
+    }
+    exploreUseLazySections.value = true
+    exploreSections.value = rows.map((section) => ({
+      key: section.key,
+      title: section.title,
+      tag: section.tag,
+      total: 0,
+      items: []
+    }))
+    return true
+  } catch (metaError) {
+    console.error('Failed to load explore meta fallback:', metaError)
+    return false
+  }
+}
+
 const handleTmdbConfigured = async () => {
   tmdbConfigured.value = true
   await initializeExploreHome()
@@ -1376,7 +1362,6 @@ const initializeExploreHome = async () => {
     fetchExploreSections(),
     refreshSubscribedKeys(),
     refreshFollowedPersonIds(),
-    refreshWatchlists(),
     fetchExploreQueueActiveTasks()
   ]
   await Promise.allSettled(tasks)
@@ -1672,73 +1657,6 @@ const applyFollowedFlags = () => {
   }
 }
 
-const refreshWatchlists = async () => {
-  try {
-    const { data } = await watchlistApi.list()
-    watchlists.value = Array.isArray(data) ? data : []
-  } catch (error) {
-    console.error('Failed to refresh watchlists:', error)
-  }
-}
-
-const openWatchlistDialog = async (item) => {
-  watchlistTargetItem.value = item
-  selectedWatchlistId.value = watchlists.value[0]?.id || null
-  if (!watchlists.value.length) {
-    await refreshWatchlists()
-    selectedWatchlistId.value = watchlists.value[0]?.id || null
-  }
-  watchlistDialogVisible.value = true
-}
-
-const openQuickCreateWatchlist = async () => {
-  const name = window.prompt('请输入片单名称')
-  if (!name || !String(name).trim()) return
-  try {
-    const { data } = await watchlistApi.create({ name: String(name).trim() })
-    await refreshWatchlists()
-    selectedWatchlistId.value = data.id
-    ElMessage.success('片单已创建')
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '创建片单失败')
-  }
-}
-
-const confirmAddToWatchlist = async () => {
-  const item = watchlistTargetItem.value
-  const watchlistId = selectedWatchlistId.value
-  if (!item || !watchlistId) {
-    ElMessage.warning('请选择片单')
-    return
-  }
-  const mediaType = item.media_type
-  const tmdbId = toValidTmdbId(item.tmdb_id || item.id)
-  if (!tmdbId || (mediaType !== 'movie' && mediaType !== 'tv')) {
-    ElMessage.warning('仅支持电影或电视剧加入片单')
-    return
-  }
-  item.addingToWatchlist = true
-  addingToWatchlist.value = true
-  try {
-    await watchlistApi.addItem(watchlistId, {
-      tmdb_id: tmdbId,
-      media_type: mediaType,
-      title: item.name || item.title || `TMDB ${tmdbId}`,
-      poster_path: item.poster_path,
-      year: getYear(item),
-      rating: item.vote_average
-    })
-    watchlistDialogVisible.value = false
-    ElMessage.success('已加入片单')
-    await refreshWatchlists()
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '加入片单失败')
-  } finally {
-    item.addingToWatchlist = false
-    addingToWatchlist.value = false
-  }
-}
-
 const handleFollowPerson = async (item) => {
   const personId = toValidTmdbId(item.tmdb_id || item.id)
   if (!personId) {
@@ -1838,177 +1756,58 @@ const handleSubscribe = async (item) => {
   }
 }
 
-// 执行队列中单条转存任务（内部使用，由队列调度）
-const executeSaveItem = async (item) => {
-  if (!item) return
-
-  // 盘搜结果直接走 115 分享链接转存
-  if (item.isPansouResult) {
-    if (!item.pan115_share_link) {
-      throw new Error('该盘搜结果没有可转存的 115 分享链接')
-    }
-    let folderId = '0'
-    try {
-      const { data } = await pan115Api.getDefaultFolder()
-      folderId = data.folder_id || '0'
-    } catch {
-      folderId = '0'
-    }
-    const resourceName = item.name || item.title || lastSearchKeyword.value || 'Pansou Resource'
-    const receiveCode = parseReceiveCodeFromShareLink(item.pan115_share_link)
-    const { data } = await pan115Api.saveShareToFolder(
-      item.pan115_share_link,
-      resourceName,
-      folderId,
-      receiveCode
-    )
-    const saveSuccess = data?.success === true
-      || data?.state === true
-      || data?.result?.success === true
-      || data?.result?.state === true
-    if (!saveSuccess) {
-      throw new Error(data?.message || data?.error || data?.result?.error || '转存失败')
-    }
-    return
-  }
-
-  if (item.media_type === 'person') {
-    throw new Error('人物不支持转存')
-  }
-
-  const id = item.id
-  if (!id) throw new Error('缺少条目标识')
-
-  const type = item.media_type === 'tv' ? 'tv' : 'movie'
-  const title = item.title || item.name || ''
-  const year = item.release_date
-    ? item.release_date.split('-')[0]
-    : (item.first_air_date ? item.first_air_date.split('-')[0] : (item.year || ''))
-  const folderName = year ? `${title} (${year})` : title
-
-  // Step 1: 按优先级顺序搜索 115 网盘资源
-  for (const source of resourcePriority.value) {
-    const apiFn = SOURCE_115_APIS[source]
-    if (!apiFn) continue
-    try {
-      const { data } = await apiFn(type)(id, 1, false)
-      const list = Array.isArray(data?.list) ? data.list : []
-      if (list.length > 0) {
-        await doSave115Resource(list[0], folderName)
-        return
-      }
-    } catch { /* try next source */ }
-  }
-
-  // Step 2: 无 115 资源，搜索磁力链接 (SeedHub)
-  const magnetApi = type === 'tv' ? searchApi.getTvMagnetSeedhub : searchApi.getMovieMagnetSeedhub
-  const { data: magnetData } = await magnetApi(id, 80)
-  const magnetList = Array.isArray(magnetData?.list) ? magnetData.list : []
-
-  if (magnetList.length > 0) {
-    const magnet = magnetList[0]
-    if (!magnet.magnet) {
-      throw new Error('磁力链接无效')
-    }
-    let folderId = '0'
-    try {
-      const { data } = await pan115Api.getOfflineDefaultFolder()
-      folderId = data.folder_id || '0'
-    } catch { /* use root */ }
-    const offlineTitle = magnet.name || magnet.title || title
-    await pan115Api.addOfflineTask(magnet.magnet, folderId, offlineTitle)
-    ElMessage.success(`已添加离线下载: ${offlineTitle}`)
-    return
-  }
-
-  throw new Error('未找到可用的 115 网盘资源或磁力链接')
-}
-
-// 队列工作器：从队首依次取出并执行转存
-const processSaveQueue = async () => {
-  if (saveQueueProcessing) return
-  saveQueueProcessing = true
-  try {
-    while (saveQueue.value.length > 0) {
-      const item = saveQueue.value[0]
-      const title = item.title || item.name || ''
-      // 更新所有排队项目的显示位置
-      for (let i = 1; i < saveQueue.value.length; i++) {
-        saveQueue.value[i].queuePosition = i + 1
-      }
-      try {
-        await executeSaveItem(item)
-        ElMessage.success(`「${title}」转存完成`)
-      } catch (error) {
-        const reason = error.response?.data?.detail || error.message || '转存失败'
-        ElMessage.error(`「${title}」${reason}`)
-      } finally {
-        item.saving = false
-        item.queuePosition = null
-        saveQueue.value.shift()
-      }
-    }
-  } finally {
-    saveQueueProcessing = false
-  }
-}
-
-const SOURCE_115_APIS = {
-  hdhive: (type) => type === 'tv' ? searchApi.getTvPan115Hdhive : searchApi.getMoviePan115Hdhive,
-  pansou: (type) => type === 'tv' ? searchApi.getTvPan115Pansou : searchApi.getMoviePan115Pansou,
-  tg: (type) => type === 'tv' ? searchApi.getTvPan115Tg : searchApi.getMoviePan115Tg
-}
-
-const doSave115Resource = async (resource, folderName) => {
-  const shareLink = resource.share_link || resource.url || resource.link
-  if (!shareLink) {
-    ElMessage.warning('115 资源缺少分享链接')
-    return false
-  }
-  let folderId = '0'
-  try {
-    const { data } = await pan115Api.getDefaultFolder()
-    folderId = data.folder_id || '0'
-  } catch { /* use root */ }
-  const receiveCode = parseReceiveCodeFromShareLink(shareLink)
-  await pan115Api.saveShareToFolder(shareLink, folderName, folderId, receiveCode)
-  ElMessage.success(`已转存至 115 网盘: ${resource.title || resource.name || folderName}`)
-  return true
-}
-
 const handleSave = async (item) => {
   if (item.isPansouResult && !item.pan115_share_link) {
     ElMessage.warning('该盘搜结果没有可转存的 115 分享链接')
     return
   }
-  if (!item.isPansouResult) {
-    if (item.media_type === 'person') {
-      ElMessage.warning('人物不支持转存')
+
+  if (item.isPansouResult) {
+    if (item.saving) {
+      ElMessage.info('该条目正在转存中')
       return
     }
-    if (!item.id) return
-  }
-
-  // 检查是否已在队列中
-  if (item.saving) {
-    ElMessage.info('该条目已在转存队列中')
+    item.saving = true
+    try {
+      let folderId = '0'
+      try {
+        const { data } = await pan115Api.getDefaultFolder()
+        folderId = data.folder_id || '0'
+      } catch {
+        folderId = '0'
+      }
+      const resourceName = item.name || item.title || lastSearchKeyword.value || 'Pansou Resource'
+      const receiveCode = parseReceiveCodeFromShareLink(item.pan115_share_link)
+      const { data } = await pan115Api.saveShareToFolder(
+        item.pan115_share_link,
+        resourceName,
+        folderId,
+        receiveCode
+      )
+      const saveSuccess = data?.success === true
+        || data?.state === true
+        || data?.result?.success === true
+        || data?.result?.state === true
+      if (!saveSuccess) {
+        throw new Error(data?.message || data?.error || data?.result?.error || '转存失败')
+      }
+      ElMessage.success(`「${resourceName}」转存完成`)
+    } catch (error) {
+      const reason = error.response?.data?.detail || error.message || '转存失败'
+      ElMessage.error(`「${item.title || item.name || ''}」${reason}`)
+    } finally {
+      item.saving = false
+    }
     return
   }
 
-  // 加入队列
-  item.saving = true
-  const queuePos = saveQueue.value.length + 1
-  item.queuePosition = queuePos
-  saveQueue.value.push(item)
-
-  if (queuePos === 1) {
-    ElMessage.info(`「${item.title || item.name || ''}」已加入转存队列，正在开始转存`)
-  } else {
-    ElMessage.info(`「${item.title || item.name || ''}」已加入转存队列，前面还有 ${queuePos - 1} 个`)
+  if (item.media_type === 'person') {
+    ElMessage.warning('人物不支持转存')
+    return
   }
 
-  // 启动队列处理
-  processSaveQueue()
+  const payload = buildTmdbSavePayload(item)
+  await enqueueMediaSaveTask(item, payload)
 }
 
 const setupExploreContainerResizeObserver = () => {
@@ -2062,6 +1861,7 @@ const cleanupSectionResizeObserver = () => {
 
 const resetExploreState = () => {
   exploreSections.value = []
+  exploreUseLazySections.value = false
 }
 
 onMounted(async () => {
@@ -2071,10 +1871,7 @@ onMounted(async () => {
   if (!restored) {
     await initializeExploreHome()
   } else {
-    await Promise.allSettled([
-      refreshFollowedPersonIds(),
-      refreshWatchlists()
-    ])
+    await refreshFollowedPersonIds()
   }
   startExploreQueuePolling()
 })

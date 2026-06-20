@@ -253,6 +253,7 @@ def test_create_httpx_client_skips_unreachable_proxy_mounts(monkeypatch) -> None
     try:
         client = manager.create_httpx_client(timeout=5.0)
         assert "mounts" not in client.kwargs
+        assert client.kwargs.get("trust_env") is False
     finally:
         manager.update_proxy(
             http_proxy=original_config.get("http_proxy") or "",
@@ -260,6 +261,52 @@ def test_create_httpx_client_skips_unreachable_proxy_mounts(monkeypatch) -> None
             all_proxy=original_config.get("all_proxy") or "",
             socks_proxy=original_config.get("socks_proxy") or "",
         )
+
+
+def test_create_httpx_client_disables_system_env_proxy(monkeypatch) -> None:
+    manager = ProxyManager()
+    original_config = dict(proxy_manager.get_current_config())
+    manager.update_proxy(
+        http_proxy="",
+        https_proxy="",
+        all_proxy="",
+        socks_proxy="",
+    )
+
+    class DummyAsyncClient:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    fake_httpx = SimpleNamespace(
+        AsyncHTTPTransport=lambda **kwargs: kwargs,
+        AsyncClient=DummyAsyncClient,
+    )
+    monkeypatch.setattr(proxy_module, "_get_httpx", lambda: fake_httpx)
+    monkeypatch.setattr(manager, "_should_apply_proxy_mounts", lambda: False)
+
+    try:
+        client = manager.create_httpx_client(timeout=5.0)
+        assert client.kwargs.get("trust_env") is False
+    finally:
+        manager.update_proxy(
+            http_proxy=original_config.get("http_proxy") or "",
+            https_proxy=original_config.get("https_proxy") or "",
+            all_proxy=original_config.get("all_proxy") or "",
+            socks_proxy=original_config.get("socks_proxy") or "",
+        )
+
+
+def test_create_direct_httpx_client_ignores_env_proxy(monkeypatch) -> None:
+    class DummyAsyncClient:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    fake_httpx = SimpleNamespace(AsyncClient=DummyAsyncClient)
+    monkeypatch.setattr(proxy_module, "_get_httpx", lambda: fake_httpx)
+
+    client = proxy_module.create_direct_httpx_client(timeout=5.0)
+    assert client.kwargs.get("trust_env") is False
+    assert client.kwargs.get("timeout") == 5.0
 
 
 def test_tg_transport_parser_supports_authenticated_http_proxy() -> None:

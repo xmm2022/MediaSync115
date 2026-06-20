@@ -5,7 +5,9 @@
 
 import asyncio
 import logging
+import re
 from typing import Awaitable, Callable, List, Optional, TypeVar
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
@@ -22,6 +24,56 @@ from app.services.transfer_guard_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_receive_code(value: str) -> str:
+    """清洗 115 提取码，仅保留 4 位字母数字"""
+
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", str(value or ""))
+    match = re.search(r"[A-Za-z0-9]{4}", cleaned)
+    return match.group(0) if match else ""
+
+
+def _sanitize_share_url(share_url: str) -> str:
+    """从分享文本中提取并规范化链接，清理污染提取码"""
+
+    raw = str(share_url or "").strip()
+    if not raw:
+        return ""
+
+    url_match = re.search(r"https?://[^\s<>\"']+", raw, re.I)
+    if url_match:
+        raw = url_match.group(0)
+
+    try:
+        parsed = urlparse(raw)
+        if not parsed.scheme or not parsed.netloc:
+            return raw
+
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        for key in ("password", "pwd", "receive_code"):
+            if key not in query:
+                continue
+            cleaned_values = [_sanitize_receive_code(v) for v in query.get(key) or []]
+            cleaned_values = [v for v in cleaned_values if v]
+            if cleaned_values:
+                query[key] = cleaned_values[:1]
+            else:
+                del query[key]
+
+        new_query = urlencode({k: v[0] for k, v in query.items()}, doseq=False)
+        return urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                parsed.params,
+                new_query,
+                parsed.fragment,
+            )
+        )
+    except Exception:
+        return re.sub(r"[^\x20-\x7E\u4e00-\u9fff/?=&:%._-]", "", raw).strip()
 
 
 async def _trigger_archive_if_enabled(trigger: str = "transfer") -> None:
@@ -1066,9 +1118,8 @@ async def extract_share_files(request: ShareExtractFilesRequest):
     try:
         # 使用服务层的 parse_share_link 或者直接提取分享码，调用递归获取方法
         from p115client.util import share_extract_payload
-        import re
 
-        share_url = (request.share_url or "").strip()
+        share_url = _sanitize_share_url((request.share_url or "").strip())
         try:
             share_payload = share_extract_payload(share_url)
         except Exception:
@@ -1081,27 +1132,35 @@ async def extract_share_files(request: ShareExtractFilesRequest):
         if not share_code:
             raise ValueError("无效的分享链接格式")
 
-        receive_code = request.receive_code
+        receive_code = _sanitize_receive_code(request.receive_code)
         if not receive_code:
-            receive_code = share_payload.get("receive_code") or ""
+            receive_code = _sanitize_receive_code(share_payload.get("receive_code") or "")
             if not receive_code:
                 short_receive_match = re.match(
                     r"^[A-Za-z0-9]+-([A-Za-z0-9]{4})$", share_url
                 )
                 if short_receive_match:
-                    receive_code = short_receive_match.group(1)
+                    receive_code = _sanitize_receive_code(short_receive_match.group(1))
             if not receive_code:
                 password_match = re.search(
                     r"(?:password|pwd)=([^&#]+)", share_url, re.IGNORECASE
                 )
-                receive_code = password_match.group(1) if password_match else ""
+                receive_code = (
+                    _sanitize_receive_code(password_match.group(1))
+                    if password_match
+                    else ""
+                )
             if not receive_code:
                 text_receive_match = re.search(
                     r"(?:提取码|提取碼|密码|密碼)\s*[:：=]?\s*([A-Za-z0-9]{4})",
                     share_url,
                     re.IGNORECASE,
                 )
-                receive_code = text_receive_match.group(1) if text_receive_match else ""
+                receive_code = (
+                    _sanitize_receive_code(text_receive_match.group(1))
+                    if text_receive_match
+                    else ""
+                )
 
         all_files = await service.get_share_all_files_recursive(
             share_code, receive_code

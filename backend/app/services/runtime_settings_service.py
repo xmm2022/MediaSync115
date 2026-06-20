@@ -86,9 +86,11 @@ class RuntimeSettingsService:
             "hdhive_cookie": settings.HDHIVE_COOKIE or "",
             "hdhive_api_key": settings.HDHIVE_API_KEY or "",
             "hdhive_base_url": settings.HDHIVE_BASE_URL,
+            "hdhive_login_username": "",
+            "hdhive_password_enc": "",
             "hdhive_auto_checkin_enabled": False,
             "hdhive_auto_checkin_mode": "normal",
-            "hdhive_auto_checkin_method": "api",
+            "hdhive_auto_checkin_method": "cookie",
             "hdhive_auto_checkin_run_time": "09:00",
             "pansou_base_url": settings.PANSOU_BASE_URL,
             "tg_api_id": settings.TG_API_ID or "",
@@ -121,6 +123,8 @@ class RuntimeSettingsService:
             "feiniu_secret": settings.FEINIU_SECRET or "",
             "feiniu_api_key": settings.FEINIU_API_KEY or "",
             "feiniu_session_token": "",
+            "feiniu_login_username": "",
+            "feiniu_password_enc": "",
             "feiniu_sync_enabled": False,
             "feiniu_sync_interval_hours": 24,
             "feiniu_sync_interval_minutes": 1440,
@@ -408,6 +412,49 @@ class RuntimeSettingsService:
     def get_hdhive_base_url(self) -> str:
         return self._data["hdhive_base_url"]
 
+    def get_hdhive_login_username(self) -> str:
+        return str(self._data.get("hdhive_login_username") or "")
+
+    def get_hdhive_password_enc(self) -> str:
+        return str(self._data.get("hdhive_password_enc") or "")
+
+    def get_hdhive_password(self) -> str:
+        """解密读取 HDHive 登录密码。"""
+        from app.utils.credential_crypto import decrypt_credential
+
+        encrypted = self.get_hdhive_password_enc()
+        if not encrypted:
+            return ""
+        return decrypt_credential(encrypted, self.get_auth_secret())
+
+    def set_hdhive_password(self, password: str) -> None:
+        """加密保存 HDHive 登录密码。"""
+        from app.utils.credential_crypto import encrypt_credential
+
+        plain = str(password or "").strip()
+        if not plain:
+            self._data["hdhive_password_enc"] = ""
+            return
+        self._data["hdhive_password_enc"] = encrypt_credential(
+            plain,
+            self.get_auth_secret(),
+        )
+
+    def has_hdhive_credentials(self, merged_settings: dict | None = None) -> bool:
+        """判断是否具备 HDHive 自动登录凭据或有效 Cookie。"""
+        if merged_settings is None:
+            cookie = self.get_hdhive_cookie()
+            username = self.get_hdhive_login_username()
+            password_enc = self.get_hdhive_password_enc()
+        else:
+            cookie = str(merged_settings.get("hdhive_cookie") or "").strip()
+            username = str(merged_settings.get("hdhive_login_username") or "").strip()
+            password_enc = str(merged_settings.get("hdhive_password_enc") or "").strip()
+
+        if cookie:
+            return True
+        return bool(username and password_enc)
+
     def get_hdhive_auto_checkin_enabled(self) -> bool:
         return bool(self._data.get("hdhive_auto_checkin_enabled", False))
 
@@ -421,11 +468,13 @@ class RuntimeSettingsService:
 
     def get_hdhive_auto_checkin_method(self) -> str:
         value = (
-            str(self._data.get("hdhive_auto_checkin_method") or "api").strip().lower()
+            str(self._data.get("hdhive_auto_checkin_method") or "cookie").strip().lower()
         )
         if value == "cookie":
             return "cookie"
-        return "api"
+        if value in {"api", "web"}:
+            return "web"
+        return "cookie"
 
     def get_hdhive_auto_checkin_run_time(self) -> str:
         return str(self._data.get("hdhive_auto_checkin_run_time", "09:00") or "09:00")
@@ -662,6 +711,61 @@ class RuntimeSettingsService:
 
     def get_feiniu_session_token(self) -> str:
         return str(self._data.get("feiniu_session_token") or "")
+
+    def get_feiniu_login_username(self) -> str:
+        return str(self._data.get("feiniu_login_username") or "")
+
+    def has_feiniu_sync_credentials(self, merged_settings: dict | None = None) -> bool:
+        """判断是否具备飞牛同步所需凭据。"""
+        from app.services.feiniu_service import feiniu_service
+
+        if merged_settings is None:
+            feiniu_url = self.get_feiniu_url()
+            feiniu_session_token = self.get_feiniu_session_token()
+            feiniu_login_username = self.get_feiniu_login_username()
+            feiniu_password_enc = self.get_feiniu_password_enc()
+        else:
+            feiniu_url = str(merged_settings.get("feiniu_url") or "").strip()
+            feiniu_session_token = str(
+                merged_settings.get("feiniu_session_token") or ""
+            ).strip()
+            feiniu_login_username = str(
+                merged_settings.get("feiniu_login_username") or ""
+            ).strip()
+            feiniu_password_enc = str(
+                merged_settings.get("feiniu_password_enc") or ""
+            ).strip()
+
+        if not feiniu_url:
+            return False
+        if feiniu_service.is_trim_vapi_token(feiniu_session_token):
+            return True
+        return bool(feiniu_login_username and feiniu_password_enc)
+
+    def get_feiniu_password_enc(self) -> str:
+        return str(self._data.get("feiniu_password_enc") or "")
+
+    def get_feiniu_password(self) -> str:
+        """解密读取飞牛影视登录密码。"""
+        from app.utils.credential_crypto import decrypt_credential
+
+        encrypted = self.get_feiniu_password_enc()
+        if not encrypted:
+            return ""
+        return decrypt_credential(encrypted, self.get_auth_secret())
+
+    def set_feiniu_password(self, password: str) -> None:
+        """加密保存飞牛影视登录密码。"""
+        from app.utils.credential_crypto import encrypt_credential
+
+        plain = str(password or "").strip()
+        if not plain:
+            self._data["feiniu_password_enc"] = ""
+            return
+        self._data["feiniu_password_enc"] = encrypt_credential(
+            plain,
+            self.get_auth_secret(),
+        )
 
     def get_feiniu_sync_enabled(self) -> bool:
         return bool(self._data.get("feiniu_sync_enabled", False))
@@ -1203,10 +1307,11 @@ class RuntimeSettingsService:
         )
         from app.services.feiniu_service import feiniu_service
 
-        feiniu_service.set_config(
+        feiniu_service.configure_client(
             base_url=self.get_feiniu_url(),
-            secret=self.get_feiniu_secret(),
-            api_key=self.get_feiniu_api_key(),
+            username=self.get_feiniu_login_username(),
+            password=self.get_feiniu_password(),
+            token=self.get_feiniu_session_token(),
         )
         from app.services.license_service import license_service
 
@@ -1232,6 +1337,7 @@ class RuntimeSettingsService:
             "hdhive_cookie": self.get_hdhive_cookie(),
             "hdhive_api_key": self.get_hdhive_api_key(),
             "hdhive_base_url": self.get_hdhive_base_url(),
+            "hdhive_login_username": self.get_hdhive_login_username(),
             "hdhive_auto_checkin_enabled": self.get_hdhive_auto_checkin_enabled(),
             "hdhive_auto_checkin_mode": self.get_hdhive_auto_checkin_mode(),
             "hdhive_auto_checkin_method": self.get_hdhive_auto_checkin_method(),

@@ -6,6 +6,7 @@ import router from './router'
 import './styles/main.scss'
 import { applyBeijingTimezone } from './utils/timezone'
 import { initPerformanceMonitor } from './utils/performance'
+import { setDialogAppContext } from './utils/dialogAppContext'
 
 const installZoomLock = () => {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -50,5 +51,7 @@ initPerformanceMonitor()
 
 app.use(createPinia())
 app.use(router)
+
+setDialogAppContext(app._context)
 
 app.mount('#app')

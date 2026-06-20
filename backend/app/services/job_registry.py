@@ -87,7 +87,7 @@ class JobRegistry:
     async def _hdhive_checkin(self, **kwargs) -> dict[str, Any]:
         gamble = runtime_settings_service.get_hdhive_auto_checkin_mode() == "gamble"
         method = runtime_settings_service.get_hdhive_auto_checkin_method()
-        method_label = "Cookie" if method == "cookie" else "API Key"
+        method_label = "Cookie" if method == "cookie" else "网页"
         await operation_log_service.log_background_event(
             source_type="scheduler",
             module="hdhive",

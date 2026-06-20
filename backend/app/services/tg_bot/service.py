@@ -25,10 +25,55 @@ class TgBotService:
         self._app: Application | None = None
         self._running = False
         self._lock = asyncio.Lock()
+        self._last_error: str = ""
 
     @property
     def running(self) -> bool:
         return self._running
+
+    @property
+    def last_error(self) -> str:
+        return self._last_error
+
+    def _resolve_telegram_proxy(self) -> str | None:
+        from app.utils.proxy import proxy_manager
+
+        return proxy_manager.get_effective_https_proxy()
+
+    def _build_httpx_request(self, proxy_url: str | None = None) -> "HTTPXRequest":
+        """构建 Telegram HTTP 客户端，禁用系统环境代理避免 Docker 注入无效 HTTP_PROXY。"""
+        from telegram.request import HTTPXRequest
+
+        return HTTPXRequest(
+            proxy=proxy_url,
+            connect_timeout=10.0,
+            read_timeout=30.0,
+            httpx_kwargs={"trust_env": False},
+        )
+
+    def _build_application(self, token: str) -> Application:
+        from .handlers import register_handlers
+
+        proxy_url = self._resolve_telegram_proxy()
+        request = self._build_httpx_request(proxy_url)
+        if proxy_url:
+            logger.info("TG Bot 使用代理: %s", proxy_url)
+        else:
+            logger.info("TG Bot 使用直连（已忽略系统环境变量 HTTP_PROXY）")
+        builder = (
+            Application.builder()
+            .token(token)
+            .request(request)
+            .get_updates_request(request)
+        )
+        app = builder.build()
+        cfg = self._get_settings()
+        register_handlers(app, cfg["allowed_users"])
+        return app
+
+    def _build_standalone_bot(self, token: str) -> Bot:
+        proxy_url = self._resolve_telegram_proxy()
+        return Bot(token, request=self._build_httpx_request(proxy_url))
 
     @property
     def bot(self) -> Bot | None:
@@ -51,6 +96,9 @@ class TgBotService:
             logger.exception("Error stopping TG Bot updater")
         try:
             await app.stop()
+        except RuntimeError:
+            pass
+        try:
             await app.shutdown()
         except Exception:
             logger.exception("Error shutting down TG Bot application")
@@ -67,11 +115,7 @@ class TgBotService:
 
             partial_app: Application | None = None
             try:
-                from .handlers import register_handlers
-
-                builder = Application.builder().token(cfg["token"])
-                partial_app = builder.build()
-                register_handlers(partial_app, cfg["allowed_users"])
+                partial_app = self._build_application(cfg["token"])
                 self._app = partial_app
 
                 await asyncio.wait_for(
@@ -79,27 +123,27 @@ class TgBotService:
                     timeout=TG_BOT_START_TIMEOUT_SECONDS,
                 )
                 self._running = True
+                self._last_error = ""
                 logger.info("TG Bot started successfully")
             except (asyncio.TimeoutError, TimedOut):
                 await self._abort_start(
                     partial_app,
-                    "TG Bot 启动超时，主服务将继续运行；请检查 Token 与访问 Telegram 的网络，稍后在设置中重启 Bot",
+                    "TG Bot 启动超时，请检查 Token 与访问 Telegram 的网络，或在设置中配置可用代理后重启 Bot",
                 )
             except NetworkError as exc:
                 await self._abort_start(
                     partial_app,
-                    "TG Bot 网络异常，主服务将继续运行：%s",
-                    exc,
+                    f"TG Bot 无法连接 Telegram API：{exc}。如在 Docker/国内环境，请在「代理设置」中配置可访问 Telegram 的 HTTPS 代理",
                 )
             except TelegramError:
                 await self._abort_start(
                     partial_app,
-                    "TG Bot 启动失败（Token 或 Telegram API 异常），主服务将继续运行",
+                    "TG Bot 启动失败（Token 无效或 Telegram API 异常），请检查 Bot Token",
                 )
             except Exception:
                 await self._abort_start(
                     partial_app,
-                    "TG Bot 启动出现未知错误，主服务将继续运行",
+                    "TG Bot 启动出现未知错误，请查看服务日志",
                     exc_info=True,
                 )
 
@@ -116,6 +160,7 @@ class TgBotService:
             logger.error(message, *args)
         else:
             logger.error(message)
+        self._last_error = str(message)
         if partial_app is not None:
             await self._shutdown_app(partial_app)
         self._app = None
@@ -142,6 +187,7 @@ class TgBotService:
                     self._shutdown_app(app),
                     timeout=TG_BOT_STOP_TIMEOUT_SECONDS,
                 )
+                self._last_error = ""
                 logger.info("TG Bot stopped")
             except asyncio.TimeoutError:
                 logger.error("TG Bot stop timed out, state cleared")
@@ -189,7 +235,7 @@ class TgBotService:
             return
 
         try:
-            bot = Bot(cfg["token"])
+            bot = self._build_standalone_bot(cfg["token"])
             async with bot:
                 await _deliver(bot)
         except Exception:
@@ -206,6 +252,8 @@ class TgBotService:
             "has_token": bool(cfg["token"]),
             "notify_chat_ids": cfg.get("notify_chat_ids", []),
             "allowed_users": cfg.get("allowed_users", []),
+            "last_error": self._last_error,
+            "using_proxy": bool(self._resolve_telegram_proxy()),
         }
 
 

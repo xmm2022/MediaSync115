@@ -234,9 +234,20 @@ img {
   }
 }
 
+.el-message {
+  background: var(--ms-bg-card) !important;
+  border: 1px solid var(--ms-border-color) !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18) !important;
+  color: var(--ms-text-primary) !important;
+  z-index: 10000 !important;
+}
+
+.el-notification {
+  z-index: 10000 !important;
+}
+
 .el-dialog,
 .el-drawer,
-.el-message,
 .el-notification,
 .el-message-box,
 .el-select-dropdown,

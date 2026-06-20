@@ -112,6 +112,7 @@ import {
   setExploreSectionBatchInflight
 } from '@/utils/exploreSectionBatchCache'
 import { createExploreLibraryBadgeSyncer } from '@/utils/exploreLibraryBadgeSync'
+import { buildExploreQueuePayload } from '@/utils/exploreQueuePayload'
 const resolveExploreSpeedMode = () => {
   if (typeof window === 'undefined') return 'extreme'
   try {
@@ -285,32 +286,6 @@ const buildExploreQueueItemKeyFromTask = (task) => {
   const doubanId = String(task?.douban_id || '').trim()
   if (doubanId) return `douban:${mediaType}:${doubanId}`
   return ''
-}
-
-const buildExploreQueuePayload = (item) => {
-  const mediaType = normalizeExploreQueueMediaType(item?.media_type)
-  const tmdbId = toValidTmdbId(item?.tmdb_id)
-  const idValue = item?.id === undefined || item?.id === null ? '' : String(item.id).trim()
-  const doubanId = String(item?.douban_id || idValue || '').trim()
-  return {
-    source: exploreSource.value,
-    id: idValue || null,
-    douban_id: doubanId || null,
-    title: String(item?.title || '').trim(),
-    name: String(item?.name || item?.title || '').trim(),
-    original_title: String(item?.original_title || '').trim(),
-    original_name: String(item?.original_name || '').trim(),
-    aliases: Array.isArray(item?.aliases) ? item.aliases : [],
-    year: String(item?.year || '').trim(),
-    media_type: mediaType,
-    tmdb_id: tmdbId,
-    poster_path: String(item?.poster_path || '').trim(),
-    poster_url: String(item?.poster_url || '').trim(),
-    overview: String(item?.overview || '').trim(),
-    intro: String(item?.intro || '').trim(),
-    rating: item?.rating ?? item?.vote_average ?? null,
-    vote_average: item?.vote_average ?? item?.rating ?? null
-  }
 }
 
 const syncExploreQueueItemStates = () => {
@@ -677,7 +652,7 @@ const handleExploreSubscribe = async (item) => {
 
 const handleExploreSave = async (item) => {
   if (!item) return
-  const payload = buildExploreQueuePayload(item)
+  const payload = buildExploreQueuePayload(item, { exploreSource: exploreSource.value })
   if (!payload.tmdb_id && !payload.douban_id && !payload.id) {
     ElMessage.warning(withTitleHint(item, '缺少可用条目标识，无法加入转存队列'))
     return

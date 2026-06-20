@@ -384,10 +384,7 @@ class FeiniuSyncIndexService:
                 }
 
     async def start_background_sync(self, trigger: str = "manual") -> dict[str, Any]:
-        if (
-            not runtime_settings_service.get_feiniu_url()
-            or not runtime_settings_service.get_feiniu_session_token()
-        ):
+        if not runtime_settings_service.has_feiniu_sync_credentials():
             return {
                 "success": False,
                 "started": False,
@@ -423,27 +420,10 @@ class FeiniuSyncIndexService:
     async def _collect_feiniu_snapshot(self) -> dict[str, Any]:
         if not runtime_settings_service.get_feiniu_url():
             raise ValueError("飞牛未配置，无法执行全量同步")
-        if not runtime_settings_service.get_feiniu_session_token():
-            raise ValueError("飞牛尚未登录，无法执行全量同步")
+        if not await feiniu_service.ensure_authenticated():
+            raise ValueError("飞牛尚未登录或自动换票失败，无法执行全量同步")
 
-        items: list[dict[str, Any]] = []
-        total = 0
-        page = 1
-        while True:
-            payload = await feiniu_service.list_items_page(page=page)
-            if not payload.get("success"):
-                raise ValueError(str(payload.get("message") or "获取飞牛媒体列表失败"))
-            data = payload.get("data") or {}
-            rows = data.get("list") or []
-            if not isinstance(rows, list) or not rows:
-                break
-            items.extend([row for row in rows if isinstance(row, dict)])
-            total = int(data.get("total") or 0)
-            if total > 0 and len(items) >= total:
-                break
-            page += 1
-            if page > 1000:
-                raise ValueError("飞牛媒体列表分页异常")
+        items = await feiniu_service.fetch_all_items()
 
         movie_index: dict[int, set[str]] = {}
         tv_index: dict[int, set[str]] = {}

@@ -1,597 +1,238 @@
 """
-飞牛影视服务 - 支持浏览器自动化登录和 API Key 认证
+飞牛影视服务 - nas-tools FnOSClient 模式 v/api 门面。
 """
 
-import base64
-import hashlib
-import json
+from __future__ import annotations
+
 import logging
-import random
-import time
-import uuid
 from typing import Any, Optional
 
-import asyncio
-import httpx
-import websockets
-from Crypto.Cipher import AES, PKCS1_v1_5
-from Crypto.PublicKey import RSA
-from playwright.async_api import async_playwright
-
-from app.core.config import settings
+from app.services.feiniu_vapi_client import FeiniuVapiClient
 
 logger = logging.getLogger(__name__)
 
-_FEINIU_HTTP_TIMEOUT = httpx.Timeout(15.0, connect=10.0)
-_FEINIU_HTTP_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
-
 
 class FeiniuService:
-    """飞牛影视服务"""
+    """飞牛影视服务门面，委托 FeiniuVapiClient 完成 v/api 调用。"""
 
-    API_KEY = "NDzZTVxnRKP8Z0jXg1VAMonaG8akvh"
-    API_SECRET = "16CCEB3D-AB42-077D-36A1-F355324E4237"
+    def __init__(self) -> None:
+        self.base_url = ""
+        self._client = FeiniuVapiClient()
 
-    def __init__(self):
-        self.base_url = settings.FEINIU_URL.rstrip("/") if settings.FEINIU_URL else ""
-        self.secret = settings.FEINIU_SECRET
-        self.api_key = settings.FEINIU_API_KEY
-        self.session_token: Optional[str] = None
-        self._http_client: httpx.AsyncClient | None = None
-
-    def _get_client(self) -> httpx.AsyncClient:
-        if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(
-                timeout=_FEINIU_HTTP_TIMEOUT,
-                follow_redirects=True,
-                limits=_FEINIU_HTTP_LIMITS,
-            )
-        return self._http_client
-
-    def _reset_http_client(self) -> None:
-        if self._http_client is not None and not self._http_client.is_closed:
-            old_client = self._http_client
-            self._http_client = None
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(old_client.aclose())
-            except RuntimeError:
-                pass
-
-    def set_config(self, base_url: str, secret: str, api_key: str) -> None:
+    def configure_client(
+        self,
+        *,
+        base_url: str = "",
+        username: str = "",
+        password: str = "",
+        token: str = "",
+    ) -> None:
+        """从外部注入客户端配置，避免与 runtime_settings 循环导入。"""
         self.base_url = str(base_url or "").strip().rstrip("/")
-        self.secret = str(secret or "").strip()
-        self.api_key = str(api_key or "").strip() or self.API_KEY
-        self.session_token = None
-        self._reset_http_client()
+        self._client = FeiniuVapiClient(
+            base_url=self.base_url,
+            username=str(username or "").strip(),
+            password=str(password or "").strip(),
+            token=str(token or "").strip(),
+        )
+
+    def apply_runtime_config(self) -> None:
+        """从运行时设置加载飞牛影视客户端配置。"""
+        from app.services.runtime_settings_service import runtime_settings_service
+
+        self.base_url = runtime_settings_service.get_feiniu_url().rstrip("/")
+        self._client = FeiniuVapiClient(
+            base_url=self.base_url,
+            username=runtime_settings_service.get_feiniu_login_username(),
+            password=runtime_settings_service.get_feiniu_password(),
+            token=runtime_settings_service.get_feiniu_session_token(),
+        )
+
+    def _build_client(
+        self,
+        base_url: str = "",
+        username: str = "",
+        password: str = "",
+        token: str = "",
+    ) -> FeiniuVapiClient:
+        from app.services.runtime_settings_service import runtime_settings_service
+
+        resolved_base = str(base_url or self.base_url or runtime_settings_service.get_feiniu_url()).strip().rstrip("/")
+        return FeiniuVapiClient(
+            base_url=resolved_base,
+            username=str(username or runtime_settings_service.get_feiniu_login_username()).strip(),
+            password=str(password or runtime_settings_service.get_feiniu_password()).strip(),
+            token=str(token or runtime_settings_service.get_feiniu_session_token()).strip(),
+        )
+
+    def set_config(self, base_url: str, secret: str = "", api_key: str = "") -> None:
+        """兼容旧调用：仅更新 base_url。"""
+        self.base_url = str(base_url or "").strip().rstrip("/")
+        self._client.set_base_url(self.base_url)
 
     def set_session_token(self, token: str) -> None:
-        self.session_token = token
+        self._client.set_token(token)
 
-    def _get_session_token(self) -> str:
-        if self.session_token:
-            return self.session_token
+    @staticmethod
+    def is_trim_vapi_token(token: str) -> bool:
+        return FeiniuVapiClient.is_trim_vapi_token(token)
+
+    async def login(self, username: str, password: str) -> dict[str, Any]:
+        """HTTP v/api 登录飞牛影视。"""
+        client = self._build_client(username=username, password=password)
+        result = await client.login(username, password)
+        if result.get("success") and result.get("token"):
+            self._client = client
+        return result
+
+    async def ensure_authenticated(self) -> bool:
+        """确保客户端已登录（必要时用已存凭据自动换票）。"""
         from app.services.runtime_settings_service import runtime_settings_service
 
-        token = runtime_settings_service.get_feiniu_session_token()
-        if token:
-            self.session_token = token
-        return token
-
-    def _generate_nonce(self) -> str:
-        return str(random.randint(100000, 999999))
-
-    def _md5(self, data: str) -> str:
-        if isinstance(data, str):
-            data = data.encode("utf-8")
-        elif not isinstance(data, bytes):
-            data = str(data).encode("utf-8")
-        return hashlib.md5(data).hexdigest()
-
-    def _compute_authx(self, url: str, data: Optional[dict] = None) -> str:
-        nonce = self._generate_nonce()
-        timestamp = int(time.time() * 1000)
-        data_json = json.dumps(data, separators=(",", ":")) if data else ""
-        data_md5 = self._md5(data_json)
-        sign_array = [
-            self.API_KEY,
-            url,
-            nonce,
-            str(timestamp),
-            data_md5,
-            self.API_SECRET,
-        ]
-        sign_str = "_".join(sign_array)
-        sign_hash = self._md5(sign_str)
-        return f"nonce={nonce}&timestamp={timestamp}&sign={sign_hash}"
-
-    def _auth_headers(self, use_session: bool = False) -> dict[str, str]:
-        from app.services.runtime_settings_service import runtime_settings_service
-
-        timestamp = str(int(time.time()))
-        raw = f"{self.secret}{timestamp}{self.api_key}"
-        authx = self._md5(raw)
-        headers = {
-            "authx": authx,
-            "authn": timestamp,
-        }
-        token = (
-            self.session_token or runtime_settings_service.get_feiniu_session_token()
-        )
-        if use_session and token:
-            headers["Authorization"] = token
-            headers["Cookie"] = f"mode=relay; Trim-MC-token={token}"
-        return headers
-
-    def _session_headers(self) -> dict[str, str]:
-        token = self._get_session_token()
-        headers: dict[str, str] = {}
-        if token:
-            headers["Authorization"] = token
-            headers["Cookie"] = f"mode=relay; Trim-MC-token={token}"
-        return headers
-
-    async def browser_login(self, username: str, password: str) -> dict[str, Any]:
-        """
-        使用浏览器自动化登录飞牛影视
-
-        Args:
-            username: 用户名
-            password: 密码
-
-        Returns:
-            包含 success, token, message 等字段的字典
-        """
-        if not self.base_url:
-            return {
-                "success": False,
-                "message": "飞牛影视 URL 未配置",
-                "token": None,
-            }
-
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                context = await browser.new_context()
-                page = await context.new_page()
-
-                login_url = (
-                    f"{self.base_url}/v/login?redirect_uri=http%3A%2F%2F"
-                    f"{self.base_url.split('://')[1]}%2Fv"
-                )
-                await page.goto(login_url, wait_until="networkidle", timeout=60000)
-
-                await page.fill("#username", username)
-                await page.fill("#password", password)
-                await page.click("button[type='submit']")
-
-                try:
-                    await page.wait_for_url(f"{self.base_url}/v", timeout=60000)
-                except Exception:
-                    pass
-
-                cookies = await context.cookies()
-                await browser.close()
-
-                for cookie in cookies:
-                    if cookie["name"] == "Trim-MC-token":
-                        token = cookie["value"]
-                        self.session_token = token
-                        logger.info(f"浏览器登录成功，获取 Token: {token[:20]}...")
-                        return {
-                            "success": True,
-                            "message": "登录成功",
-                            "token": token,
-                        }
-
-                return {
-                    "success": False,
-                    "message": "未找到登录凭证",
-                    "token": None,
-                }
-
-        except Exception as exc:
-            logger.exception("浏览器登录失败")
-            return {
-                "success": False,
-                "message": f"登录异常: {str(exc)}",
-                "token": None,
-            }
-
-    async def http_login(self, username: str, password: str) -> dict[str, Any]:
-        """
-        使用 HTTP API 登录飞牛影视
-
-        通过 HTTP POST 到 /v/api/v1/login 接口登录。
-
-        Args:
-            username: 用户名
-            password: 密码
-
-        Returns:
-            包含 success, token, message 等字段的字典
-        """
-        if not self.base_url:
-            return {
-                "success": False,
-                "message": "飞牛影视 URL 未配置",
-                "token": None,
-            }
-
-        url = f"{self.base_url}/v/api/v1/login"
-
-        try:
-            client = self._get_client()
-            response = await client.post(
-                url,
-                json={"username": username, "password": password},
-                timeout=15.0,
+        self.apply_runtime_config()
+        previous_token = runtime_settings_service.get_feiniu_session_token()
+        ok = await self._client.ensure_token()
+        if ok and self._client.token and self._client.token != previous_token:
+            runtime_settings_service.update_bulk(
+                {"feiniu_session_token": self._client.token}
             )
-
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "message": f"登录请求失败 (HTTP {response.status_code})",
-                    "token": None,
-                }
-
-            payload = response.json()
-            code = payload.get("code")
-            msg = payload.get("msg", "")
-
-            if code == 0:
-                token = (
-                    payload.get("data", {}).get("token")
-                    if isinstance(payload.get("data"), dict)
-                    else None
-                )
-                if token:
-                    self.session_token = token
-                    logger.info(f"HTTP登录成功，获取 Token: {token[:20]}...")
-                    return {
-                        "success": True,
-                        "message": "登录成功",
-                        "token": token,
-                    }
-                return {
-                    "success": False,
-                    "message": f"登录成功但未返回 Token: {msg}",
-                    "token": None,
-                }
-            if code == -15:
-                return {
-                    "success": False,
-                    "message": "密码错误",
-                    "token": None,
-                }
-            if code == -2:
-                return {
-                    "success": False,
-                    "message": "认证失败，请检查用户名",
-                    "token": None,
-                }
-            return {
-                "success": False,
-                "message": f"登录失败: {msg} (code={code})",
-                "token": None,
-            }
-
-        except Exception as exc:
-            logger.exception("HTTP登录异常")
-            return {
-                "success": False,
-                "message": f"登录异常: {str(exc)}",
-                "token": None,
-            }
-
-    def _generate_reqid(self, backId: Optional[str] = None) -> str:
-        """生成请求ID"""
-        t = format(int(time.time()), "x").zfill(8)
-        e = format(1, "x").zfill(4)
-        bid = backId or "0000000000000000"
-        return f"{t}{bid}{e}"
-
-    def _generate_aes_key_iv(self) -> tuple[bytes, bytes]:
-        """生成随机的AES key和iv"""
-        key = uuid.uuid4().hex[:16].encode()
-        iv = uuid.uuid4().hex[:16].encode()
-        return key, iv
-
-    def _aes_encrypt(self, data: str, key: bytes, iv: bytes) -> str:
-        """AES加密"""
-        cipher = AES.new(key, AES.MODE_CBC, iv)
-        padded_data = data.encode("utf-8") + b"\0" * (
-            AES.block_size - len(data.encode("utf-8")) % AES.block_size
-        )
-        ciphertext = cipher.encrypt(padded_data)
-        return base64.b64encode(ciphertext).decode("utf-8")
-
-    def _rsa_encrypt(self, public_key_str: str, plaintext: bytes) -> str:
-        """RSA加密"""
-        key = RSA.import_key(public_key_str)
-        cipher = PKCS1_v1_5.new(key)
-        ciphertext = cipher.encrypt(plaintext)
-        return base64.b64encode(ciphertext).decode()
-
-    async def websocket_login(self, username: str, password: str) -> dict[str, Any]:
-        """
-        使用 WebSocket 登录飞牛影视（推荐方式）
-
-        通过 WebSocket 连接获取登录凭证，返回的 secret 可直接用于 API 认证。
-
-        Args:
-            username: 用户名
-            password: 密码
-
-        Returns:
-            包含 success, token, secret, message 等字段的字典
-        """
-        if not self.base_url:
-            return {
-                "success": False,
-                "message": "飞牛影视 URL 未配置",
-                "token": None,
-                "secret": None,
-            }
-
-        try:
-            host = (
-                self.base_url.split("://")[1]
-                if "://" in self.base_url
-                else self.base_url
-            )
-            port = 5666
-            if ":" in host:
-                host, port_str = host.rsplit(":", 1)
-                try:
-                    port = int(port_str)
-                except ValueError:
-                    port = 5666
-
-            ws_url = f"ws://{host}:{port}/websocket?type=main"
-            logger.info(f"[Feiniu WS] 连接到 {ws_url}")
-
-            async with websockets.connect(ws_url, max_size=10 * 1024 * 1024) as ws:
-                reqid = self._generate_reqid()
-
-                get_rsa_msg = {"reqid": reqid, "req": "util.crypto.getRSAPub"}
-                await ws.send(json.dumps(get_rsa_msg))
-                response = await ws.recv()
-                resp_data = json.loads(response)
-
-                if resp_data.get("result") != "succ":
-                    return {
-                        "success": False,
-                        "message": f"获取RSA公钥失败: {resp_data}",
-                        "token": None,
-                        "secret": None,
-                    }
-
-                public_key = resp_data.get("pub")
-                si = resp_data.get("si")
-                backId = resp_data.get("backId", "0000000000000000")
-                logger.info(f"[Feiniu WS] RSA公钥获取成功, si={si}")
-
-                login_data = {
-                    "req": "user.login",
-                    "reqid": self._generate_reqid(backId),
-                    "user": username,
-                    "password": password,
-                    "deviceType": "Browser",
-                    "deviceName": "Windows-Google Chrome",
-                    "stay": True,
-                    "si": si,
-                }
-
-                key, iv = self._generate_aes_key_iv()
-                json_data = json.dumps(login_data, separators=(",", ":"))
-                aes_encrypted = self._aes_encrypt(json_data, key, iv)
-                rsa_encrypted = self._rsa_encrypt(public_key, key)
-
-                encrypted_data = {
-                    "req": "encrypted",
-                    "iv": base64.b64encode(iv).decode("utf-8"),
-                    "rsa": rsa_encrypted,
-                    "aes": aes_encrypted,
-                    "reqid": self._generate_reqid(backId),
-                }
-
-                await ws.send(json.dumps(encrypted_data))
-                response = await ws.recv()
-                resp_data = json.loads(response)
-
-                if resp_data.get("result") != "succ":
-                    return {
-                        "success": False,
-                        "message": f"登录失败: errno={resp_data.get('errno')}",
-                        "token": None,
-                        "secret": None,
-                    }
-
-                token = resp_data.get("token")
-                secret = resp_data.get("secret")
-                uid = resp_data.get("uid")
-                logger.info(
-                    f"[Feiniu WS] 登录成功! uid={uid}, token={token[:20] if token else None}..."
-                )
-
-                self.session_token = token
-                if secret:
-                    self.secret = secret
-
-                return {
-                    "success": True,
-                    "message": "登录成功",
-                    "token": token,
-                    "secret": secret,
-                    "uid": uid,
-                }
-
-        except Exception as exc:
-            logger.exception("[Feiniu WS] WebSocket登录失败")
-            return {
-                "success": False,
-                "message": f"WebSocket登录异常: {str(exc)}",
-                "token": None,
-                "secret": None,
-            }
+        return ok
 
     async def check_connection(self) -> dict[str, Any]:
-        """检查连接状态"""
-        if not self.base_url:
+        """检查飞牛影视连接状态。"""
+        self.apply_runtime_config()
+        if not self._client.base_url:
             return {
                 "valid": False,
                 "message": "飞牛影视 URL 未配置",
                 "user": None,
             }
-
-        token = self.session_token
-        if not token:
-            from app.services.runtime_settings_service import runtime_settings_service
-
-            token = runtime_settings_service.get_feiniu_session_token()
-            if token:
-                self.session_token = token
-
-        if not token:
+        if not await self._client.ensure_token():
             return {
                 "valid": False,
                 "message": "请先登录飞牛影视获取凭证",
                 "user": None,
             }
-
-        url = f"{self.base_url}/v/api/v1/user/info"
-        headers = self._auth_headers(use_session=True)
-        client = self._get_client()
-        try:
-            response = await client.get(url, headers=headers, timeout=10.0)
-            if response.status_code == 200:
-                payload = response.json()
-                if payload.get("code") == 0:
-                    return {
-                        "valid": True,
-                        "message": "飞牛影视连接成功",
-                        "user": payload.get("data") or {"server": "feiniu"},
-                    }
-                if payload.get("code") == -2:
-                    return {
-                        "valid": False,
-                        "message": "Session Token 无效或已过期，请重新登录",
-                        "user": None,
-                    }
-                return {
-                    "valid": False,
-                    "message": payload.get("msg") or "飞牛影视连接失败",
-                    "user": None,
-                }
-            return {
-                "valid": False,
-                "message": f"连接失败 (HTTP {response.status_code})",
-                "user": None,
-            }
-        except Exception as exc:
-            return {
-                "valid": False,
-                "message": str(exc),
-                "user": None,
-            }
+        return await self._client.get_user_info()
 
     async def check_connection_with_config(
         self, base_url: str, secret: str, api_key: str
     ) -> dict[str, Any]:
-        """使用临时配置检查连接状态"""
-        previous = (self.base_url, self.secret, self.api_key, self.session_token)
+        """兼容旧接口：使用 URL + 已存凭据检测连接。"""
+        previous = self.base_url
         try:
             self.set_config(base_url, secret, api_key)
             return await self.check_connection()
         finally:
-            self.base_url, self.secret, self.api_key, self.session_token = previous
+            self.base_url = previous
 
     async def check_connection_with_session(self) -> dict[str, Any]:
-        """使用 session token 检查连接状态"""
-        token = self._get_session_token()
-        if not token:
-            return {
-                "valid": False,
-                "message": "未登录，无 session token",
-                "user": None,
-            }
+        return await self.check_connection()
 
-        url = f"{self.base_url}/v/api/v1/user/info"
-        headers = self._session_headers()
+    async def fetch_all_items(self) -> list[dict[str, Any]]:
+        """分页拉取全部媒体条目。"""
+        if not await self.ensure_authenticated():
+            raise RuntimeError("飞牛影视未登录，无法拉取媒体列表")
+        return await self._client.fetch_all_items()
 
-        client = self._get_client()
+    async def list_items_page(self, page: int = 1) -> dict[str, Any]:
+        """兼容旧分页接口。"""
         try:
-            response = await client.get(url, headers=headers, timeout=10.0)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("code") == 0:
-                    return {
-                        "valid": True,
-                        "message": "飞牛影视连接成功",
-                        "user": data.get("data", {}),
-                    }
+            if not await self.ensure_authenticated():
                 return {
-                    "valid": False,
-                    "message": f"API错误: {data.get('msg', 'Unknown')}",
-                    "user": None,
+                    "success": False,
+                    "message": "飞牛影视未登录",
+                    "data": None,
+                }
+            body = {
+                "tags": {"type": ["Movie", "TV", "Directory", "Video"]},
+                "sort_type": "DESC",
+                "sort_column": "create_time",
+                "exclude_grouped_video": 1,
+                "page": max(1, int(page)),
+                "page_size": 50,
+            }
+            payload = await self._client.request(
+                "v/api/v1/item/list",
+                method="post",
+                data=body,
+            )
+            if payload.get("code") != 0:
+                return {
+                    "success": False,
+                    "message": payload.get("msg") or "获取媒体条目失败",
+                    "data": None,
                 }
             return {
-                "valid": False,
-                "message": f"连接失败 (HTTP {response.status_code})",
-                "user": None,
+                "success": True,
+                "message": "查询成功",
+                "data": payload.get("data") or {},
             }
         except Exception as exc:
             return {
-                "valid": False,
+                "success": False,
                 "message": str(exc),
-                "user": None,
+                "data": None,
             }
 
+    async def list_seasons(self, tv_guid: str) -> dict[str, Any]:
+        try:
+            if not await self.ensure_authenticated():
+                return {"success": False, "message": "飞牛影视未登录", "data": []}
+            data = await self._client.list_seasons(tv_guid)
+            return {"success": True, "message": "查询成功", "data": data}
+        except Exception as exc:
+            return {"success": False, "message": str(exc), "data": []}
+
+    async def list_episodes(self, season_guid: str) -> dict[str, Any]:
+        try:
+            if not await self.ensure_authenticated():
+                return {"success": False, "message": "飞牛影视未登录", "data": []}
+            data = await self._client.list_episodes(season_guid)
+            return {"success": True, "message": "查询成功", "data": data}
+        except Exception as exc:
+            return {"success": False, "message": str(exc), "data": []}
+
+    async def get_item_detail(self, guid: str) -> dict[str, Any]:
+        item_guid = str(guid or "").strip()
+        if not item_guid:
+            return {"success": False, "message": "参数无效", "data": None}
+        try:
+            if not await self.ensure_authenticated():
+                return {"success": False, "message": "飞牛影视未登录", "data": None}
+            payload = await self._client.request(
+                f"v/api/v1/item/{item_guid}",
+                method="get",
+                data={},
+            )
+            if payload.get("code") != 0:
+                return {
+                    "success": False,
+                    "message": payload.get("msg") or "获取条目详情失败",
+                    "data": None,
+                }
+            return {
+                "success": True,
+                "message": "查询成功",
+                "data": payload.get("data") or {},
+            }
+        except Exception as exc:
+            return {"success": False, "message": str(exc), "data": None}
+
     async def get_movie_status_by_tmdb(self, tmdb_id: int) -> dict[str, Any]:
-        """使用 session token 检查电影是否存在（需要先登录）"""
-        token = self._get_session_token()
-        if not token:
+        if not await self.ensure_authenticated():
             return {
                 "status": "not_logged_in",
                 "message": "未登录，无法查询媒体状态",
                 "exists": False,
                 "item_ids": [],
             }
-
-        url = f"{self.base_url}/v/api/v1/mdb/search"
-        headers = self._session_headers()
-        params = {"tmdb": str(tmdb_id), "type": "movie"}
-
-        client = self._get_client()
         try:
-            response = await client.get(
-                url, headers=headers, params=params, timeout=15.0
-            )
-            if response.status_code != 200:
-                return {
-                    "status": "request_failed",
-                    "message": f"请求失败 (HTTP {response.status_code})",
-                    "exists": False,
-                    "item_ids": [],
-                }
-            payload = response.json()
-            if payload.get("code") != 0:
-                return {
-                    "status": "api_error",
-                    "message": payload.get("msg", "Unknown error"),
-                    "exists": False,
-                    "item_ids": [],
-                }
-            items = payload.get("data", {}).get("items") or []
-            item_ids = [
-                str(item.get("id") or "") for item in items if item.get("id")
-            ]
+            items = await self._client.search_by_tmdb(tmdb_id, "movie")
+            item_ids = [str(item.get("id") or "") for item in items if item.get("id")]
             return {
                 "status": "ok",
-                "message": "查询成功"
-                if item_ids
-                else "飞牛影视中未匹配到该 TMDB 电影",
+                "message": "查询成功" if item_ids else "飞牛影视中未匹配到该 TMDB 电影",
                 "exists": bool(item_ids),
                 "item_ids": item_ids,
             }
@@ -604,38 +245,14 @@ class FeiniuService:
             }
 
     async def get_tv_episode_status_by_tmdb(self, tmdb_id: int) -> dict[str, Any]:
-        """使用 session token 检查剧集是否存在"""
-        token = self._get_session_token()
-        if not token:
+        if not await self.ensure_authenticated():
             return {
                 "status": "not_logged_in",
                 "message": "未登录，无法查询媒体状态",
                 "existing_episodes": set(),
             }
-
-        url = f"{self.base_url}/v/api/v1/mdb/search"
-        headers = self._session_headers()
-        params = {"tmdb": str(tmdb_id), "type": "tv"}
-
-        client = self._get_client()
         try:
-            response = await client.get(
-                url, headers=headers, params=params, timeout=15.0
-            )
-            if response.status_code != 200:
-                return {
-                    "status": "request_failed",
-                    "message": f"请求失败 (HTTP {response.status_code})",
-                    "existing_episodes": set(),
-                }
-            payload = response.json()
-            if payload.get("code") != 0:
-                return {
-                    "status": "api_error",
-                    "message": payload.get("msg", "Unknown error"),
-                    "existing_episodes": set(),
-                }
-            items = payload.get("data", {}).get("items") or []
+            items = await self._client.search_by_tmdb(tmdb_id, "tv")
             existing_episodes: set[tuple[int, int]] = set()
             for item in items:
                 season = int(item.get("season") or item.get("seasonNumber") or 1)
@@ -655,214 +272,23 @@ class FeiniuService:
             }
 
     async def refresh_library(self, path: Optional[str] = None) -> dict[str, Any]:
-        """触发媒体库扫描"""
-        if not self.base_url or not self.secret or not self.api_key:
-            return {
-                "status": "not_configured",
-                "message": "飞牛影视未配置",
-            }
-
-        url = f"{self.base_url}/mdb/scan"
-        headers = self._auth_headers()
-        payload: dict[str, Any] = {}
-        if path:
-            payload["path"] = path
-
-        client = self._get_client()
+        """触发媒体库扫描（v/api mdb/scan）。"""
+        if not self._client.base_url and not self.base_url:
+            self.apply_runtime_config()
+        if not await self.ensure_authenticated():
+            return {"status": "not_configured", "message": "飞牛影视未登录"}
+        item_id = str(path or "").strip()
+        endpoint = f"v/api/v1/mdb/scan/{item_id}" if item_id else "v/api/v1/mdb/scan"
         try:
-            response = await client.post(
-                url, headers=headers, json=payload, timeout=30.0
-            )
-            if response.status_code == 200:
-                return {
-                    "status": "ok",
-                    "message": "扫描任务已触发",
-                }
-            error_text = response.text
-            if "-14" in error_text:
-                return {
-                    "status": "duplicate",
-                    "message": "扫描任务冲突，请稍后重试",
-                }
-            return {
-                "status": "error",
-                "message": f"扫描失败 (HTTP {response.status_code}): {error_text}",
-            }
+            payload = await self._client.request(endpoint, method="post", data={})
+            if payload.get("code") == 0:
+                return {"status": "ok", "message": "扫描任务已触发"}
+            msg = str(payload.get("msg") or "")
+            if "-14" in msg:
+                return {"status": "duplicate", "message": "扫描任务冲突，请稍后重试"}
+            return {"status": "error", "message": msg or "扫描失败"}
         except Exception as exc:
-            return {
-                "status": "request_failed",
-                "message": str(exc),
-            }
-
-    async def list_items_page(self, page: int = 1) -> dict[str, Any]:
-        """分页获取媒体条目列表"""
-        token = self._get_session_token()
-        if not self.base_url or not token:
-            return {
-                "success": False,
-                "message": "飞牛影视未登录",
-                "data": None,
-            }
-
-        url = f"{self.base_url}/v/api/v1/item/list"
-        headers = self._session_headers()
-        client = self._get_client()
-        try:
-            response = await client.post(
-                url,
-                headers=headers,
-                json={"page": max(1, int(page))},
-                timeout=30.0,
-            )
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "message": f"请求失败 (HTTP {response.status_code})",
-                    "data": None,
-                }
-            payload = response.json()
-            if payload.get("code") != 0:
-                return {
-                    "success": False,
-                    "message": payload.get("msg") or "获取媒体条目失败",
-                    "data": None,
-                }
-            return {
-                "success": True,
-                "message": "查询成功",
-                "data": payload.get("data") or {},
-            }
-        except Exception as exc:
-            return {
-                "success": False,
-                "message": str(exc),
-                "data": None,
-            }
-
-    async def get_item_detail(self, guid: str) -> dict[str, Any]:
-        """获取条目详情"""
-        token = self._get_session_token()
-        item_guid = str(guid or "").strip()
-        if not self.base_url or not token or not item_guid:
-            return {
-                "success": False,
-                "message": "参数无效或未登录",
-                "data": None,
-            }
-
-        url = f"{self.base_url}/v/api/v1/item/{item_guid}"
-        headers = self._session_headers()
-        client = self._get_client()
-        try:
-            response = await client.get(url, headers=headers, timeout=15.0)
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "message": f"请求失败 (HTTP {response.status_code})",
-                    "data": None,
-                }
-            payload = response.json()
-            if payload.get("code") != 0:
-                return {
-                    "success": False,
-                    "message": payload.get("msg") or "获取条目详情失败",
-                    "data": None,
-                }
-            return {
-                "success": True,
-                "message": "查询成功",
-                "data": payload.get("data") or {},
-            }
-        except Exception as exc:
-            return {
-                "success": False,
-                "message": str(exc),
-                "data": None,
-            }
-
-    async def list_seasons(self, tv_guid: str) -> dict[str, Any]:
-        """获取剧集季列表"""
-        token = self._get_session_token()
-        item_guid = str(tv_guid or "").strip()
-        if not self.base_url or not token or not item_guid:
-            return {
-                "success": False,
-                "message": "参数无效或未登录",
-                "data": [],
-            }
-
-        url = f"{self.base_url}/v/api/v1/season/list/{item_guid}"
-        headers = self._session_headers()
-        client = self._get_client()
-        try:
-            response = await client.get(url, headers=headers, timeout=15.0)
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "message": f"请求失败 (HTTP {response.status_code})",
-                    "data": [],
-                }
-            payload = response.json()
-            if payload.get("code") != 0:
-                return {
-                    "success": False,
-                    "message": payload.get("msg") or "获取季列表失败",
-                    "data": [],
-                }
-            data = payload.get("data") or []
-            return {
-                "success": True,
-                "message": "查询成功",
-                "data": data if isinstance(data, list) else [],
-            }
-        except Exception as exc:
-            return {
-                "success": False,
-                "message": str(exc),
-                "data": [],
-            }
-
-    async def list_episodes(self, season_guid: str) -> dict[str, Any]:
-        """获取单季分集列表"""
-        token = self._get_session_token()
-        item_guid = str(season_guid or "").strip()
-        if not self.base_url or not token or not item_guid:
-            return {
-                "success": False,
-                "message": "参数无效或未登录",
-                "data": [],
-            }
-
-        url = f"{self.base_url}/v/api/v1/episode/list/{item_guid}"
-        headers = self._session_headers()
-        client = self._get_client()
-        try:
-            response = await client.get(url, headers=headers, timeout=15.0)
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "message": f"请求失败 (HTTP {response.status_code})",
-                    "data": [],
-                }
-            payload = response.json()
-            if payload.get("code") != 0:
-                return {
-                    "success": False,
-                    "message": payload.get("msg") or "获取分集列表失败",
-                    "data": [],
-                }
-            data = payload.get("data") or []
-            return {
-                "success": True,
-                "message": "查询成功",
-                "data": data if isinstance(data, list) else [],
-            }
-        except Exception as exc:
-            return {
-                "success": False,
-                "message": str(exc),
-                "data": [],
-            }
+            return {"status": "request_failed", "message": str(exc)}
 
 
 feiniu_service = FeiniuService()

@@ -133,7 +133,7 @@ def get_httpx_client_kwargs() -> Dict[str, Any]:
     Returns:
         可用于 httpx.AsyncClient(**kwargs) 的字典
     """
-    kwargs: Dict[str, Any] = {}
+    kwargs: Dict[str, Any] = {"trust_env": False}
     mounts = get_httpx_proxy_mounts()
     if mounts:
         kwargs["mounts"] = mounts
@@ -208,6 +208,22 @@ def _get_httpx():
         import httpx as _httpx
         httpx = _httpx
     return httpx
+
+
+def create_direct_httpx_client(**kwargs) -> "httpx.AsyncClient":
+    """创建不走系统环境代理的 httpx 客户端，适用于 Emby/飞牛等内网服务。"""
+    httpx_module = _get_httpx()
+    client_kwargs = dict(kwargs)
+    client_kwargs.setdefault("trust_env", False)
+    return httpx_module.AsyncClient(**client_kwargs)
+
+
+def create_direct_sync_httpx_client(**kwargs) -> "httpx.Client":
+    """创建不走系统环境代理的同步 httpx 客户端。"""
+    httpx_module = _get_httpx()
+    client_kwargs = dict(kwargs)
+    client_kwargs.setdefault("trust_env", False)
+    return httpx_module.Client(**client_kwargs)
 
 
 class ProxyManager:
@@ -337,6 +353,12 @@ class ProxyManager:
             socks_proxy=self._socks_proxy,
         )
 
+    def get_effective_https_proxy(self) -> Optional[str]:
+        """返回当前可用且可达的 HTTPS 代理 URL，供 Telegram 等外网 API 使用。"""
+        if not self._should_apply_proxy_mounts():
+            return None
+        return self.get_proxy_for_scheme("https")
+
     def create_httpx_client(self, **kwargs) -> "httpx.AsyncClient":
         """
         创建配置了代理的 httpx.AsyncClient
@@ -350,6 +372,8 @@ class ProxyManager:
         httpx_module = _get_httpx()
 
         client_kwargs = dict(kwargs)
+        # 禁用系统环境代理，避免 Docker 注入的 HTTP_PROXY 在不可达时拖垮所有外网请求
+        client_kwargs.setdefault("trust_env", False)
         mounts = {}
         base_url = client_kwargs.get("base_url")
 
@@ -391,6 +415,7 @@ class ProxyManager:
         httpx_module = _get_httpx()
 
         client_kwargs = dict(kwargs)
+        client_kwargs.setdefault("trust_env", False)
         mounts = {}
         base_url = client_kwargs.get("base_url")
 

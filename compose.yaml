@@ -10,6 +10,13 @@ services:
       - "8099:8099"
     environment:
       TZ: Asia/Shanghai
+      # 避免宿主机 shell 注入不可达的 HTTP_PROXY 影响容器内 Telegram 等外网请求
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      NO_PROXY: "localhost,127.0.0.1,host.docker.internal"
+      no_proxy: "localhost,127.0.0.1,host.docker.internal"
       STRM_HOST_IP: ${STRM_HOST_IP:-}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-}
       EMBY_PROXY_HOST: ${EMBY_PROXY_HOST:-host.docker.internal}

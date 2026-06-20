@@ -71,21 +71,33 @@
         <template v-for="key in orderedMainTabs" :key="key">
           <el-tab-pane v-if="key === 'pan115'" label="115网盘" name="pan115">
           <el-tabs v-model="pan115SourceTab" class="source-tabs" lazy>
-            <div class="resource-tools resource-tools-split">
-              <el-button
-                size="small"
-                type="primary"
-                plain
-                :loading="pan115Loading"
-                @click="fetchPan115(true)"
-              >
-                {{ pan115Resources.length > 0 ? '刷新全部来源' : '获取资源（统一管道）' }}
-              </el-button>
-              <el-button size="small" @click="openManualPanDialog">导入 115 分享</el-button>
-            </div>
             <template v-for="key in orderedPan115SubTabs" :key="key">
               <el-tab-pane v-if="key === 'pan115_pansou'" label="Pansou" name="pansou">
-              <div v-loading="pan115Loading">
+              <div class="resource-tools resource-tools-split">
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="pansouLoading"
+                  @click="handleFetchPansouPan115(true)"
+                >
+                  {{ pansouTried ? '重新尝试 Pansou' : '用 Pansou 获取资源' }}
+                </el-button>
+                <el-button size="small" @click="openManualPanDialog">导入 115 分享</el-button>
+              </div>
+              <div v-loading="pansouLoading">
+                <div v-if="pan115Diagnostics.pansou.visible" class="resource-diagnostics">
+                  <span class="diag-title">诊断</span>
+                  <span v-if="pan115Diagnostics.pansou.keyword" class="diag-meta">
+                    命中关键词: {{ pan115Diagnostics.pansou.keyword }}
+                  </span>
+                  <span v-if="pan115Diagnostics.pansou.attemptText" class="diag-meta">
+                    {{ pan115Diagnostics.pansou.attemptText }}
+                  </span>
+                  <span v-if="pan115Diagnostics.pansou.error" class="diag-error">
+                    {{ pan115Diagnostics.pansou.error }}
+                  </span>
+                </div>
                 <el-table 
                   v-if="pansouPan115Resources.length > 0" 
                   :data="pagedPansouPan115Resources" 
@@ -135,8 +147,8 @@
                       <el-button
                         type="primary"
                         size="small"
-                        :loading="Boolean(row?.saving) || isHdhiveUnlocking(row)"
-                        :disabled="isPan115ActionDisabled(row)"
+                        :loading="Boolean(row?.saving) || checkHdhiveUnlocking(row)"
+                        :disabled="checkPan115ActionDisabled(row)"
                         @click="handleSaveToPan115(row)"
                       >
                         一键转存
@@ -151,7 +163,7 @@
                       <el-button
                         size="small"
                         :loading="Boolean(row?.extracting)"
-                        :disabled="isPan115ActionDisabled(row)"
+                        :disabled="checkPan115SelectSaveDisabled(row)"
                         @click="handleSelectSave(row)"
                       >
                         选集
@@ -176,7 +188,28 @@
               </div>
             </el-tab-pane>
               <el-tab-pane v-else-if="key === 'pan115_hdhive'" label="HDHive" name="hdhive">
-              <div v-loading="pan115Loading">
+              <div class="resource-tools resource-tools-split">
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="hdhiveLoading"
+                  @click="handleFetchHdhivePan115(true)"
+                >
+                  {{ hdhiveTried ? '刷新 HDHive' : '用 HDHive 获取资源' }}
+                </el-button>
+                <el-button size="small" @click="openManualPanDialog">导入 115 分享</el-button>
+              </div>
+              <div v-loading="hdhiveLoading">
+                <div v-if="pan115Diagnostics.hdhive.visible" class="resource-diagnostics">
+                  <span class="diag-title">诊断</span>
+                  <span v-if="pan115Diagnostics.hdhive.attemptText" class="diag-meta">
+                    {{ pan115Diagnostics.hdhive.attemptText }}
+                  </span>
+                  <span v-if="pan115Diagnostics.hdhive.error" class="diag-error">
+                    {{ pan115Diagnostics.hdhive.error }}
+                  </span>
+                </div>
                 <el-table
                   v-if="hdhivePan115Resources.length > 0"
                   :data="pagedHdhivePan115Resources"
@@ -237,8 +270,8 @@
                       <el-button
                         type="primary"
                         size="small"
-                        :loading="Boolean(row?.saving) || isHdhiveUnlocking(row)"
-                        :disabled="isPan115ActionDisabled(row)"
+                        :loading="Boolean(row?.saving) || checkHdhiveUnlocking(row)"
+                        :disabled="checkPan115ActionDisabled(row)"
                         @click="handleSaveToPan115(row)"
                       >
                         一键转存
@@ -253,7 +286,7 @@
                       <el-button
                         size="small"
                         :loading="Boolean(row?.extracting)"
-                        :disabled="isPan115ActionDisabled(row)"
+                        :disabled="checkPan115SelectSaveDisabled(row)"
                         @click="handleSelectSave(row)"
                       >
                         选集
@@ -278,7 +311,31 @@
               </div>
             </el-tab-pane>
               <el-tab-pane v-else-if="key === 'pan115_tg'" label="Telegram" name="tg">
-              <div v-loading="pan115Loading">
+              <div class="resource-tools resource-tools-split">
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="tgLoading"
+                  @click="handleFetchTgPan115(true)"
+                >
+                  {{ tgTried ? '刷新 Telegram' : '用 Telegram 获取资源' }}
+                </el-button>
+                <el-button size="small" @click="openManualPanDialog">导入 115 分享</el-button>
+              </div>
+              <div v-loading="tgLoading">
+                <div v-if="pan115Diagnostics.tg.visible" class="resource-diagnostics">
+                  <span class="diag-title">诊断</span>
+                  <span v-if="pan115Diagnostics.tg.keyword" class="diag-meta">
+                    命中关键词: {{ pan115Diagnostics.tg.keyword }}
+                  </span>
+                  <span v-if="pan115Diagnostics.tg.attemptText" class="diag-meta">
+                    {{ pan115Diagnostics.tg.attemptText }}
+                  </span>
+                  <span v-if="pan115Diagnostics.tg.error" class="diag-error">
+                    {{ pan115Diagnostics.tg.error }}
+                  </span>
+                </div>
                 <el-table
                   v-if="tgPan115Resources.length > 0"
                   :data="pagedTgPan115Resources"
@@ -319,8 +376,8 @@
                       <el-button
                         type="primary"
                         size="small"
-                        :loading="Boolean(row?.saving) || isHdhiveUnlocking(row)"
-                        :disabled="isPan115ActionDisabled(row)"
+                        :loading="Boolean(row?.saving) || checkHdhiveUnlocking(row)"
+                        :disabled="checkPan115ActionDisabled(row)"
                         @click="handleSaveToPan115(row)"
                       >
                         一键转存
@@ -335,7 +392,7 @@
                       <el-button
                         size="small"
                         :loading="Boolean(row?.extracting)"
-                        :disabled="isPan115ActionDisabled(row)"
+                        :disabled="checkPan115SelectSaveDisabled(row)"
                         @click="handleSelectSave(row)"
                       >
                         选集
@@ -534,12 +591,28 @@
     </template>
 
     <!-- 选集转存对话框 -->
-    <el-dialog v-model="selectSaveDialogVisible" title="选集转存" width="700px">
+    <el-dialog
+      v-model="selectSaveDialogVisible"
+      title="选集转存"
+      width="700px"
+      append-to-body
+      align-center
+      :close-on-click-modal="!extractingFiles"
+      :close-on-press-escape="!extractingFiles"
+    >
       <el-form :model="selectSaveForm" label-width="100px" style="margin-bottom: 20px;">
         <el-form-item label="新建文件夹">
           <el-input v-model="selectSaveForm.newFolderName" placeholder="可选，输入名称自动创建" />
         </el-form-item>
       </el-form>
+      <el-alert
+        v-if="selectSaveError"
+        :title="selectSaveError"
+        type="error"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px;"
+      />
       <div style="margin-bottom: 10px; display: flex; gap: 8px;">
         <el-button size="small" :type="fileNameSortOrder === 'asc' ? 'primary' : 'default'" @click="setFileNameSortOrder('asc')">
           名称升序
@@ -550,8 +623,9 @@
       </div>
       
       <div v-loading="extractingFiles">
-        <el-table 
-          :data="shareFilesList" 
+        <el-table
+          v-if="shareFilesList.length > 0"
+          :data="shareFilesList"
           row-key="fid"
           :reserve-selection="true"
           @selection-change="handleSelectionChange"
@@ -567,7 +641,11 @@
             </template>
           </el-table-column>
         </el-table>
-        <div style="margin-top: 10px; color: var(--ms-text-muted); font-size: 13px;">
+        <el-empty
+          v-else-if="!extractingFiles"
+          description="未找到可选视频文件，请检查分享链接或提取码是否有效"
+        />
+        <div v-if="shareFilesList.length > 0" style="margin-top: 10px; color: var(--ms-text-muted); font-size: 13px;">
           已自动过滤非视频文件，共选中 {{ selectedFiles.length }} 个文件
         </div>
       </div>
@@ -637,7 +715,7 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { searchApi, subscriptionApi, pan115Api, quarkApi } from '@/api'
 import { Star, Plus, ArrowLeft } from '@element-plus/icons-vue'
 import LibraryBadge from '@/components/media/LibraryBadge.vue'
@@ -647,6 +725,20 @@ import { extractTags } from '@/utils/resourceTags'
 import { navigateBackFromDetail } from '@/utils/navigation'
 import { copyText } from '@/utils/clipboard'
 import { parseReceiveCodeFromShareLink, resolvePanShareLink } from '@/utils/panShare'
+import {
+  ensureHdhiveShareLink,
+  isHdhiveResourceLocked,
+  isHdhiveResourceSuspectedInvalid,
+  isHdhiveUnlocking,
+  isPan115HdhiveActionDisabled,
+  isPan115SelectSaveDisabled,
+  normalizePan115TransferError,
+  runHdhivePan115SaveFlow,
+} from '@/utils/hdhiveUnlock'
+import {
+  loadPan115SelectSaveFiles,
+  SelectSaveAbortError,
+} from '@/utils/pan115SelectSave'
 
 const _visibleTabs = getVisibleTabs()
 const tabVisible = (key) => isTabVisible(_visibleTabs.value, key)
@@ -705,7 +797,12 @@ const seasonsList = computed(() => {
 const pan115Resources = ref([])
 const magnetResources = ref([])
 
-const pan115Loading = ref(false)
+const pan115Diagnostics = ref({
+  pansou: { visible: false, keyword: '', attemptText: '', error: '' },
+  hdhive: { visible: false, keyword: '', attemptText: '', error: '' },
+  tg: { visible: false, keyword: '', attemptText: '', error: '' }
+})
+
 const magnetLoading = ref(false)
 const pansouLoading = ref(false)
 const pansouTried = ref(false)
@@ -734,6 +831,10 @@ const PAN115_CACHE_VERSION = 2
 const saving = ref(false)
 const hdhiveUnlockingSlugs = ref(new Set())
 
+const checkHdhiveUnlocking = (row) => isHdhiveUnlocking(hdhiveUnlockingSlugs.value, row)
+const checkPan115ActionDisabled = (row) => isPan115HdhiveActionDisabled(row, hdhiveUnlockingSlugs.value, saving.value)
+const checkPan115SelectSaveDisabled = (row) => isPan115SelectSaveDisabled(row, hdhiveUnlockingSlugs.value, saving.value)
+
 // 选集转存相关
 const selectSaveDialogVisible = ref(false)
 const extractingFiles = ref(false)
@@ -742,9 +843,11 @@ const selectedFiles = ref([])
 const fileNameSortOrder = ref('asc')
 const selectSaveForm = ref({
   shareLink: '',
+  receiveCode: '',
   targetFolder: '0',
   newFolderName: ''
 })
+const selectSaveError = ref('')
 const manualPanDialogVisible = ref(false)
 const manualPanSubmitting = ref(false)
 const manualPanForm = ref({
@@ -765,6 +868,46 @@ const getPosterUrl = (path) => {
 }
 
 const getPan115CacheKey = (season = null) => `tv_pan115_${route.params.id}_s${season || 'all'}`
+
+const resetPan115Diagnostics = () => {
+  pan115Diagnostics.value = {
+    pansou: { visible: false, keyword: '', attemptText: '', error: '' },
+    hdhive: { visible: false, keyword: '', attemptText: '', error: '' },
+    tg: { visible: false, keyword: '', attemptText: '', error: '' }
+  }
+}
+
+const buildAttemptText = (attempts) => {
+  if (!Array.isArray(attempts) || attempts.length === 0) return ''
+  const pieces = attempts.slice(0, 8).map((item) => {
+    const service = String(item?.service || '').trim() || 'unknown'
+    const status = String(item?.status || '').trim() || 'unknown'
+    const keyword = String(item?.keyword || '').trim()
+    const count = Number(item?.count || 0)
+    if (status === 'ok') {
+      return keyword ? `${service}(${keyword})=${count}` : `${service}=${count}`
+    }
+    const error = String(item?.error || '').trim()
+    if (keyword) return `${service}(${keyword})失败${error ? `:${error}` : ''}`
+    return `${service}失败${error ? `:${error}` : ''}`
+  })
+  return pieces.join(' | ')
+}
+
+const updatePan115Diagnostics = (source, payload = {}) => {
+  const normalizedSource = String(source || '').trim()
+  if (!pan115Diagnostics.value[normalizedSource]) return
+  const keyword = String(payload?.keyword || '').trim()
+  const attempts = Array.isArray(payload?.attempts) ? payload.attempts : []
+  const attemptText = buildAttemptText(attempts)
+  const error = String(payload?.error || '').trim()
+  pan115Diagnostics.value[normalizedSource] = {
+    visible: true,
+    keyword,
+    attemptText,
+    error
+  }
+}
 
 const readPan115Cache = (season = null) => {
   try {
@@ -835,6 +978,39 @@ const butailingMagnetResources = computed(() =>
 const pagedSeedhubMagnetResources = computed(() => slicePan115Page(seedhubMagnetResources.value, magnetPager.value.seedhub))
 const pagedButailingMagnetResources = computed(() => slicePan115Page(butailingMagnetResources.value, magnetPager.value.butailing))
 
+const buildPan115MergeKey = (item = {}) => {
+  const sourceService = String(item?.source_service || 'pansou').trim() || 'pansou'
+  const slug = String(item?.slug || '').trim()
+  if (slug) return `${sourceService}|slug:${slug}`
+  const shareLink = String(item?.share_link || '').trim()
+  const title = String(item?.title || '').trim()
+  return `${sourceService}|${shareLink}|${title}`
+}
+
+const mergePan115Resources = (primaryList = [], secondaryList = []) => {
+  const merged = []
+  const indexMap = new Map()
+  for (const item of primaryList) {
+    if (!item || typeof item !== 'object') continue
+    const key = buildPan115MergeKey(item)
+    if (indexMap.has(key)) continue
+    indexMap.set(key, merged.length)
+    merged.push({ ...item })
+  }
+  for (const item of secondaryList) {
+    if (!item || typeof item !== 'object') continue
+    const key = buildPan115MergeKey(item)
+    if (indexMap.has(key)) {
+      const index = indexMap.get(key)
+      merged[index] = { ...merged[index], ...item }
+      continue
+    }
+    indexMap.set(key, merged.length)
+    merged.push({ ...item })
+  }
+  return merged
+}
+
 const mergeMagnetResources = (primaryList = [], secondaryList = []) => {
   const merged = []
   const seen = new Set()
@@ -876,105 +1052,41 @@ const resolvePanReceiveCode = (row, shareLink = '') => {
   return String(row?.access_code || row?.hdhive_access_code || '').trim()
 }
 
-const isShareVideoFile = (item) => {
-  if (item?.is_video === true) return true
-  const name = String(item?.name || '')
-  return /\.(mp4|mkv|avi|rmvb|flv|ts|mov|wmv|m4v)$/i.test(name)
+const normalizeKeywordFingerprint = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  return text
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s\-_·:：,.，。!！?？/\\'"`()\[\]]+/g, '')
+    .toLowerCase()
 }
 
-const isHdhiveResourceLocked = (row) => {
-  if (!row || row.source_service !== 'hdhive') return false
-  if (row.hdhive_locked === true) return true
-  const shareLink = resolvePanShareLink(row)
-  return !shareLink && Number(row.unlock_points || 0) > 0
-}
-
-const isHdhiveResourceSuspectedInvalid = (row) => {
-  if (!row) return false
-  if (row.hdhive_suspected_invalid === true) return true
-  const validateStatus = String(row.hdhive_validate_status || '').trim().toLowerCase()
-  return ['invalid', 'suspected_invalid', 'suspect_invalid'].includes(validateStatus)
-}
-
-const isPan115ActionDisabled = (row) => {
-  if (saving.value || Boolean(row?.saving) || Boolean(row?.extracting) || isHdhiveUnlocking(row)) return true
-  if (isHdhiveResourceLocked(row)) return false
-  return row?.pan115_savable === false
-}
-
-const isHdhiveUnlocking = (row) => {
-  const slug = String(row?.slug || '').trim()
-  if (!slug) return false
-  return hdhiveUnlockingSlugs.value.has(slug)
-}
-
-const showHdhiveNeedPointsNotice = async (row, reason = '') => {
-  const points = Number(row?.unlock_points || 0)
-  const lockMessage = String(row?.hdhive_lock_message || reason || '').trim()
-  const lines = [
-    points > 0 ? `该资源需要支付 ${points} 积分解锁提取码。` : '该资源需要先在 HDHive 解锁提取码。',
-    lockMessage || '解锁后会继续当前操作。'
-  ]
-  try {
-    await ElMessageBox.confirm(
-      lines.join('\n'),
-      'HDHive 积分解锁提示',
-      {
-        confirmButtonText: '确认解锁',
-        cancelButtonText: '取消',
-        type: 'warning',
-        distinguishCancelAndClose: true
-      }
-    )
-    return true
-  } catch {
-    return false
-  }
-}
-
-const ensureHdhiveShareLink = async (row, actionLabel = '转存', options = {}) => {
-  const forceUnlock = options?.forceUnlock === true
-  const reason = String(options?.reason || '').trim()
-  const currentLink = resolvePanShareLink(row)
-  const locked = isHdhiveResourceLocked(row)
-  if (!forceUnlock && currentLink && !locked) return currentLink
-  if (!forceUnlock && !locked) return currentLink
-
-  const confirmed = await showHdhiveNeedPointsNotice(row, reason)
-  if (!confirmed) return ''
-
-  const slug = String(row?.slug || '').trim()
-  if (!slug) {
-    ElMessage.error('缺少 HDHive 资源标识，无法自动解锁')
-    return ''
-  }
-  if (hdhiveUnlockingSlugs.value.has(slug)) {
-    ElMessage.info('正在解锁该资源，请稍候')
-    return ''
+const buildHdhiveKeywords = () => {
+  const title = String(tv.value?.name || tv.value?.title || '').trim()
+  const originalTitle = String(tv.value?.original_name || tv.value?.original_title || '').trim()
+  const year = String(tv.value?.first_air_date || '').split('-')[0]
+  const season = Number(selectedSeason.value || 0)
+  const seasonSuffix = season > 0 ? ` S${String(season).padStart(2, '0')}` : ''
+  const candidates = []
+  const seen = new Set()
+  const add = (keyword) => {
+    const raw = String(keyword || '').trim()
+    if (!raw) return
+    const key = normalizeKeywordFingerprint(raw)
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    candidates.push(raw)
   }
 
-  hdhiveUnlockingSlugs.value.add(slug)
-  try {
-    const { data } = await searchApi.unlockHdhiveResource(slug)
-    const shareLink = String(data?.share_link || '').trim()
-    if (!shareLink) {
-      throw new Error(data?.message || '未获取到分享链接')
-    }
-    row.share_link = shareLink
-    row.access_code = String(data?.access_code || row?.access_code || '').trim()
-    row.pan115_savable = true
-    row.hdhive_locked = false
-    row.hdhive_lock_code = ''
-    row.hdhive_lock_message = ''
-    ElMessage.success(data?.message || `HDHive 解锁成功，开始${actionLabel}`)
-    return shareLink
-  } catch (error) {
-    const detail = String(error.response?.data?.detail || error.message || '').trim()
-    ElMessage.error(detail || 'HDHive 自动解锁失败')
-    return ''
-  } finally {
-    hdhiveUnlockingSlugs.value.delete(slug)
-  }
+  add(title)
+  if (title && seasonSuffix) add(`${title}${seasonSuffix}`)
+  if (title && year) add(`${title} ${year}`)
+  if (title && year && seasonSuffix) add(`${title} ${year}${seasonSuffix}`)
+  add(originalTitle)
+  if (originalTitle && seasonSuffix) add(`${originalTitle}${seasonSuffix}`)
+  if (originalTitle && year) add(`${originalTitle} ${year}`)
+  return candidates
 }
 
 const fetchTv = async () => {
@@ -1064,36 +1176,94 @@ const fetchExternalIds = async () => {
   }
 }
 
-const fetchPan115 = async (forceRefresh = false) => {
+const handleFetchPansouPan115 = async (forceRefresh = false) => {
+  if (pansouLoading.value) return
   const cacheKey = `s${selectedSeason.value}`
-  const cachedList = readPan115Cache(cacheKey)
-  if (!forceRefresh && cachedList && cachedList.length > 0) {
-    pan115Resources.value = cachedList
-    pansouTried.value = cachedList.some((item) => item?.source_service === 'pansou')
-    hdhiveTried.value = cachedList.some((item) => item?.source_service === 'hdhive')
-    tgTried.value = cachedList.some((item) => item?.source_service === 'tg')
-    pan115Loading.value = false
-    return
-  }
-
-  pan115Loading.value = true
+  pansouLoading.value = true
+  pansouTried.value = true
   try {
-    const { data } = await searchApi.getMediaResources(route.params.id, 'tv', selectedSeason.value, forceRefresh)
-    const resourceList = Array.isArray(data.list) ? data.list : []
-    pan115Resources.value = resourceList
-    pansouTried.value = resourceList.some((item) => item?.source_service === 'pansou')
-    hdhiveTried.value = resourceList.some((item) => item?.source_service === 'hdhive')
-    tgTried.value = resourceList.some((item) => item?.source_service === 'tg')
-    writePan115Cache(resourceList, cacheKey)
-    if (resourceList.length === 0) {
-      ElMessage.info('未找到可用115网盘资源')
+    const { data } = await searchApi.getTvPan115Pansou(route.params.id, 1, forceRefresh, selectedSeason.value)
+    updatePan115Diagnostics('pansou', data)
+    const pansouList = Array.isArray(data.list) ? data.list : []
+    const mergedList = mergePan115Resources(pan115Resources.value, pansouList)
+    pan115Resources.value = mergedList
+    writePan115Cache(mergedList, cacheKey)
+    if (pansouList.length === 0) {
+      ElMessage.info('Pansou 暂未找到可用资源')
     }
   } catch (error) {
-    if (!cachedList || cachedList.length === 0) {
-      console.error('Failed to fetch pan115:', error)
-    }
+    console.error('Failed to fetch pansou pan115:', error)
+    ElMessage.error(error.response?.data?.detail || error.message || 'Pansou 资源获取失败')
   } finally {
-    pan115Loading.value = false
+    pansouLoading.value = false
+  }
+}
+
+const handleFetchHdhivePan115 = async (forceRefresh = false) => {
+  if (hdhiveLoading.value) return
+  const cacheKey = `s${selectedSeason.value}`
+  hdhiveLoading.value = true
+  hdhiveTried.value = true
+  try {
+    const { data } = await searchApi.getTvPan115Hdhive(route.params.id, 1, forceRefresh, selectedSeason.value)
+    updatePan115Diagnostics('hdhive', data)
+    let hdhiveList = Array.isArray(data.list) ? data.list : []
+    hdhiveList = hdhiveList.map((item) => ({ ...item, source_service: item?.source_service || 'hdhive' }))
+
+    if (hdhiveList.length === 0) {
+      const keywordCandidates = buildHdhiveKeywords()
+      const results = await Promise.allSettled(
+        keywordCandidates.map((kw) => searchApi.getHdhivePan115ByKeyword(kw, 'tv'))
+      )
+      const dedup = new Map()
+      for (const r of results) {
+        if (r.status !== 'fulfilled') continue
+        const rows = Array.isArray(r.value?.data?.list) ? r.value.data.list : []
+        for (const row of rows) {
+          const normalizedRow = { ...row, source_service: row?.source_service || 'hdhive' }
+          const key = `${String(normalizedRow?.slug || '')}|${String(normalizedRow?.share_link || normalizedRow?.resource_name || normalizedRow?.title || '')}`.toLowerCase()
+          if (!dedup.has(key)) {
+            dedup.set(key, normalizedRow)
+          }
+        }
+      }
+      hdhiveList = Array.from(dedup.values()).slice(0, 30)
+    }
+
+    const mergedList = mergePan115Resources(pan115Resources.value, hdhiveList)
+    pan115Resources.value = mergedList
+    writePan115Cache(mergedList, cacheKey)
+    if (hdhiveList.length === 0) {
+      ElMessage.info('HDHive 暂未找到可用资源')
+    }
+  } catch (error) {
+    console.error('Failed to fetch hdhive pan115:', error)
+    ElMessage.error(error.response?.data?.detail || error.message || 'HDHive 资源获取失败')
+  } finally {
+    hdhiveLoading.value = false
+  }
+}
+
+const handleFetchTgPan115 = async (forceRefresh = false) => {
+  if (tgLoading.value) return
+  const cacheKey = `s${selectedSeason.value}`
+  tgLoading.value = true
+  tgTried.value = true
+  try {
+    const { data } = await searchApi.getTvPan115Tg(route.params.id, 1, forceRefresh, selectedSeason.value)
+    updatePan115Diagnostics('tg', data)
+    const tgList = Array.isArray(data.list) ? data.list : []
+    const mergedList = mergePan115Resources(pan115Resources.value, tgList)
+    pan115Resources.value = mergedList
+    writePan115Cache(mergedList, cacheKey)
+    if (tgList.length === 0) {
+      ElMessage.info('Telegram 暂未找到可用资源')
+    }
+  } catch (error) {
+    console.error('Failed to fetch tg pan115:', error)
+    ElMessage.error(error.response?.data?.detail || error.message || 'Telegram 资源获取失败')
+  } finally {
+    tgLoading.value = false
   }
 }
 
@@ -1163,7 +1333,7 @@ const handleSeasonChange = () => {
   seedhubMagnetTried.value = false
   butailingMagnetTried.value = false
   pan115Resources.value = []
-  pan115ResourcesCache.value = {}
+  resetPan115Diagnostics()
   pansouTried.value = false
   hdhiveTried.value = false
   tgTried.value = false
@@ -1240,21 +1410,12 @@ const checkSubscribed = async () => {
 }
 
 const handleSaveToPan115 = async (item) => {
-  if (saving.value || item?.saving || item?.extracting || isHdhiveUnlocking(item)) return
-  let defaultFolderId = '0'
-  let folderName = ''
+  if (saving.value || item?.saving || item?.extracting || checkHdhiveUnlocking(item)) return
+
   item.saving = true
   saving.value = true
   try {
-    let shareLink = resolvePanShareLink(item)
-    if (item?.source_service === 'hdhive') {
-      shareLink = await ensureHdhiveShareLink(item, '一键转存')
-    }
-    if (!shareLink) {
-      ElMessage.warning('该资源暂无分享链接')
-      return
-    }
-
+    let defaultFolderId = '0'
     try {
       const { data } = await pan115Api.getDefaultFolder()
       defaultFolderId = data.folder_id || '0'
@@ -1263,15 +1424,31 @@ const handleSaveToPan115 = async (item) => {
     }
 
     const seasonSuffix = selectedSeason.value ? ` S${String(selectedSeason.value).padStart(2, '0')}` : ''
-    folderName = tv.value.name + ' (' + tv.value.first_air_date?.split('-')[0] + ')' + seasonSuffix
-    const receiveCode = resolvePanReceiveCode(item, shareLink)
+    const folderName = tv.value.name + ' (' + tv.value.first_air_date?.split('-')[0] + ')' + seasonSuffix
 
-    // 由后端统一解析分享链接并执行转存
+    if (item?.source_service === 'hdhive') {
+      await runHdhivePan115SaveFlow({
+        row: item,
+        folderName,
+        folderId: defaultFolderId,
+        resolveReceiveCode: resolvePanReceiveCode,
+        unlockingSlugs: hdhiveUnlockingSlugs.value,
+      })
+      return
+    }
+
+    const shareLink = resolvePanShareLink(item)
+    if (!shareLink) {
+      ElMessage.warning('该资源暂无分享链接')
+      return
+    }
+
+    const receiveCode = resolvePanReceiveCode(item, shareLink)
     const { data } = await pan115Api.saveShareToFolder(
       shareLink,
       folderName,
       defaultFolderId,
-      receiveCode
+      receiveCode,
     )
 
     const saveSuccess = data?.success === true
@@ -1284,41 +1461,12 @@ const handleSaveToPan115 = async (item) => {
 
     ElMessage.success(data?.message || '转存成功')
   } catch (error) {
-    const detail = String(error.response?.data?.detail || '').trim()
+    const detail = String(error.response?.data?.detail || error.message || '').trim()
     if (detail.includes('离线任务列表请求过于频繁')) {
       ElMessage.error('115接口触发风控，请稍后重试')
       return
     }
-    if (item?.source_service === 'hdhive' && (detail.includes('4100012') || detail.includes('请输入访问码'))) {
-      const unlockedLink = await ensureHdhiveShareLink(item, '一键转存', {
-        forceUnlock: true,
-        reason: '115 返回“请输入访问码”，需要先进行 HDHive 积分解锁。'
-      })
-      if (unlockedLink) {
-        try {
-          const unlockedReceiveCode = resolvePanReceiveCode(item, unlockedLink)
-          const { data } = await pan115Api.saveShareToFolder(
-            unlockedLink,
-            folderName,
-            defaultFolderId,
-            unlockedReceiveCode
-          )
-          const retrySuccess = data?.success === true
-            || data?.state === true
-            || data?.result?.success === true
-            || data?.result?.state === true
-          if (!retrySuccess) throw new Error(data?.message || data?.error || data?.result?.error || '转存失败')
-          ElMessage.success(data?.message || '转存成功')
-          return
-        } catch (retryError) {
-          const retryDetail = String(retryError.response?.data?.detail || retryError.message || '').trim()
-          ElMessage.error(retryDetail || '转存失败')
-          return
-        }
-      }
-      return
-    }
-    ElMessage.error(detail || error.message || '转存失败')
+    ElMessage.error(detail || '转存失败')
   } finally {
     item.saving = false
     saving.value = false
@@ -1327,83 +1475,66 @@ const handleSaveToPan115 = async (item) => {
 
 // 选集转存相关方法
 const handleSelectSave = async (item) => {
-  if (saving.value || item?.saving || item?.extracting || isHdhiveUnlocking(item)) return
+  if (saving.value || item?.saving || item?.extracting || checkHdhiveUnlocking(item)) return
+  selectSaveError.value = ''
+
+  // HDHive 需先解锁再开弹窗，避免解锁失败/取消后弹窗闪一下就消失
+  if (item?.source_service === 'hdhive' && isHdhiveResourceLocked(item)) {
+    item.extracting = true
+    try {
+      const unlockedLink = await ensureHdhiveShareLink(item, {
+        actionLabel: '选集转存',
+        unlockingSlugs: hdhiveUnlockingSlugs.value,
+      })
+      if (!unlockedLink) return
+    } finally {
+      item.extracting = false
+    }
+  }
+
   item.extracting = true
   extractingFiles.value = true
+  shareFilesList.value = []
+  selectedFiles.value = []
+  fileNameSortOrder.value = 'asc'
+  selectSaveDialogVisible.value = true
+  selectSaveForm.value = {
+    shareLink: '',
+    receiveCode: '',
+    targetFolder: '0',
+    newFolderName: buildDefaultTvFolderName(),
+  }
+
   try {
-    let shareLink = resolvePanShareLink(item)
-    if (item?.source_service === 'hdhive') {
-      shareLink = await ensureHdhiveShareLink(item, '选集转存')
-    }
-    if (!shareLink) {
-      ElMessage.warning('该资源暂无分享链接')
-      return
-    }
-
-    let defaultFolderId = '0'
-    try {
-      const { data } = await pan115Api.getDefaultFolder()
-      defaultFolderId = data.folder_id || '0'
-    } catch (error) {
-      console.error('Failed to get default folder:', error)
-    }
-
-    const seasonSuffix = selectedSeason.value ? ` S${String(selectedSeason.value).padStart(2, '0')}` : ''
-    const receiveCode = resolvePanReceiveCode(item, shareLink)
-    selectSaveForm.value = {
-      shareLink,
-      receiveCode,
-      targetFolder: defaultFolderId,
-      newFolderName: tv.value.name + ' (' + tv.value.first_air_date?.split('-')[0] + ')' + seasonSuffix
-    }
-
-    shareFilesList.value = []
-    selectedFiles.value = []
-    fileNameSortOrder.value = 'asc'
-    selectSaveDialogVisible.value = true
-
-    const { data } = await pan115Api.extractShareFiles(shareLink, receiveCode)
-    if (data && Array.isArray(data.list)) {
-      shareFilesList.value = data.list.filter((item) => isShareVideoFile(item))
-      sortShareFilesByName(fileNameSortOrder.value)
-      if (shareFilesList.value.length === 0) {
-        ElMessage.info(`未找到可选的视频文件（总文件 ${Number(data?.total_count || data?.list?.length || 0)}，识别为视频 ${Number(data?.video_count || 0)}）`)
-      }
-    } else {
-      ElMessage.warning('提取文件列表失败，分享可能已失效')
-    }
-  } catch (error) {
-    const detail = String(error.response?.data?.detail || error.message || '').trim()
-    if (item?.source_service === 'hdhive' && (detail.includes('4100012') || detail.includes('请输入访问码'))) {
-      const unlockedLink = await ensureHdhiveShareLink(item, '选集转存', {
-        forceUnlock: true,
-        reason: '115 返回“请输入访问码”，需要先进行 HDHive 积分解锁。'
-      })
-      if (unlockedLink) {
+    await loadPan115SelectSaveFiles({
+      row: item,
+      unlockingSlugs: hdhiveUnlockingSlugs.value,
+      actionLabel: '选集转存',
+      skipHdhiveUnlock: item?.source_service === 'hdhive',
+      buildFolderName: buildDefaultTvFolderName,
+      getDefaultFolderId: async () => {
         try {
-          const unlockedReceiveCode = resolvePanReceiveCode(item, unlockedLink)
-          selectSaveForm.value.shareLink = unlockedLink
-          selectSaveForm.value.receiveCode = unlockedReceiveCode
-          const { data } = await pan115Api.extractShareFiles(unlockedLink, unlockedReceiveCode)
-          if (data && Array.isArray(data.list)) {
-            shareFilesList.value = data.list.filter((item) => isShareVideoFile(item))
-            sortShareFilesByName(fileNameSortOrder.value)
-            if (shareFilesList.value.length === 0) {
-              ElMessage.info(`未找到可选的视频文件（总文件 ${Number(data?.total_count || data?.list?.length || 0)}，识别为视频 ${Number(data?.video_count || 0)}）`)
-            }
-          } else {
-            ElMessage.warning('提取文件列表失败，分享可能已失效')
-          }
-          return
-        } catch (retryError) {
-          const retryDetail = String(retryError.response?.data?.detail || retryError.message || '').trim()
-          ElMessage.error(retryDetail || '提取文件列表失败')
-          return
+          const { data } = await pan115Api.getDefaultFolder()
+          return data.folder_id || '0'
+        } catch (error) {
+          console.error('Failed to get default folder:', error)
+          return '0'
         }
-      }
+      },
+      onFormUpdate: (form) => {
+        selectSaveForm.value = { ...selectSaveForm.value, ...form }
+      },
+      onFilesLoaded: (files) => {
+        shareFilesList.value = files
+        sortShareFilesByName(fileNameSortOrder.value)
+      },
+    })
+  } catch (error) {
+    if (error instanceof SelectSaveAbortError) {
+      selectSaveDialogVisible.value = false
       return
     }
-    ElMessage.error('提取文件列表失败')
+    selectSaveError.value = normalizePan115TransferError(error) || '提取文件列表失败'
   } finally {
     item.extracting = false
     extractingFiles.value = false
@@ -1617,6 +1748,7 @@ watch(pan115SourceTab, (tab) => {
 watch(() => route.params.id, () => {
   isInEmby.value = false
   isInFeiniu.value = false
+  resetPan115Diagnostics()
   pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
   magnetSourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub'
   pan115Resources.value = []
@@ -1642,6 +1774,7 @@ onMounted(() => {
   activeTab.value = getOrderedVisibleMainTabs(_visibleTabs.value)[0] || 'pan115'
   pan115SourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'pan115') || 'pansou'
   magnetSourceTab.value = getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub'
+  resetPan115Diagnostics()
   fetchTv()
   checkSubscribed()
   refreshQuarkConfigured()

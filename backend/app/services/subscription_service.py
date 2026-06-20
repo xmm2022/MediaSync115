@@ -1741,7 +1741,9 @@ class SubscriptionService:
                     }
                 )
                 pansou_result = await _search_pansou_pan115_resources(
-                    sub.tmdb_id, media_type
+                    sub.tmdb_id,
+                    media_type,
+                    sub.tv_season_number if media_type == "tv" else None,
                 )
                 pansou_list = list(pansou_result.get("list") or [])
                 if pansou_list:

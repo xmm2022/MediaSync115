@@ -1407,7 +1407,7 @@ async def _fetch_popular_section(source, refresh):
         return cache_item["payload"]
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with proxy_manager.create_httpx_client(timeout=15.0) as client:
             response = await client.get(source["url"])
             response.raise_for_status()
             raw_items = response.json()

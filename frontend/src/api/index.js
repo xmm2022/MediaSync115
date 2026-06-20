@@ -196,7 +196,11 @@ export const searchApi = {
     api.get('/search/tg/115/by-keyword', { params: { keyword, media_type: mediaType } }),
   getSeedhubMagnetByKeyword: (keyword, mediaType = 'movie', limit = 80) =>
     api.get(`/search/seedhub/${mediaType}/magnet/by-keyword`, { params: { keyword, limit } }),
-  unlockHdhiveResource: (slug) => api.post('/search/hdhive/resource/unlock', { slug }),
+  unlockHdhiveResource: (slug) => api.post(
+    '/search/hdhive/resource/unlock',
+    { slug },
+    { timeout: 90000 },
+  ),
   getMovieMagnet: (tmdbId) => api.get(`/search/movie/${tmdbId}/magnet`),
   getMovieMagnetSeedhub: (tmdbId, limit = 80) =>
     api.get(`/search/movie/${tmdbId}/magnet/seedhub`, { params: { limit } }),
@@ -297,13 +301,22 @@ export const settingsApi = {
   updateRuntime: (payload, config = {}) => api.put('/settings/runtime', payload, config),
   checkUpdates: () => api.get('/settings/update-check'),
   checkHdhive: () => api.get('/settings/hdhive/check'),
+  hdhiveLogin: (username, password) =>
+    api.post('/settings/hdhive/login', { username, password }, {
+      timeout: 45000,
+      silentError: true,
+    }),
   runHdhiveCheckin: (payload) => api.post('/settings/hdhive/checkin', payload),
   checkTg: () => api.get('/settings/tg/check'),
   checkTmdb: () => api.get('/settings/tmdb/check'),
   checkPansou: () => api.get('/settings/pansou/check'),
   checkEmby: (params) => api.get('/settings/emby/check', { params }),
   checkFeiniu: (params) => api.get('/settings/feiniu/check', { params }),
-  feiniuLogin: (username, password, url) => api.post('/settings/feiniu/login', { username, password, url }),
+  feiniuLogin: (username, password, url) =>
+    api.post('/settings/feiniu/login', { username, password, url }, {
+      timeout: 45000,
+      silentError: true,
+    }),
   getEmbySyncStatus: () => api.get('/settings/emby/sync/status'),
   runEmbySync: () => api.post('/settings/emby/sync/run'),
   getFeiniuSyncStatus: () => api.get('/settings/feiniu/sync/status'),
@@ -527,11 +540,11 @@ export const pan115Api = {
   saveShareAll: (shareCode, pid = '0', receiveCode = '') => 
     api.post('/pan115/share/save-all', null, { params: { share_code: shareCode, pid, receive_code: receiveCode } }),
   
-  saveShareToFolder: (shareUrl, folderName, parentId = '0', receiveCode = '', tmdbId = null) =>
+  saveShareToFolder: (shareUrl, folderName, parentId = '0', receiveCode = '', tmdbId = null, requestConfig = {}) =>
     api.post(
       '/pan115/share/save-to-folder',
       { share_url: shareUrl, folder_name: folderName, parent_id: parentId, receive_code: receiveCode, tmdb_id: tmdbId },
-      { timeout: SAVE_OPERATION_TIMEOUT }
+      { timeout: SAVE_OPERATION_TIMEOUT, ...requestConfig },
     ),
 
   extractShareFiles: (shareUrl, receiveCode = '') => 

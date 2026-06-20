@@ -1,6 +1,7 @@
 import httpx
 from typing import Any, Set, Tuple
 from app.core.config import settings
+from app.utils.proxy import create_direct_httpx_client
 
 _EMBY_HTTP_TIMEOUT = httpx.Timeout(15.0, connect=10.0)
 _EMBY_HTTP_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
@@ -14,7 +15,7 @@ class EmbyService:
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(
+            self._http_client = create_direct_httpx_client(
                 timeout=_EMBY_HTTP_TIMEOUT,
                 limits=_EMBY_HTTP_LIMITS,
             )
@@ -433,7 +434,7 @@ class EmbyService:
 
         url = f"{normalized_base_url}/emby/System/Info"
         params = {"api_key": normalized_api_key}
-        async with httpx.AsyncClient() as client:
+        async with create_direct_httpx_client() as client:
             try:
                 response = await client.get(url, params=params, timeout=10.0)
                 response.raise_for_status()

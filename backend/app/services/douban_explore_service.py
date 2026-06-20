@@ -1138,13 +1138,8 @@ async def resolve_douban_explore_item(
             seen_variants.add(key)
             all_title_variants.append(variant)
 
-    if tmdb_id:
+    if tmdb_id and not normalized_douban_id:
         tmdb_value = int(tmdb_id)
-        if normalized_douban_id:
-            subject_cache_key = _build_subject_tmdb_cache_key(
-                normalized_douban_id, normalized_type
-            )
-            _set_subject_tmdb_cache(subject_cache_key, tmdb_value)
         return {
             "resolved": True,
             "media_type": normalized_type,
@@ -1156,6 +1151,24 @@ async def resolve_douban_explore_item(
             "evidence": {"source": "provided_tmdb_id"},
             "candidates": [],
         }
+
+    if tmdb_id and normalized_douban_id:
+        subject_cache_key = _build_subject_tmdb_cache_key(
+            normalized_douban_id, normalized_type
+        )
+        cache_hit, cached_tmdb_id = _get_cached_subject_tmdb_id(subject_cache_key)
+        if cache_hit and cached_tmdb_id and int(cached_tmdb_id) == int(tmdb_id):
+            return {
+                "resolved": True,
+                "media_type": normalized_type,
+                "tmdb_id": int(tmdb_id),
+                "imdb_id": initial_external_ids.get("imdb_id"),
+                "external_ids": initial_external_ids,
+                "confidence": 0.99,
+                "reason": "provided_tmdb_id_subject_cache_confirmed",
+                "evidence": {"source": "provided_tmdb_id_subject_cache_confirmed"},
+                "candidates": [],
+            }
 
     if normalized_douban_id:
         subject_cache_key = _build_subject_tmdb_cache_key(

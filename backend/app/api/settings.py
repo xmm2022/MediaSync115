@@ -60,6 +60,7 @@ class RuntimeSettingsRequest(BaseModel):
     hdhive_cookie: Optional[str] = None
     hdhive_api_key: Optional[str] = None
     hdhive_base_url: Optional[str] = None
+    hdhive_login_username: Optional[str] = None
     hdhive_auto_checkin_enabled: Optional[bool] = None
     hdhive_auto_checkin_mode: Optional[str] = None
     hdhive_auto_checkin_method: Optional[str] = None
@@ -198,6 +199,15 @@ _FEINIU_SYNC_SETTING_KEYS = frozenset(
         "feiniu_sync_interval_minutes",
     }
 )
+_TG_BOT_SETTING_KEYS = frozenset(
+    {
+        "tg_bot_token",
+        "tg_bot_enabled",
+        "tg_bot_allowed_users",
+        "tg_bot_notify_chat_ids",
+        "tg_bot_hdhive_auto_unlock",
+    }
+)
 
 
 class TgVerifyPasswordRequest(BaseModel):
@@ -222,6 +232,12 @@ class HDHiveCheckinRequest(BaseModel):
     method: Optional[str] = None
     cookie: Optional[str] = None
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class HDHiveLoginRequest(BaseModel):
+    username: str
+    password: str
     base_url: Optional[str] = None
 
 
@@ -282,10 +298,11 @@ async def _validate_priority_source_config(merged_settings: dict) -> None:
 
     for source in priority:
         if source == "hdhive":
-            api_key = str(merged_settings.get("hdhive_api_key") or "").strip()
             base_url = str(merged_settings.get("hdhive_base_url") or "").strip()
-            if not api_key or not base_url:
-                errors.append("HDHive 优先级已启用，但缺少 API Key 或 Base URL 配置")
+            if not base_url:
+                errors.append("HDHive 优先级已启用，但缺少 Base URL 配置")
+            elif not runtime_settings_service.has_hdhive_credentials(merged_settings):
+                errors.append("HDHive 优先级已启用，但缺少 Cookie 或账号密码配置")
         elif source == "pansou":
             base_url = str(merged_settings.get("pansou_base_url") or "").strip()
             if not base_url:
@@ -313,12 +330,11 @@ def _validate_hdhive_unlock_settings(merged_settings: dict) -> None:
     if not enabled:
         return
 
-    api_key = str(merged_settings.get("hdhive_api_key") or "").strip()
     base_url = str(merged_settings.get("hdhive_base_url") or "").strip()
-    if not api_key or not base_url:
+    if not base_url or not runtime_settings_service.has_hdhive_credentials(merged_settings):
         raise HTTPException(
             status_code=400,
-            detail="启用 HDHive 自动解锁时必须配置 HDHive API Key 和 Base URL",
+            detail="启用 HDHive 自动解锁时必须配置 Base URL，以及 Cookie 或账号密码",
         )
 
     try:
@@ -352,24 +368,27 @@ def _validate_hdhive_checkin_settings(merged_settings: dict) -> None:
         return
 
     method = (
-        str(merged_settings.get("hdhive_auto_checkin_method") or "api").strip().lower()
+        str(merged_settings.get("hdhive_auto_checkin_method") or "cookie").strip().lower()
     )
     base_url = str(merged_settings.get("hdhive_base_url") or "").strip()
 
-    if method == "cookie":
-        cookie = str(merged_settings.get("hdhive_cookie") or "").strip()
-        if not cookie or not base_url:
+    if method in {"api", "web"}:
+        if not base_url or not runtime_settings_service.has_hdhive_credentials(merged_settings):
             raise HTTPException(
                 status_code=400,
-                detail="使用 Cookie 签到时必须配置 HDHive Cookie 和 Base URL",
+                detail="使用网页签到时必须配置 HDHive Base URL，以及 Cookie 或账号密码",
+            )
+    elif method == "cookie":
+        if not base_url or not runtime_settings_service.has_hdhive_credentials(merged_settings):
+            raise HTTPException(
+                status_code=400,
+                detail="使用 Cookie 签到时必须配置 HDHive Base URL，以及 Cookie 或账号密码",
             )
     else:
-        api_key = str(merged_settings.get("hdhive_api_key") or "").strip()
-        if not api_key or not base_url:
-            raise HTTPException(
-                status_code=400,
-                detail="使用 API Key 签到时必须配置 HDHive API Key 和 Base URL",
-            )
+        raise HTTPException(
+            status_code=400,
+            detail="HDHive 自动签到方式仅支持 cookie 或 web",
+        )
 
     mode = (
         str(merged_settings.get("hdhive_auto_checkin_mode") or "normal").strip().lower()
@@ -411,13 +430,10 @@ def _validate_feiniu_sync_settings(merged_settings: dict) -> None:
     enabled = bool(merged_settings.get("feiniu_sync_enabled", False))
     if not enabled:
         return
-    feiniu_url = str(merged_settings.get("feiniu_url") or "").strip()
-    feiniu_session_token = str(
-        merged_settings.get("feiniu_session_token") or ""
-    ).strip()
-    if not feiniu_url or not feiniu_session_token:
+    if not runtime_settings_service.has_feiniu_sync_credentials(merged_settings):
         raise HTTPException(
-            status_code=400, detail="启用飞牛定时同步前必须先配置 URL 并完成登录"
+            status_code=400,
+            detail="启用飞牛定时同步前必须先配置 URL 并完成登录",
         )
     try:
         interval_minutes = int(
@@ -616,7 +632,7 @@ async def _perform_hdhive_check() -> dict[str, Any]:
         payload = await hdhive_service.check_connection()
         return {
             "valid": True,
-            "message": str(payload.get("message") or "HDHive API Key 可用"),
+            "message": str(payload.get("message") or "HDHive 连接正常"),
             "user": payload.get("user"),
         }
     except Exception as exc:
@@ -681,7 +697,10 @@ def _validate_update_source_settings(merged_settings: dict[str, Any]) -> None:
 
 
 @router.put("/runtime")
-async def update_runtime_settings(request: RuntimeSettingsRequest):
+async def update_runtime_settings(
+    request: RuntimeSettingsRequest,
+    background_tasks: BackgroundTasks,
+):
     payload = request.model_dump(exclude_unset=True)
     merged_settings = runtime_settings_service.get_all()
     merged_settings.update(payload)
@@ -758,12 +777,15 @@ async def update_runtime_settings(request: RuntimeSettingsRequest):
             await emby_sync_scheduler_service.ensure_sync_task()
         if payload_keys & _FEINIU_SYNC_SETTING_KEYS:
             await feiniu_sync_scheduler_service.ensure_sync_task()
+        if payload_keys & _TG_BOT_SETTING_KEYS:
+            background_tasks.add_task(_restart_tg_bot_background)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
     _secret_keys = {
         "hdhive_cookie",
         "hdhive_api_key",
+        "hdhive_password_enc",
         "tg_session",
         "tg_api_hash",
         "tmdb_api_key",
@@ -771,6 +793,7 @@ async def update_runtime_settings(request: RuntimeSettingsRequest):
         "feiniu_secret",
         "feiniu_api_key",
         "feiniu_session_token",
+        "feiniu_password_enc",
         "tg_bot_token",
         "license_key",
     }
@@ -822,6 +845,55 @@ async def check_hdhive_credentials():
     return await _perform_hdhive_check_cached()
 
 
+@router.post("/hdhive/login")
+async def login_hdhive(payload: HDHiveLoginRequest):
+    """登录 HDHive 并保存 Cookie 与加密密码。"""
+    base_url = (
+        str(payload.base_url or "").strip()
+        or runtime_settings_service.get_hdhive_base_url()
+    )
+    username = str(payload.username or "").strip()
+    password = str(payload.password or "").strip()
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="请输入 HDHive 用户名和密码")
+
+    from app.services.hdhive_service import HDHiveService
+    from app.utils.credential_crypto import encrypt_credential
+
+    service = HDHiveService(
+        base_url=base_url,
+        cookie=runtime_settings_service.get_hdhive_cookie(),
+    )
+    result = await service.login(username=username, password=password)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=401,
+            detail=str(result.get("message") or "HDHive 登录失败"),
+        )
+
+    cookie = str(result.get("cookie") or service.cookie or "").strip()
+    updates: dict[str, str] = {
+        "hdhive_login_username": username,
+        "hdhive_password_enc": encrypt_credential(
+            password,
+            runtime_settings_service.get_auth_secret(),
+        ),
+    }
+    if cookie:
+        updates["hdhive_cookie"] = cookie
+    if base_url:
+        updates["hdhive_base_url"] = base_url
+
+    runtime_settings_service.update_bulk(updates)
+    user = result.get("user") if isinstance(result.get("user"), dict) else {}
+    return {
+        "success": True,
+        "message": str(result.get("message") or "登录成功"),
+        "user": user,
+        "username": username,
+    }
+
+
 @router.post("/hdhive/checkin")
 async def run_hdhive_checkin(payload: HDHiveCheckinRequest):
     mode = (
@@ -839,8 +911,10 @@ async def run_hdhive_checkin(payload: HDHiveCheckinRequest):
         .strip()
         .lower()
     )
-    if method not in {"api", "cookie"}:
-        method = "api"
+    if method not in {"api", "cookie", "web"}:
+        method = "cookie"
+    if method == "api":
+        method = "web"
 
     cookie = str(payload.cookie or "").strip()
     api_key = str(payload.api_key or "").strip()
@@ -949,11 +1023,7 @@ async def check_feiniu_credentials(
 
 @router.post("/feiniu/login")
 async def login_feiniu(payload: FeiniuLoginRequest):
-    """
-    使用 HTTP API 登录飞牛影视，获取 Session Token
-
-    通过 HTTP POST 到登录接口完成认证。
-    """
+    """登录飞牛影视（HTTP v/api，nas-tools FnOSClient 模式）。"""
     feiniu_url = (
         str(payload.url or "").strip()
         if payload.url
@@ -966,28 +1036,46 @@ async def login_feiniu(payload: FeiniuLoginRequest):
             detail="请先配置飞牛影视 URL",
         )
 
-    feiniu_service.set_config(feiniu_url, "", "")
-    result = await feiniu_service.http_login(
-        username=payload.username,
-        password=payload.password,
+    username = str(payload.username or "").strip()
+    password = str(payload.password or "").strip()
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="请输入飞牛影视用户名和密码")
+
+    feiniu_service.set_config(
+        feiniu_url,
+        runtime_settings_service.get_feiniu_secret(),
+        runtime_settings_service.get_feiniu_api_key(),
     )
+    result = await feiniu_service.login(username=username, password=password)
 
     if result.get("success") and result.get("token"):
         token = result["token"]
-        runtime_settings_service.update_bulk(
-            {
-                "feiniu_url": feiniu_url,
-                "feiniu_session_token": token,
-            }
-        )
+        user = result.get("user") if isinstance(result.get("user"), dict) else {}
+        login_username = str(user.get("username") or username).strip()
+        from app.utils.credential_crypto import encrypt_credential
+
+        updates: dict[str, str] = {
+            "feiniu_url": feiniu_url,
+            "feiniu_session_token": token,
+            "feiniu_login_username": login_username,
+            "feiniu_password_enc": encrypt_credential(
+                password,
+                runtime_settings_service.get_auth_secret(),
+            ),
+        }
+        runtime_settings_service.update_bulk(updates)
+        feiniu_service.apply_runtime_config()
         return {
             "success": True,
-            "message": "登录成功",
+            "message": result.get("message", "登录成功"),
             "token": token,
         }
     return {
         "success": False,
-        "message": result.get("message", "登录失败"),
+        "message": result.get(
+            "message",
+            "登录失败，请确认该账号可在飞牛影视 /v 页面登录",
+        ),
         "token": None,
     }
 
@@ -1019,10 +1107,7 @@ async def get_feiniu_sync_status():
     status = await feiniu_sync_index_service.get_status()
     return {
         **status,
-        "configured": bool(
-            runtime_settings_service.get_feiniu_url()
-            and runtime_settings_service.get_feiniu_session_token()
-        ),
+        "configured": runtime_settings_service.has_feiniu_sync_credentials(),
     }
 
 
@@ -1289,6 +1374,7 @@ async def restart_tg_bot(background_tasks: BackgroundTasks):
         "accepted": True,
         "message": "已在后台重启 Bot，请稍后点击「检测状态」确认",
         "running": tg_bot_service.running,
+        "last_error": tg_bot_service.last_error,
     }
 
 

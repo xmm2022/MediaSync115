@@ -364,24 +364,42 @@
           </template>
 
           <el-form :model="hdhiveForm" label-width="120px">
-            <el-form-item label="API Key">
+            <el-form-item label="登录账号">
               <el-input
-                v-model="hdhiveForm.apiKey"
-                type="textarea"
-                :rows="3"
-                placeholder="请输入 HDHive Open API Key（仅 Premium 会员需要）"
+                :model-value="hdhiveForm.loginUsername || '未登录'"
+                readonly
+                placeholder="点击右侧按钮登录 HDHive"
               />
+              <el-button
+                type="success"
+                :loading="loggingInHdhive"
+                style="margin-left: 8px"
+                @click="hdhiveLoginDialogVisible = true"
+              >
+                账号登录
+              </el-button>
+              <el-text size="small" type="info" style="display: block; margin-top: 4px">
+                推荐使用账号密码自动登录，系统会加密保存密码并自动续期 Cookie
+              </el-text>
             </el-form-item>
-            <el-form-item label="Cookie">
+            <el-form-item label="Cookie（兜底）">
               <el-input
                 v-model="hdhiveForm.cookie"
                 type="textarea"
                 :rows="3"
-                placeholder="请输入 HDHive Cookie（用于 Cookie 签到）"
+                placeholder="可选：手动粘贴浏览器 Cookie 作为兜底"
               />
               <el-text size="small" type="info" style="margin-top: 4px">
-                从浏览器登录 HDHive 后，在开发者工具中复制 Cookie 粘贴到此处
+                自动登录失败时，可从浏览器开发者工具复制 Cookie 粘贴到此处
               </el-text>
+            </el-form-item>
+            <el-form-item label="API Key（可选）">
+              <el-input
+                v-model="hdhiveForm.apiKey"
+                type="textarea"
+                :rows="2"
+                placeholder="已弃用，资源抓取不再依赖 Open API Key"
+              />
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="savingHdhive" @click="handleSaveHdhive">保存</el-button>
@@ -401,11 +419,11 @@
                 style="width: 220px"
                 :disabled="!hdhiveForm.autoCheckinEnabled"
               >
-                <el-option label="API Key（仅 Premium）" value="api" />
-                <el-option label="Cookie（所有用户）" value="cookie" />
+                <el-option label="网页签到（推荐）" value="web" />
+                <el-option label="Cookie 接口签到" value="cookie" />
               </el-select>
               <el-text size="small" type="info" style="margin-left: 8px">
-                {{ hdhiveForm.autoCheckinMethod === 'cookie' ? '使用浏览器 Cookie 签到，无需 Premium 会员' : '使用 Open API 签到，需要 Premium 会员' }}
+                {{ hdhiveForm.autoCheckinMethod === 'cookie' ? '调用 /api/checkin 接口签到' : '通过网页 Server Action 签到' }}
               </el-text>
             </el-form-item>
             <el-form-item label="签到模式">
@@ -1039,7 +1057,7 @@
               代理配置说明
             </template>
             <template #default>
-              可手动填写 HTTP/HTTPS/SOCKS 代理；若使用路由器全局代理、透明代理或未填写应用代理，检测时会自动走<strong>系统网络</strong>探测 TMDB、HDHive、Telegram 连通性。保存后写入后端运行时配置并持久化到 data 目录。
+              可手动填写 HTTP/HTTPS/SOCKS 代理。Docker 部署时请使用 <code>host.docker.internal</code> 而非 <code>127.0.0.1</code>（例如 <code>http://host.docker.internal:7890</code>）。保存后写入后端运行时配置；TG Bot 仅使用此处配置的有效代理，不会误用系统环境变量。
             </template>
           </el-alert>
 
@@ -1047,7 +1065,7 @@
             <el-form-item label="HTTP 代理">
               <el-input
                 v-model="proxyForm.httpProxy"
-                placeholder="例如: http://127.0.0.1:7890"
+                placeholder="Docker 请填: http://host.docker.internal:7890"
               />
               <el-text size="small" type="info">
                 用于 HTTP 协议请求的代理地址
@@ -1056,7 +1074,7 @@
             <el-form-item label="HTTPS 代理">
               <el-input
                 v-model="proxyForm.httpsProxy"
-                placeholder="例如: http://127.0.0.1:7890"
+                placeholder="Docker 请填: http://host.docker.internal:7890"
               />
               <el-text size="small" type="info">
                 用于 HTTPS 协议请求的代理地址
@@ -1065,7 +1083,7 @@
             <el-form-item label="通用代理">
               <el-input
                 v-model="proxyForm.allProxy"
-                placeholder="例如: http://127.0.0.1:7890"
+                placeholder="Docker 请填: http://host.docker.internal:7890"
               />
               <el-text size="small" type="info">
                 当 HTTP/HTTPS 代理未设置时使用此代理
@@ -1586,10 +1604,19 @@
               <span>Telegram Bot 配置</span>
               <div class="status-tags">
                 <el-tag v-if="tgBotStatus.running" type="success" size="small">运行中</el-tag>
+                <el-tag v-else-if="tgBotStatus.checked && tgBotStatus.last_error" type="danger" size="small">启动失败</el-tag>
                 <el-tag v-else-if="tgBotStatus.checked" type="info" size="small">已停止</el-tag>
               </div>
             </div>
           </template>
+
+          <el-alert
+            v-if="tgBotStatus.checked && tgBotStatus.last_error"
+            type="error"
+            :closable="false"
+            style="margin-bottom: 16px"
+            :title="tgBotStatus.last_error"
+          />
 
           <el-alert type="info" :closable="false" style="margin-bottom: 16px">
             <template #title>
@@ -1632,9 +1659,10 @@
                 >{{ cid }}</el-tag>
                 <el-input
                   v-model="tgBotNewChatId"
-                  placeholder="输入 Chat ID 后按回车（在 Bot 中发送 /id 获取）"
+                  placeholder="输入 Chat ID 后按回车或点击保存（在 Bot 中发送 /id 获取）"
                   style="width: 320px"
                   @keyup.enter="addTgBotNotifyChatId"
+                  @blur="addTgBotNotifyChatId"
                 />
                 <div class="form-hint" style="margin-top: 6px">
                   订阅扫描自动转存成功后会推送至此会话（需启用 Bot 并填写 Token）。
@@ -1876,12 +1904,58 @@
     </el-dialog>
 
     <el-dialog
+      v-model="hdhiveLoginDialogVisible"
+      title="HDHive 登录"
+      width="400px"
+      destroy-on-close
+      @open="hdhiveLoginFeedback = null"
+    >
+      <el-alert
+        v-if="hdhiveLoginFeedback"
+        :title="hdhiveLoginFeedback.message"
+        :type="hdhiveLoginFeedback.type"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <el-form :model="hdhiveLoginForm" label-width="80px" @submit.prevent="handleHdhiveLogin">
+        <el-form-item label="用户名">
+          <el-input v-model="hdhiveLoginForm.username" placeholder="请输入 HDHive 用户名" />
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input
+            v-model="hdhiveLoginForm.password"
+            type="password"
+            show-password
+            placeholder="请输入 HDHive 密码"
+            @keyup.enter="handleHdhiveLogin"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="hdhiveLoginDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="loggingInHdhive" @click="handleHdhiveLogin">
+          登录
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-model="feiniuLoginDialogVisible"
       title="飞牛影视登录"
       width="400px"
       destroy-on-close
+      @open="feiniuLoginFeedback = null"
     >
-      <el-form :model="feiniuLoginForm" label-width="80px">
+      <el-alert
+        v-if="feiniuLoginFeedback"
+        :title="feiniuLoginFeedback.message"
+        :type="feiniuLoginFeedback.type"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <el-form :model="feiniuLoginForm" label-width="80px" @submit.prevent="handleFeiniuLogin">
         <el-form-item label="用户名">
           <el-input v-model="feiniuLoginForm.username" placeholder="请输入飞牛影视用户名" />
         </el-form-item>
@@ -1943,11 +2017,18 @@ const accountForm = ref({
 const hdhiveForm = ref({
   apiKey: '',
   cookie: '',
+  loginUsername: '',
   autoCheckinEnabled: false,
   autoCheckinMode: 'normal',
-  autoCheckinMethod: 'api',
+  autoCheckinMethod: 'web',
   autoCheckinRunTime: '09:00'
 })
+const hdhiveLoginForm = ref({
+  username: '',
+  password: ''
+})
+const hdhiveLoginDialogVisible = ref(false)
+const hdhiveLoginFeedback = ref(null)
 const embyForm = ref({
   url: '',
   apiKey: '',
@@ -1964,6 +2045,7 @@ const feiniuLoginForm = ref({
   password: ''
 })
 const feiniuLoginDialogVisible = ref(false)
+const feiniuLoginFeedback = ref(null)
 
 const tgForm = ref({
   apiId: '',
@@ -2154,7 +2236,7 @@ const tgBotForm = ref({
 })
 const tgBotNewUserId = ref('')
 const tgBotNewChatId = ref('')
-const tgBotStatus = ref({ checked: false, running: false })
+const tgBotStatus = ref({ checked: false, running: false, last_error: '', using_proxy: false })
 const savingTgBot = ref(false)
 const restartingTgBot = ref(false)
 const savingDetailTabs = ref(false)
@@ -2207,6 +2289,7 @@ const savingPansou = ref(false)
 const testingPansou = ref(false)
 const savingHdhive = ref(false)
 const testingHdhive = ref(false)
+const loggingInHdhive = ref(false)
 const runningHdhiveCheckin = ref(false)
 const savingEmby = ref(false)
 const testingEmby = ref(false)
@@ -3234,8 +3317,8 @@ const checkHdhive = async (notify = false) => {
     hdhiveStatus.valid = !!data.valid
     hdhiveStatus.user = data.user || null
     hdhiveStatus.message = data.valid
-      ? String(data.message || `连接成功：${data.user?.username || data.user?.nickname || 'API Key 有效'}`)
-      : `连接失败：${data.message || '请检查 API Key'}`
+      ? String(data.message || `连接成功：${data.user?.username || data.user?.nickname || '已连接'}`)
+      : `连接失败：${data.message || '请检查 Cookie 或账号密码'}`
 
     if (notify) {
       if (data.valid) {
@@ -3248,7 +3331,7 @@ const checkHdhive = async (notify = false) => {
     hdhiveStatus.checked = true
     hdhiveStatus.valid = false
     hdhiveStatus.user = null
-    hdhiveStatus.message = error.response?.data?.detail || '连接失败，请检查 API Key 配置'
+    hdhiveStatus.message = error.response?.data?.detail || '连接失败，请检查 Cookie 或账号密码配置'
     if (notify) {
       ElMessage.error(hdhiveStatus.message)
     }
@@ -3268,7 +3351,7 @@ const handleSaveHdhive = async () => {
       hdhive_cookie: hdhiveForm.value.cookie,
       hdhive_auto_checkin_enabled: hdhiveForm.value.autoCheckinEnabled,
       hdhive_auto_checkin_mode: hdhiveForm.value.autoCheckinMode || 'normal',
-      hdhive_auto_checkin_method: hdhiveForm.value.autoCheckinMethod || 'api',
+      hdhive_auto_checkin_method: hdhiveForm.value.autoCheckinMethod || 'web',
       hdhive_auto_checkin_run_time: hdhiveForm.value.autoCheckinRunTime || '09:00'
     })
     await fetchRuntimeSettings()
@@ -3292,9 +3375,10 @@ const handleTestHdhive = async () => {
 }
 
 const handleRunHdhiveCheckin = async () => {
-  const method = hdhiveForm.value.autoCheckinMethod || 'api'
-  if (method === 'api' && !String(hdhiveForm.value.apiKey || '').trim()) {
-    ElMessage.warning('请先填写 HDHive API Key')
+  const method = hdhiveForm.value.autoCheckinMethod || 'web'
+  const hasCredential = String(hdhiveForm.value.cookie || '').trim() || String(hdhiveForm.value.loginUsername || '').trim()
+  if (!hasCredential) {
+    ElMessage.warning('请先登录 HDHive 或填写 Cookie')
     return
   }
 
@@ -3303,11 +3387,12 @@ const handleRunHdhiveCheckin = async () => {
     const { data } = await settingsApi.runHdhiveCheckin({
       mode: hdhiveForm.value.autoCheckinMode || 'normal',
       method,
+      cookie: hdhiveForm.value.cookie,
       api_key: hdhiveForm.value.apiKey
     })
-    if (method === 'api') await checkHdhive(false)
+    if (method !== 'cookie') await checkHdhive(false)
     const modeLabel = hdhiveForm.value.autoCheckinMode === 'gamble' ? '赌狗签到' : '普通签到'
-    const methodLabel = method === 'cookie' ? '（Cookie）' : '（API）'
+    const methodLabel = method === 'cookie' ? '（Cookie）' : '（网页）'
     if (data?.status === 'already_checked_in') {
       hdhiveCheckinResult.visible = true
       hdhiveCheckinResult.type = 'warning'
@@ -3323,7 +3408,7 @@ const handleRunHdhiveCheckin = async () => {
     ElMessage.info(data?.message || `${modeLabel}${methodLabel}已完成`)
   } catch (error) {
     const modeLabel = hdhiveForm.value.autoCheckinMode === 'gamble' ? '赌狗签到' : '普通签到'
-    const methodLabel = method === 'cookie' ? 'Cookie' : 'API'
+    const methodLabel = method === 'cookie' ? 'Cookie' : '网页'
     const reason = String(error.response?.data?.detail || error.message || '未知原因').trim()
     hdhiveCheckinResult.visible = true
     hdhiveCheckinResult.type = 'error'
@@ -3426,34 +3511,102 @@ const handleTestFeiniu = async () => {
   }
 }
 
+const handleHdhiveLogin = async () => {
+  if (!String(hdhiveLoginForm.value.username || '').trim()) {
+    hdhiveLoginFeedback.value = { type: 'warning', message: '请输入 HDHive 用户名' }
+    ElMessage.warning('请输入 HDHive 用户名')
+    return
+  }
+  if (!String(hdhiveLoginForm.value.password || '').trim()) {
+    hdhiveLoginFeedback.value = { type: 'warning', message: '请输入 HDHive 密码' }
+    ElMessage.warning('请输入 HDHive 密码')
+    return
+  }
+  loggingInHdhive.value = true
+  hdhiveLoginFeedback.value = null
+  try {
+    const { data } = await settingsApi.hdhiveLogin(
+      hdhiveLoginForm.value.username,
+      hdhiveLoginForm.value.password
+    )
+    const result = data || {}
+    if (result.success) {
+      const message = result.message || 'HDHive 登录成功'
+      hdhiveLoginFeedback.value = { type: 'success', message }
+      ElMessage.success(message)
+      hdhiveLoginDialogVisible.value = false
+      hdhiveLoginForm.value.username = ''
+      hdhiveLoginForm.value.password = ''
+      await fetchRuntimeSettings()
+      await checkHdhive(false)
+      await refreshSourceConnectionStatus()
+    } else {
+      const message = result.message || 'HDHive 登录失败'
+      hdhiveLoginFeedback.value = { type: 'error', message }
+      ElMessage.error(message)
+    }
+  } catch (error) {
+    const detail = error.response?.data?.detail
+    const message = String(detail || error.message || 'HDHive 登录失败').trim()
+    const finalMessage = (error.code === 'ECONNABORTED' || String(error.message || '').includes('timeout'))
+      ? 'HDHive 登录超时，请确认网络可达后重试'
+      : message
+    hdhiveLoginFeedback.value = { type: 'error', message: finalMessage }
+    ElMessage.error(finalMessage)
+  } finally {
+    loggingInHdhive.value = false
+  }
+}
+
 const handleFeiniuLogin = async () => {
   if (!String(feiniuLoginForm.value.username || '').trim()) {
+    feiniuLoginFeedback.value = { type: 'warning', message: '请输入飞牛影视用户名' }
     ElMessage.warning('请输入飞牛影视用户名')
     return
   }
   if (!String(feiniuLoginForm.value.password || '').trim()) {
+    feiniuLoginFeedback.value = { type: 'warning', message: '请输入飞牛影视密码' }
     ElMessage.warning('请输入飞牛影视密码')
     return
   }
   loggingInFeiniu.value = true
+  feiniuLoginFeedback.value = null
   try {
     const { data } = await settingsApi.feiniuLogin(
       feiniuLoginForm.value.username,
       feiniuLoginForm.value.password,
       feiniuForm.value.url
     )
-    if (data.success) {
-      ElMessage.success('飞牛影视登录成功')
+    const result = data || {}
+    if (result.success) {
+      const message = result.message || '飞牛影视登录成功'
+      const isWarning = String(message).includes('未获取到 API Secret')
+      feiniuLoginFeedback.value = { type: isWarning ? 'warning' : 'success', message }
+      if (isWarning) {
+        ElMessage.warning(message)
+      } else {
+        ElMessage.success(message)
+      }
       feiniuLoginDialogVisible.value = false
       feiniuLoginForm.value.username = ''
       feiniuLoginForm.value.password = ''
       await checkFeiniu(false)
       await fetchFeiniuSyncStatus(false)
     } else {
-      ElMessage.error(data.message || '飞牛影视登录失败')
+      const message = result.message || '飞牛影视登录失败'
+      feiniuLoginFeedback.value = { type: 'error', message }
+      ElMessage.error(message)
     }
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '飞牛影视登录失败')
+    const detail = error.response?.data?.detail
+    const message = (detail && typeof detail === 'object')
+      ? String(detail.message || '').trim()
+      : String(detail || '').trim()
+    const finalMessage = (error.code === 'ECONNABORTED' || String(error.message || '').includes('timeout'))
+      ? '飞牛影视登录超时，请确认服务地址可达后重试'
+      : (message || error.response?.data?.message || '飞牛影视登录失败')
+    feiniuLoginFeedback.value = { type: 'error', message: finalMessage }
+    ElMessage.error(finalMessage)
   } finally {
     loggingInFeiniu.value = false
   }
@@ -3490,6 +3643,11 @@ const startFeiniuSyncPolling = () => {
     if (!feiniuSyncStatus.running) {
       stopFeiniuSyncPolling()
       runningFeiniuSync.value = false
+      if (feiniuSyncStatus.status === 'failed' && feiniuSyncStatus.lastSyncError) {
+        ElMessage.error(`飞牛同步失败：${feiniuSyncStatus.lastSyncError}`)
+      } else if (feiniuSyncStatus.status === 'success') {
+        ElMessage.success('飞牛同步完成')
+      }
     }
   }, 5000)
 }
@@ -4250,6 +4408,31 @@ const fetchAppInfo = async () => {
 }
 
 // ── TG Bot handlers ──
+const applyTgBotSettings = (data = {}) => {
+  tgBotForm.value.enabled = !!data.tg_bot_enabled
+  tgBotForm.value.token = data.tg_bot_token || ''
+  tgBotForm.value.allowedUsers = Array.isArray(data.tg_bot_allowed_users) ? data.tg_bot_allowed_users : []
+  tgBotForm.value.notifyChatIds = Array.isArray(data.tg_bot_notify_chat_ids) ? data.tg_bot_notify_chat_ids : []
+  tgBotForm.value.hdhiveAutoUnlock = !!data.tg_bot_hdhive_auto_unlock
+}
+const flushTgBotPendingInputs = () => {
+  const userVal = String(tgBotNewUserId.value || '').trim()
+  if (userVal) {
+    const uid = Number(userVal)
+    if (!Number.isNaN(uid) && !tgBotForm.value.allowedUsers.includes(uid)) {
+      tgBotForm.value.allowedUsers.push(uid)
+    }
+    tgBotNewUserId.value = ''
+  }
+  const chatVal = String(tgBotNewChatId.value || '').trim()
+  if (chatVal) {
+    const cid = Number(chatVal)
+    if (!Number.isNaN(cid) && !tgBotForm.value.notifyChatIds.includes(cid)) {
+      tgBotForm.value.notifyChatIds.push(cid)
+    }
+    tgBotNewChatId.value = ''
+  }
+}
 const addTgBotAllowedUser = () => {
   const val = String(tgBotNewUserId.value || '').trim()
   if (!val) return
@@ -4271,10 +4454,11 @@ const addTgBotNotifyChatId = () => {
   tgBotNewChatId.value = ''
 }
 const handleSaveTgBot = async () => {
+  flushTgBotPendingInputs()
   savingTgBot.value = true
   let saved = false
   try {
-    await settingsApi.updateRuntime(
+    const { data } = await settingsApi.updateRuntime(
       {
         tg_bot_enabled: tgBotForm.value.enabled,
         tg_bot_token: tgBotForm.value.token,
@@ -4284,6 +4468,9 @@ const handleSaveTgBot = async () => {
       },
       { timeout: RUNTIME_SAVE_TIMEOUT_MS, silentError: true }
     )
+    if (data?.settings) {
+      applyTgBotSettings(data.settings)
+    }
     saved = true
     ElMessage.success('TG Bot 配置已保存')
   } catch (error) {
@@ -4297,11 +4484,13 @@ const handleSaveTgBot = async () => {
 
   if (tgBotForm.value.enabled && String(tgBotForm.value.token || '').trim()) {
     ElMessage.info('配置已保存，正在后台重启 Bot…')
-    handleRestartTgBot({ fromSave: true })
+    window.setTimeout(() => {
+      handleCheckTgBotStatus(true)
+    }, 3000)
   } else if (!tgBotForm.value.enabled) {
     try {
       await settingsApi.stopTgBot()
-      tgBotStatus.value = { checked: true, running: false }
+      tgBotStatus.value = { checked: true, running: false, last_error: '', using_proxy: false }
     } catch {
       // 停止失败不阻断保存成功提示
     }
@@ -4320,8 +4509,13 @@ const handleRestartTgBot = async ({ fromSave = false } = {}) => {
       }, 3000)
       return
     }
-    tgBotStatus.value = { checked: true, running: !!data.running }
-    ElMessage.success(data.running ? 'TG Bot 已启动' : 'TG Bot 未启动（请检查配置）')
+    tgBotStatus.value = {
+      checked: true,
+      running: !!data.running,
+      last_error: data.last_error || '',
+      using_proxy: !!data.using_proxy,
+    }
+    ElMessage.success(data.running ? 'TG Bot 已启动' : (data.last_error ? 'TG Bot 启动失败' : 'TG Bot 未启动（请检查配置）'))
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || 'TG Bot 重启失败')
   } finally {
@@ -4331,9 +4525,20 @@ const handleRestartTgBot = async ({ fromSave = false } = {}) => {
 const handleCheckTgBotStatus = async (silent = false) => {
   try {
     const { data } = await settingsApi.getTgBotStatus()
-    tgBotStatus.value = { checked: true, running: data.running }
+    tgBotStatus.value = {
+      checked: true,
+      running: !!data.running,
+      last_error: data.last_error || '',
+      using_proxy: !!data.using_proxy,
+    }
     if (!silent) {
-      ElMessage.info(data.running ? 'TG Bot 运行中' : 'TG Bot 未运行')
+      if (data.running) {
+        ElMessage.success('TG Bot 运行中')
+      } else if (data.last_error) {
+        ElMessage.error(data.last_error)
+      } else {
+        ElMessage.info('TG Bot 未运行')
+      }
     }
   } catch (error) {
     if (!silent) {
@@ -4410,9 +4615,10 @@ const fetchRuntimeSettings = async () => {
     }
     hdhiveForm.value.apiKey = data.hdhive_api_key || ''
     hdhiveForm.value.cookie = data.hdhive_cookie || ''
+    hdhiveForm.value.loginUsername = data.hdhive_login_username || ''
     hdhiveForm.value.autoCheckinEnabled = !!data.hdhive_auto_checkin_enabled
     hdhiveForm.value.autoCheckinMode = data.hdhive_auto_checkin_mode || 'normal'
-    hdhiveForm.value.autoCheckinMethod = data.hdhive_auto_checkin_method || 'api'
+    hdhiveForm.value.autoCheckinMethod = data.hdhive_auto_checkin_method === 'api' ? 'web' : (data.hdhive_auto_checkin_method || 'web')
     hdhiveForm.value.autoCheckinRunTime = data.hdhive_auto_checkin_run_time || '09:00'
     tgForm.value.apiId = data.tg_api_id || ''
     tgForm.value.apiHash = data.tg_api_hash || ''
@@ -4446,11 +4652,7 @@ const fetchRuntimeSettings = async () => {
     }
 
     // TG Bot settings
-    tgBotForm.value.enabled = !!data.tg_bot_enabled
-    tgBotForm.value.token = data.tg_bot_token || ''
-    tgBotForm.value.allowedUsers = Array.isArray(data.tg_bot_allowed_users) ? data.tg_bot_allowed_users : []
-    tgBotForm.value.notifyChatIds = Array.isArray(data.tg_bot_notify_chat_ids) ? data.tg_bot_notify_chat_ids : []
-    tgBotForm.value.hdhiveAutoUnlock = !!data.tg_bot_hdhive_auto_unlock
+    applyTgBotSettings(data)
 
     // Detail tabs visibility (order preserved from backend array)
     if (Array.isArray(data.detail_visible_tabs)) {
@@ -4965,7 +5167,7 @@ const ensureSettingsTabLoaded = (tab) => {
       refreshQuarkInfo()
       break
     case 'hdhive':
-      if (String(hdhiveForm.value.apiKey || '').trim()) {
+      if (String(hdhiveForm.value.cookie || '').trim() || String(hdhiveForm.value.loginUsername || '').trim()) {
         checkHdhive(false)
       }
       break
@@ -4992,6 +5194,9 @@ const ensureSettingsTabLoaded = (tab) => {
       break
     case 'proxy':
       fetchProxyStatus()
+      break
+    case 'tgbot':
+      handleCheckTgBotStatus(true)
       break
     case 'chartSubscription':
       loadAvailableCharts()

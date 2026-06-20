@@ -936,7 +936,7 @@ class Pan115Service:
                     continue
 
                 if self._is_share_folder_item(item):
-                    sub_folder_cid = self._share_item_cid(item)
+                    sub_folder_cid = self._share_item_recurse_cid(item)
                     if not sub_folder_cid:
                         continue
 
@@ -958,7 +958,7 @@ class Pan115Service:
                     continue
 
                 # 兜底：无 fid 但存在目录 ID 时仍递归。
-                sub_folder_cid = self._share_item_cid(item)
+                sub_folder_cid = self._share_item_recurse_cid(item)
                 if not sub_folder_cid:
                     continue
 
@@ -1157,6 +1157,16 @@ class Pan115Service:
         return str(raw).strip()
 
     @classmethod
+    def _share_item_recurse_cid(cls, item: dict[str, Any]) -> str:
+        """获取用于递归下钻的目录 ID（proapi 目录项常用 fid 作为子目录 cid）。"""
+        cid = cls._share_item_cid(item)
+        if cid:
+            return cid
+        if cls._is_share_folder_item(item):
+            return cls._share_item_fid(item)
+        return ""
+
+    @classmethod
     def _is_share_folder_item(cls, item: dict[str, Any]) -> bool:
         """判断分享列表项是否是目录。
 
@@ -1170,6 +1180,20 @@ class Pan115Service:
             value = item.get(key)
             if value in (1, "1", True, "true", "True"):
                 return True
+
+        # proapi/android share/snap：fc=0 表示目录，fc=1 表示文件
+        if "fn" in item or "fs" in item:
+            fc = item.get("fc")
+            if fc is not None and str(fc).strip() == "0":
+                return True
+
+        file_category = item.get("file_category")
+        if file_category is not None:
+            try:
+                if int(file_category) == 0:
+                    return True
+            except (TypeError, ValueError):
+                pass
 
         category = str(item.get("category") or item.get("type") or item.get("file_type") or "").strip().lower()
         if category in {"folder", "dir", "directory"}:

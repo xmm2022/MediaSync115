@@ -65,6 +65,7 @@ def register_handlers(app: Application, allowed_users: list) -> None:
     app.add_handler(CommandHandler("offline", auth(cmd_offline)))
     app.add_handler(CommandHandler("recent", auth(cmd_recent)))
     app.add_handler(CommandHandler("id", auth(cmd_id)))
+    app.add_handler(CommandHandler(["transfer", "save115"], auth(cmd_transfer)))
 
     app.add_handler(CallbackQueryHandler(auth(cb_handler)))
 
@@ -86,8 +87,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/offline - 离线任务列表\n"
         "/recent - 最近下载记录\n"
         "/id - 获取当前聊天 ID\n"
+        "/transfer - 批量转存消息中的 115 分享链接\n"
         "/help - 帮助信息\n\n"
-        "也可以直接发送影视名称进行搜索。"
+        "也可以直接发送影视名称进行搜索；"
+        "发送多个 115 分享链接（可带片名与提取码）将自动批量转存。"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -102,7 +105,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/status - 查看系统状态\n"
         "/offline - 查看离线下载任务\n"
         "/recent - 最近下载记录\n"
-        "/id - 获取当前聊天 ID（用于配置通知）\n\n"
+        "/id - 获取当前聊天 ID（用于配置通知）\n"
+        "/transfer - 批量转存 115 分享链接\n\n"
+        "<b>批量转存：</b>\n"
+        "直接发送多条 115 链接（可附片名、提取码），例如：\n"
+        "诺斯费拉图 (1922)\n"
+        "https://115cdn.com/s/xxx（访问码：abcd）\n\n"
         "<b>交互操作：</b>\n"
         "搜索结果中可点击按钮查看详情、搜索资源、转存到115网盘或添加订阅。"
     )
@@ -126,9 +134,34 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _do_search(update, context, keyword, page=1)
 
 
+async def cmd_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """批量转存消息中的 115 分享链接。"""
+    text = " ".join(context.args).strip() if context.args else ""
+    if not text and update.message and update.message.reply_to_message:
+        text = str(update.message.reply_to_message.text or "").strip()
+    if not text:
+        await update.message.reply_text(
+            "请直接发送含 115 分享链接的消息，或使用：\n"
+            "<code>/transfer</code> 回复一条含链接的消息",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    from .share_batch import handle_share_batch_message
+
+    handled = await handle_share_batch_message(update, context, text)
+    if not handled:
+        await update.message.reply_text("未检测到可转存的 115 分享链接。")
+
+
 async def msg_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyword = (update.message.text or "").strip()
     if not keyword:
+        return
+
+    from .share_batch import handle_share_batch_message
+
+    if await handle_share_batch_message(update, context, keyword):
         return
     await _do_search(update, context, keyword, page=1)
 

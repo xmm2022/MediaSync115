@@ -50,45 +50,35 @@ class TestHDHiveService:
         }
 
     def test_get_user_info_merges_points_from_settings_page(self) -> None:
-        service = HDHiveService(api_key="test-key")
+        service = HDHiveService(cookie="test-cookie")
 
-        async def fake_request_open_api(method: str, path: str, **kwargs):
-            assert method == "GET"
-            assert path == "/me"
-            return None, {
-                "success": True,
-                "code": "200",
-                "message": "success",
-                "data": {
-                    "id": 1,
-                    "username": "dave",
-                    "nickname": "Dave",
-                    "email": "dave@example.com",
-                    "avatar_url": "https://example.com/avatar.jpg",
-                    "is_vip": True,
-                    "user_meta": {
-                        "points": 502,
-                    },
-                },
+        async def fake_get_user_info() -> dict:
+            return {
+                "username": "dave",
+                "nickname": "Dave",
+                "is_vip": True,
+                "points": 502,
             }
 
-        service._request_open_api = fake_request_open_api  # type: ignore[method-assign]
+        async def fake_ensure_authenticated(*args, **kwargs) -> None:
+            return None
+
+        service._web.get_user_info = fake_get_user_info  # type: ignore[method-assign]
+        service.ensure_authenticated = fake_ensure_authenticated  # type: ignore[method-assign]
 
         user = asyncio.run(service.get_user_info())
 
         assert user == {
-            "id": 1,
+            "id": None,
             "username": "dave",
             "nickname": "Dave",
-            "email": "dave@example.com",
-            "avatar_url": "https://example.com/avatar.jpg",
+            "email": "",
+            "avatar_url": "",
             "is_vip": True,
             "vip_expiration_date": "",
             "last_active_at": "",
             "points": 502,
-            "user_meta": {
-                "points": 502,
-            },
+            "user_meta": {},
             "telegram_user": None,
             "created_at": "",
         }
@@ -102,6 +92,30 @@ class TestHDHiveService:
         action_id = HDHiveService._extract_server_action_id_from_chunk(raw, "unlockResource")
 
         assert action_id == "40104633e124c17495f8f0497d9a91bd9a5b843744"
+
+    def test_build_cookie_header_refreshes_action_token(self) -> None:
+        service = HDHiveService(cookie="token=abc; hdh_sa_token=stale-token")
+        client = service._web._create_client()
+        client.cookies.set("hdh_sa_token", "fresh-token")
+        header = service._web._build_cookie_header(client, service._web._cookie)
+        assert "token=abc" in header
+        assert "hdh_sa_token=fresh-token" in header
+        assert "stale-token" not in header
+
+    def test_is_action_token_error(self) -> None:
+        service = HDHiveService()
+        assert service._web._is_action_token_error({"code": "action_token_invalid"}) is True
+        assert service._web._is_action_token_error({"code": "action_token_required"}) is True
+        assert service._web._is_action_token_error({"code": "200"}) is False
+
+    def test_parse_next_action_plain_json_error(self) -> None:
+        service = HDHiveService()
+        parsed = service._web._parse_next_action_response(
+            '{"success":false,"code":"action_token_invalid","message":"请刷新页面后重试"}'
+        )
+        assert parsed["success"] is False
+        assert parsed["code"] == "action_token_invalid"
+        assert parsed["message"] == "请刷新页面后重试"
 
     def test_extract_checkin_action_id_from_chunk(self) -> None:
         raw = (
@@ -161,45 +175,55 @@ class TestHDHiveService:
         assert row["pan115_savable"] is False
 
     def test_list_resources_by_tmdb_only_keeps_115_rows(self) -> None:
-        service = HDHiveService(api_key="test-key")
+        service = HDHiveService(cookie="test-cookie")
 
-        async def fake_request_open_api(method: str, path: str, **kwargs):
-            assert method == "GET"
-            assert path == "/resources/movie/550"
-            return None, {
-                "success": True,
-                "code": "200",
-                "message": "success",
-                "data": [
-                    {
-                        "slug": "115slug",
-                        "title": "Fight Club 115",
-                        "pan_type": "115",
-                        "share_size": "10 GB",
-                    },
-                    {
-                        "slug": "quarkslug",
-                        "title": "Fight Club Quark",
-                        "pan_type": "quark",
-                        "share_size": "11 GB",
-                    },
-                    {
-                        "slug": "baiduslug",
-                        "title": "Fight Club Baidu",
-                        "pan_type": "baidu",
-                        "share_size": "12 GB",
-                    },
-                    {
-                        "slug": "115slug2",
-                        "title": "Fight Club 115 2",
-                        "pan_type": "115.com",
-                        "share_size": "13 GB",
-                    },
-                ],
-                "meta": {"total": 4},
+        async def fake_collect(tmdb_id: int, media_type: str, *, target_pan_type: str = "115"):
+            assert tmdb_id == 550
+            assert media_type == "movie"
+            assert target_pan_type == "115"
+            rows = [
+                {
+                    "slug": "115slug",
+                    "title": "Fight Club 115",
+                    "pan_type": "115",
+                    "share_size": "10 GB",
+                },
+                {
+                    "slug": "quarkslug",
+                    "title": "Fight Club Quark",
+                    "pan_type": "quark",
+                    "share_size": "11 GB",
+                },
+                {
+                    "slug": "baiduslug",
+                    "title": "Fight Club Baidu",
+                    "pan_type": "baidu",
+                    "share_size": "12 GB",
+                },
+                {
+                    "slug": "115slug2",
+                    "title": "Fight Club 115 2",
+                    "pan_type": "115.com",
+                    "share_size": "13 GB",
+                },
+            ]
+            filtered = []
+            for idx, row in enumerate(rows):
+                if service._normalize_pan_type(row.get("pan_type")) != "115":
+                    continue
+                filtered.append(service._map_resource_row(row, idx))
+            return {
+                "items": filtered,
+                "raw_total": len(rows),
+                "filtered_total": len(filtered),
+                "pan_type_counts": {"115": 2, "quark": 1, "baidu": 1},
             }
 
-        service._request_open_api = fake_request_open_api  # type: ignore[method-assign]
+        async def fake_ensure_authenticated(*args, **kwargs) -> None:
+            return None
+
+        service._web._collect_tmdb_resources = fake_collect  # type: ignore[method-assign]
+        service.ensure_authenticated = fake_ensure_authenticated  # type: ignore[method-assign]
 
         rows = asyncio.run(service.get_movie_pan115(550))
 

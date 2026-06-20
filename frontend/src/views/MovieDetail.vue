@@ -100,7 +100,7 @@
                 </el-button>
                 <el-button size="small" @click="openManualPanDialog">导入 115 分享</el-button>
               </div>
-              <div v-loading="pan115Loading || pansouLoading">
+              <div v-loading="pansouLoading">
                 <div v-if="pan115Diagnostics.pansou.visible" class="resource-diagnostics">
                   <span class="diag-title">诊断</span>
                   <span v-if="pan115Diagnostics.pansou.keyword" class="diag-meta">
@@ -162,8 +162,8 @@
                       <el-button
                         type="primary"
                         size="small"
-                        :loading="Boolean(row?.saving) || isHdhiveUnlocking(row)"
-                        :disabled="isPan115ActionDisabled(row)"
+                        :loading="Boolean(row?.saving) || checkHdhiveUnlocking(row)"
+                        :disabled="checkPan115ActionDisabled(row)"
                         @click="handleSaveToPan115(row)"
                       >
                         转存
@@ -207,7 +207,7 @@
                 </el-button>
                 <el-button size="small" @click="openManualPanDialog">导入 115 分享</el-button>
               </div>
-              <div v-loading="pan115Loading || hdhiveLoading">
+              <div v-loading="hdhiveLoading">
                 <div v-if="pan115Diagnostics.hdhive.visible" class="resource-diagnostics">
                   <span class="diag-title">诊断</span>
                   <span v-if="pan115Diagnostics.hdhive.attemptText" class="diag-meta">
@@ -277,8 +277,8 @@
                       <el-button
                         type="primary"
                         size="small"
-                        :loading="Boolean(row?.saving) || isHdhiveUnlocking(row)"
-                        :disabled="isPan115ActionDisabled(row)"
+                        :loading="Boolean(row?.saving) || checkHdhiveUnlocking(row)"
+                        :disabled="checkPan115ActionDisabled(row)"
                         @click="handleSaveToPan115(row)"
                       >
                         转存
@@ -322,7 +322,7 @@
                 </el-button>
                 <el-button size="small" @click="openManualPanDialog">导入 115 分享</el-button>
               </div>
-              <div v-loading="pan115Loading || tgLoading">
+              <div v-loading="tgLoading">
                 <div v-if="pan115Diagnostics.tg.visible" class="resource-diagnostics">
                   <span class="diag-title">诊断</span>
                   <span v-if="pan115Diagnostics.tg.keyword" class="diag-meta">
@@ -375,8 +375,8 @@
                       <el-button
                         type="primary"
                         size="small"
-                        :loading="Boolean(row?.saving) || isHdhiveUnlocking(row)"
-                        :disabled="isPan115ActionDisabled(row)"
+                        :loading="Boolean(row?.saving) || checkHdhiveUnlocking(row)"
+                        :disabled="checkPan115ActionDisabled(row)"
                         @click="handleSaveToPan115(row)"
                       >
                         转存
@@ -630,7 +630,7 @@
 <script setup>
 import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { searchApi, subscriptionApi, pan115Api, quarkApi } from '@/api'
 import { Star, Plus, ArrowLeft, VideoCamera } from '@element-plus/icons-vue'
 import LibraryBadge from '@/components/media/LibraryBadge.vue'
@@ -640,6 +640,14 @@ import { extractTags } from '@/utils/resourceTags'
 import { navigateBackFromDetail } from '@/utils/navigation'
 import { copyText } from '@/utils/clipboard'
 import { parseReceiveCodeFromShareLink, resolvePanShareLink } from '@/utils/panShare'
+import {
+  ensureHdhiveShareLink,
+  isHdhiveResourceLocked,
+  isHdhiveResourceSuspectedInvalid,
+  isHdhiveUnlocking,
+  isPan115HdhiveActionDisabled,
+  runHdhivePan115SaveFlow,
+} from '@/utils/hdhiveUnlock'
 
 const _visibleTabs = getVisibleTabs()
 const tabVisible = (key) => isTabVisible(_visibleTabs.value, key)
@@ -684,7 +692,6 @@ const pan115SourceTab = ref(getFirstVisibleSubTabName(_visibleTabs.value, 'pan11
 const magnetSourceTab = ref(getFirstVisibleSubTabName(_visibleTabs.value, 'magnet') || 'seedhub')
 const magnetResources = ref([])
 
-const pan115Loading = ref(false)
 const pansouLoading = ref(false)
 const pansouTried = ref(false)
 const hdhiveLoading = ref(false)
@@ -728,6 +735,9 @@ const PAN115_CACHE_VERSION = 2
 // 转存相关
 const saving = ref(false)
 const hdhiveUnlockingSlugs = ref(new Set())
+
+const checkHdhiveUnlocking = (row) => isHdhiveUnlocking(hdhiveUnlockingSlugs.value, row)
+const checkPan115ActionDisabled = (row) => isPan115HdhiveActionDisabled(row, hdhiveUnlockingSlugs.value)
 const pan115Diagnostics = ref({
   pansou: { visible: false, keyword: '', attemptText: '', error: '' },
   hdhive: { visible: false, keyword: '', attemptText: '', error: '' },
@@ -937,101 +947,6 @@ const resolvePanReceiveCode = (row, shareLink = '') => {
   return String(row?.access_code || row?.hdhive_access_code || '').trim()
 }
 
-const isHdhiveResourceLocked = (row) => {
-  if (!row || row.source_service !== 'hdhive') return false
-  if (row.hdhive_locked === true) return true
-  const shareLink = resolvePanShareLink(row)
-  return !shareLink && Number(row.unlock_points || 0) > 0
-}
-
-const isHdhiveResourceSuspectedInvalid = (row) => {
-  if (!row) return false
-  if (row.hdhive_suspected_invalid === true) return true
-  const validateStatus = String(row.hdhive_validate_status || '').trim().toLowerCase()
-  return ['invalid', 'suspected_invalid', 'suspect_invalid'].includes(validateStatus)
-}
-
-const isPan115ActionDisabled = (row) => {
-  if (Boolean(row?.saving) || isHdhiveUnlocking(row)) return true
-  if (isHdhiveResourceLocked(row)) return false
-  return row?.pan115_savable === false
-}
-
-const isHdhiveUnlocking = (row) => {
-  const slug = String(row?.slug || '').trim()
-  if (!slug) return false
-  return hdhiveUnlockingSlugs.value.has(slug)
-}
-
-const showHdhiveNeedPointsNotice = async (row, reason = '') => {
-  const points = Number(row?.unlock_points || 0)
-  const lockMessage = String(row?.hdhive_lock_message || reason || '').trim()
-  const lines = [
-    points > 0 ? `该资源需要支付 ${points} 积分解锁提取码。` : '该资源需要先在 HDHive 解锁提取码。',
-    lockMessage || '解锁后会继续当前操作。'
-  ]
-  try {
-    await ElMessageBox.confirm(
-      lines.join('\n'),
-      'HDHive 积分解锁提示',
-      {
-        confirmButtonText: '确认解锁',
-        cancelButtonText: '取消',
-        type: 'warning',
-        distinguishCancelAndClose: true
-      }
-    )
-    return true
-  } catch {
-    return false
-  }
-}
-
-const ensureHdhiveShareLink = async (row, actionLabel = '转存', options = {}) => {
-  const forceUnlock = options?.forceUnlock === true
-  const reason = String(options?.reason || '').trim()
-  const currentLink = resolvePanShareLink(row)
-  const locked = isHdhiveResourceLocked(row)
-  if (!forceUnlock && currentLink && !locked) return currentLink
-  if (!forceUnlock && !locked) return currentLink
-
-  const confirmed = await showHdhiveNeedPointsNotice(row, reason)
-  if (!confirmed) return ''
-
-  const slug = String(row?.slug || '').trim()
-  if (!slug) {
-    ElMessage.error('缺少 HDHive 资源标识，无法自动解锁')
-    return ''
-  }
-  if (hdhiveUnlockingSlugs.value.has(slug)) {
-    ElMessage.info('正在解锁该资源，请稍候')
-    return ''
-  }
-
-  hdhiveUnlockingSlugs.value.add(slug)
-  try {
-    const { data } = await searchApi.unlockHdhiveResource(slug)
-    const shareLink = String(data?.share_link || '').trim()
-    if (!shareLink) {
-      throw new Error(data?.message || '未获取到分享链接')
-    }
-    row.share_link = shareLink
-    row.access_code = String(data?.access_code || row?.access_code || '').trim()
-    row.pan115_savable = true
-    row.hdhive_locked = false
-    row.hdhive_lock_code = ''
-    row.hdhive_lock_message = ''
-    ElMessage.success(data?.message || `HDHive 解锁成功，开始${actionLabel}`)
-    return shareLink
-  } catch (error) {
-    const detail = String(error.response?.data?.detail || error.message || '').trim()
-    ElMessage.error(detail || 'HDHive 自动解锁失败')
-    return ''
-  } finally {
-    hdhiveUnlockingSlugs.value.delete(slug)
-  }
-}
-
 const normalizeKeywordFingerprint = (value) => {
   const text = String(value || '').trim()
   if (!text) return ''
@@ -1141,42 +1056,6 @@ const fetchExternalIds = async () => {
   } catch (error) {
     // 静默失败，不影响主流程
     console.log('获取外部链接失败:', error)
-  }
-}
-
-const fetchPan115 = async (forceRefresh = false) => {
-  const cachedList = readPan115Cache()
-  if (!forceRefresh && cachedList && cachedList.length > 0) {
-    pan115Resources.value = cachedList
-    pansouTried.value = cachedList.some((item) => item?.source_service === 'pansou')
-    hdhiveTried.value = cachedList.some((item) => item?.source_service === 'hdhive')
-    tgTried.value = cachedList.some((item) => item?.source_service === 'tg')
-    pan115Loading.value = false
-  }
-  pansouTried.value = false
-  hdhiveTried.value = false
-  tgTried.value = false
-  pan115Loading.value = true
-
-  try {
-    const { data } = await searchApi.getMoviePan115(route.params.id, 1, forceRefresh)
-    const pansouList = Array.isArray(data.list) ? data.list : []
-    updatePan115Diagnostics('pansou', data)
-    const cachedPansouList = pan115Resources.value.filter((item) => item?.source_service === 'pansou')
-    const cachedHdhiveList = pan115Resources.value.filter((item) => item?.source_service === 'hdhive')
-    const cachedTgList = pan115Resources.value.filter((item) => item?.source_service === 'tg')
-    const mergedList = mergePan115Resources(
-      mergePan115Resources(mergePan115Resources(pansouList, cachedPansouList), cachedHdhiveList),
-      cachedTgList
-    )
-    pan115Resources.value = mergedList
-    writePan115Cache(mergedList)
-  } catch (error) {
-    if (!cachedList || cachedList.length === 0) {
-      console.error('Failed to fetch pan115:', error)
-    }
-  } finally {
-    pan115Loading.value = false
   }
 }
 
@@ -1398,18 +1277,10 @@ const checkSubscribed = async () => {
 }
 
 const handleSaveToPan115 = async (item) => {
-  if (item?.saving || isHdhiveUnlocking(item)) return
+  if (item?.saving || checkHdhiveUnlocking(item)) return
+
   item.saving = true
   try {
-    let shareLink = resolvePanShareLink(item)
-    if (item?.source_service === 'hdhive') {
-      shareLink = await ensureHdhiveShareLink(item, '转存')
-    }
-    if (!shareLink) {
-      ElMessage.warning('该资源暂无分享链接')
-      return
-    }
-
     let defaultFolderId = '0'
     try {
       const { data } = await pan115Api.getDefaultFolder()
@@ -1418,13 +1289,31 @@ const handleSaveToPan115 = async (item) => {
       console.error('Failed to get default folder:', error)
     }
 
+    const folderName = movie.value.title + ' (' + movie.value.release_date?.split('-')[0] + ')'
+
+    if (item?.source_service === 'hdhive') {
+      await runHdhivePan115SaveFlow({
+        row: item,
+        folderName,
+        folderId: defaultFolderId,
+        resolveReceiveCode: resolvePanReceiveCode,
+        unlockingSlugs: hdhiveUnlockingSlugs.value,
+      })
+      return
+    }
+
+    const shareLink = resolvePanShareLink(item)
+    if (!shareLink) {
+      ElMessage.warning('该资源暂无分享链接')
+      return
+    }
+
     const receiveCode = resolvePanReceiveCode(item, shareLink)
-    // 由后端统一解析分享链接并执行转存
     const { data } = await pan115Api.saveShareToFolder(
       shareLink,
-      movie.value.title + ' (' + movie.value.release_date?.split('-')[0] + ')',
+      folderName,
       defaultFolderId,
-      receiveCode
+      receiveCode,
     )
 
     const saveSuccess = data?.success === true
@@ -1437,41 +1326,12 @@ const handleSaveToPan115 = async (item) => {
 
     ElMessage.success(data?.message || '转存成功')
   } catch (error) {
-    const detail = String(error.response?.data?.detail || '').trim()
+    const detail = String(error.response?.data?.detail || error.message || '').trim()
     if (detail.includes('离线任务列表请求过于频繁')) {
       ElMessage.error('115接口触发风控，请稍后重试')
       return
     }
-    if (item?.source_service === 'hdhive' && (detail.includes('4100012') || detail.includes('请输入访问码'))) {
-      const unlockedLink = await ensureHdhiveShareLink(item, '转存', {
-        forceUnlock: true,
-        reason: '115 返回“请输入访问码”，需要先进行 HDHive 积分解锁。'
-      })
-      if (unlockedLink) {
-        try {
-          const unlockedReceiveCode = resolvePanReceiveCode(item, unlockedLink)
-          const { data } = await pan115Api.saveShareToFolder(
-            unlockedLink,
-            movie.value.title + ' (' + movie.value.release_date?.split('-')[0] + ')',
-            defaultFolderId,
-            unlockedReceiveCode
-          )
-          const retrySuccess = data?.success === true
-            || data?.state === true
-            || data?.result?.success === true
-            || data?.result?.state === true
-          if (!retrySuccess) throw new Error(data?.message || data?.error || data?.result?.error || '转存失败')
-          ElMessage.success(data?.message || '转存成功')
-          return
-        } catch (retryError) {
-          const retryDetail = String(retryError.response?.data?.detail || retryError.message || '').trim()
-          ElMessage.error(retryDetail || '转存失败')
-          return
-        }
-      }
-      return
-    }
-    ElMessage.error(detail || error.message || '转存失败')
+    ElMessage.error(detail || '转存失败')
   } finally {
     item.saving = false
   }

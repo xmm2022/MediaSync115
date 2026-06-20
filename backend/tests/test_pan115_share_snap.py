@@ -92,3 +92,57 @@ class TestPan115ShareSnapFallback:
         result = await service.get_share_all_files_recursive("share-code", "pwd")
 
         assert result == [{"fid": "video-1", "name": "Episode.S01E01.mkv", "size": 1024}]
+
+    @pytest.mark.asyncio
+    async def test_get_share_all_files_recursive_descends_proapi_fc_folder(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        service = Pan115Service(cookie="test-cookie")
+
+        async def fake_get_share_file_list(
+            share_code: str,
+            receive_code: str = "",
+            cid: str = "0",
+            offset: int = 0,
+            limit: int = 50,
+        ):
+            if cid == "0":
+                return {
+                    "list": [
+                        {
+                            "fid": "season-fid",
+                            "pid": "0",
+                            "fn": "Show.S01.2160p.WEB-DL",
+                            "fs": "46810518248",
+                            "fc": "0",
+                        }
+                    ]
+                }
+            if cid == "season-fid":
+                return {
+                    "list": [
+                        {
+                            "fid": "ep1",
+                            "fn": "Show.S01E01.mkv",
+                            "fs": "1024",
+                            "fc": "1",
+                        }
+                    ]
+                }
+            return {"list": []}
+
+        monkeypatch.setattr(service, "get_share_file_list", fake_get_share_file_list)
+
+        result = await service.get_share_all_files_recursive("share-code", "pwd")
+
+        assert result == [{"fid": "ep1", "name": "Show.S01E01.mkv", "size": 1024}]
+
+    def test_is_share_folder_item_detects_proapi_fc_zero(self) -> None:
+        item = {
+            "fid": "season-fid",
+            "fn": "Show.S01.2160p.WEB-DL",
+            "fs": "46810518248",
+            "fc": "0",
+        }
+        assert Pan115Service._is_share_folder_item(item) is True
+        assert Pan115Service._share_item_recurse_cid(item) == "season-fid"

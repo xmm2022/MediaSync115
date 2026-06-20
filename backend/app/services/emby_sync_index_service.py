@@ -9,6 +9,8 @@ from typing import Any
 
 import httpx
 from sqlalchemy import delete, select
+
+from app.utils.proxy import create_direct_httpx_client
 from sqlalchemy.exc import OperationalError
 
 from app.core.database import async_session_maker, ensure_tables_exist, is_missing_table_error
@@ -373,7 +375,7 @@ class EmbySyncIndexService:
         if not runtime_settings_service.get_emby_url() or not runtime_settings_service.get_emby_api_key():
             raise ValueError("Emby 未配置，无法执行全量同步")
 
-        async with httpx.AsyncClient() as client:
+        async with create_direct_httpx_client() as client:
             movies = await emby_service.list_all_movies_with_client(client)
             series = await emby_service.list_all_series_with_client(client)
 
