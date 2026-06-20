@@ -128,6 +128,8 @@ const router = createRouter({
   }
 })
 
+const AUTH_SESSION_PROBE_TIMEOUT_MS = 5000
+
 let authSessionCache = readAuthSessionHint()
 let authSessionPromise = null
 
@@ -158,18 +160,24 @@ const isTransientAuthError = (error) => {
  * @param {{ preserveOnTransientError?: boolean }} options
  */
 const getAuthSession = async (force = false, options = {}) => {
-  const { preserveOnTransientError = false } = options
+  const {
+    preserveOnTransientError = false,
+    timeoutMs = AUTH_SESSION_PROBE_TIMEOUT_MS,
+    allowBackendWarmup = false
+  } = options
   if (!force && authSessionCache?.authenticated) return authSessionCache
   if (!force && authSessionPromise) return authSessionPromise
 
-  authSessionPromise = authApi.getSession()
+  const shouldWaitForBackend = allowBackendWarmup || (preserveOnTransientError && hasOptimisticAuth())
+
+  authSessionPromise = authApi.getSession({ timeout: timeoutMs })
     .then(({ data }) => applyAuthSession(data || { authenticated: false, username: '' }))
     .catch(async (error) => {
-      if (isBackendUnavailableError(error)) {
+      if (shouldWaitForBackend && isBackendUnavailableError(error)) {
         const ready = await waitForBackendReady()
         if (ready) {
           try {
-            const { data } = await authApi.getSession()
+            const { data } = await authApi.getSession({ timeout: timeoutMs })
             return applyAuthSession(data || { authenticated: false, username: '' })
           } catch (retryError) {
             if (preserveOnTransientError && isTransientAuthError(retryError) && hasOptimisticAuth()) {
@@ -190,6 +198,13 @@ const getAuthSession = async (force = false, options = {}) => {
   return authSessionPromise
 }
 
+/** 登录页探测是否已有有效 Cookie 会话 */
+export const probeAuthSession = () => getAuthSession(true, {
+  preserveOnTransientError: false,
+  timeoutMs: AUTH_SESSION_PROBE_TIMEOUT_MS,
+  allowBackendWarmup: false
+})
+
 const redirectToLogin = (redirectPath) => {
   const redirect = String(redirectPath || '').trim() || '/'
   if (router.currentRoute.value.path === '/login') return
@@ -200,7 +215,10 @@ const redirectToLogin = (redirectPath) => {
 }
 
 const verifyAuthSessionInBackground = (redirectOnFailure) => {
-  getAuthSession(true, { preserveOnTransientError: true })
+  getAuthSession(true, {
+    preserveOnTransientError: true,
+    allowBackendWarmup: true
+  })
     .then((session) => {
       if (session?.authenticated) return
       resetAuthSessionCache()
@@ -230,7 +248,10 @@ router.beforeEach(async (to) => {
       return true
     }
     if (!authSessionCache) {
-      getAuthSession(false, { preserveOnTransientError: true })
+      getAuthSession(false, {
+        preserveOnTransientError: true,
+        allowBackendWarmup: false
+      })
         .then((session) => {
           if (session?.authenticated && router.currentRoute.value.path === '/login') {
             router.replace(
@@ -257,8 +278,12 @@ router.beforeEach(async (to) => {
     return true
   }
 
-  const session = await getAuthSession()
-  if (session?.authenticated) return true
+  // 新浏览器无本地登录提示：立即进入登录页，避免长时间卡在主界面壳子。
+  void getAuthSession(false, {
+    preserveOnTransientError: false,
+    timeoutMs: AUTH_SESSION_PROBE_TIMEOUT_MS,
+    allowBackendWarmup: false
+  }).catch(() => {})
   return {
     path: '/login',
     query: {

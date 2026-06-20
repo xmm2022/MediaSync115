@@ -281,7 +281,8 @@ export const personFollowApi = {
 }
 
 export const authApi = {
-  getSession: () => api.get('/auth/session'),
+  /** 会话探测应快速失败，避免未登录用户卡在路由守卫 */
+  getSession: (config = {}) => api.get('/auth/session', { timeout: 5000, ...config }),
   login: (payload) => api.post('/auth/login', payload),
   logout: () => api.post('/auth/logout'),
   changeCredentials: (payload) => api.post('/auth/change-credentials', payload)

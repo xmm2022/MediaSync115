@@ -6,7 +6,12 @@
         <p>登录后访问系统功能</p>
       </div>
 
-      <el-form @submit.prevent="handleLogin" label-position="top">
+      <div v-if="checkingSession" class="login-checking">
+        <el-icon class="login-checking-icon"><Loading /></el-icon>
+        <span>正在检查登录状态...</span>
+      </div>
+
+      <el-form v-else @submit.prevent="handleLogin" label-position="top">
         <el-form-item label="账号">
           <el-input v-model="form.username" placeholder="请输入账号" autocomplete="username" />
         </el-form-item>
@@ -36,18 +41,34 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import { authApi } from '@/api'
-import { markAuthSessionAuthenticated } from '@/router'
+import { markAuthSessionAuthenticated, probeAuthSession } from '@/router'
 
 const router = useRouter()
 const route = useRoute()
+const checkingSession = ref(true)
 const loggingIn = ref(false)
 const form = reactive({
   username: '',
   password: ''
+})
+
+onMounted(async () => {
+  try {
+    const session = await probeAuthSession()
+    if (session?.authenticated) {
+      const redirect = String(route.query.redirect || '/').trim() || '/'
+      await router.replace(redirect)
+    }
+  } catch {
+    // ignore session probe failures and show login form
+  } finally {
+    checkingSession.value = false
+  }
 })
 
 const handleLogin = async () => {
@@ -106,6 +127,25 @@ const handleLogin = async () => {
       margin: 0;
       color: var(--ms-text-secondary);
     }
+  }
+
+  .login-checking {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 180px;
+    color: var(--ms-text-secondary);
+    font-size: 14px;
+  }
+
+  .login-checking-icon {
+    animation: login-checking-spin 1s linear infinite;
+  }
+
+  @keyframes login-checking-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .login-submit {
