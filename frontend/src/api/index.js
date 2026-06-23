@@ -385,6 +385,11 @@ export const subscriptionApi = {
   delete: (id) => api.delete(`/subscriptions/${id}`),
   deleteByType: (mediaType) => api.delete(`/subscriptions/batch/${mediaType}`),
   toggle: (data) => api.post('/subscriptions/toggle', data),
+  listSources: (id) => api.get(`/subscriptions/${id}/sources`),
+  createSource: (id, data) => api.post(`/subscriptions/${id}/sources`, data),
+  updateSource: (id, sourceId, data) => api.patch(`/subscriptions/${id}/sources/${sourceId}`, data),
+  deleteSource: (id, sourceId) => api.delete(`/subscriptions/${id}/sources/${sourceId}`),
+  scanSource: (id, sourceId) => api.post(`/subscriptions/${id}/sources/${sourceId}/scan`, null, { timeout: 300000 }),
   
   // 下载记录相关
   getDownloads: (id, status = null) => api.get(`/subscriptions/${id}/downloads`, { params: { status } }),
