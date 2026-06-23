@@ -62,6 +62,30 @@
                   <div v-if="sub.media_type === 'tv'" class="tv-scope">
                     {{ formatTvScope(sub) }} · {{ sub.tv_follow_mode === 'new' ? '只追新集' : '补缺集' }}
                   </div>
+                  <div v-if="sub.media_type === 'tv' && Array.isArray(sub.sources) && sub.sources.length" class="fixed-sources" @click.stop>
+                    <div class="fixed-source-title">固定来源</div>
+                    <div v-for="source in sub.sources" :key="source.id" class="fixed-source-row">
+                      <div class="fixed-source-main">
+                        <span class="fixed-source-name">{{ source.display_name || '手动 115 分享' }}</span>
+                        <el-tag size="small" :type="source.enabled ? 'success' : 'info'">
+                          {{ source.enabled ? '启用' : '停用' }}
+                        </el-tag>
+                      </div>
+                      <div class="fixed-source-link">{{ formatSourceLink(source.share_url) }}</div>
+                      <div class="fixed-source-meta">
+                        <span>{{ formatSourceScanStatus(source) }}</span>
+                        <span v-if="source.last_found_episode">最新 {{ source.last_found_episode }}</span>
+                        <span v-if="source.last_error" class="source-error">{{ source.last_error }}</span>
+                      </div>
+                      <div class="fixed-source-actions">
+                        <el-button size="small" text :loading="source.scanning" @click="handleScanSource(sub, source)">立即扫描</el-button>
+                        <el-button size="small" text @click="handleToggleSource(sub, source)">
+                          {{ source.enabled ? '停用' : '启用' }}
+                        </el-button>
+                        <el-button size="small" text type="danger" @click="handleDeleteSource(sub, source)">删除</el-button>
+                      </div>
+                    </div>
+                  </div>
                   <div class="meta">
                     <span v-if="sub.year">{{ sub.year }}</span>
                     <span v-if="sub.rating">
@@ -336,6 +360,84 @@ const formatTvScope = (sub) => {
     return `第 ${sub?.tv_season_number ?? '-'} 季 E${sub?.tv_episode_start ?? '-'}-E${sub?.tv_episode_end ?? '-'}`
   }
   return '全剧'
+}
+
+const formatSourceLink = (link) => {
+  const value = String(link || '').trim()
+  if (!value) return '-'
+  if (value.length <= 36) return value
+  return `${value.slice(0, 24)}...${value.slice(-8)}`
+}
+
+const formatSourceScanStatus = (source) => {
+  const status = String(source?.last_scan_status || 'never')
+  if (status === 'never') return '未扫描'
+  if (status === 'success') {
+    const count = Number(source?.last_transferred_count || 0)
+    return count > 0 ? `上次转存 ${count} 个文件` : '上次无新增'
+  }
+  if (status === 'failed') return '扫描失败'
+  if (status === 'warning') return '扫描异常'
+  return status
+}
+
+const replaceSubscriptionSource = (subscriptionId, nextSource) => {
+  const target = allSubscriptions.value.find((sub) => Number(sub.id) === Number(subscriptionId))
+  if (!target) return
+  const sources = Array.isArray(target.sources) ? [...target.sources] : []
+  const index = sources.findIndex((source) => Number(source.id) === Number(nextSource.id))
+  if (index >= 0) sources[index] = nextSource
+  else sources.unshift(nextSource)
+  target.sources = sources
+  target.source_summary = {
+    total: sources.length,
+    enabled: sources.filter((source) => source.enabled).length
+  }
+}
+
+const handleScanSource = async (sub, source) => {
+  if (source.scanning) return
+  source.scanning = true
+  try {
+    const { data } = await subscriptionApi.scanSource(sub.id, source.id)
+    if (data?.source) replaceSubscriptionSource(sub.id, data.source)
+    ElMessage.success('固定来源扫描完成')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || error.message || '固定来源扫描失败')
+  } finally {
+    source.scanning = false
+  }
+}
+
+const handleToggleSource = async (sub, source) => {
+  try {
+    const { data } = await subscriptionApi.updateSource(sub.id, source.id, {
+      enabled: !source.enabled
+    })
+    replaceSubscriptionSource(sub.id, data)
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || error.message || '固定来源更新失败')
+  }
+}
+
+const handleDeleteSource = async (sub, source) => {
+  try {
+    await ElMessageBox.confirm('确定删除这个固定来源吗？', '删除固定来源', {
+      type: 'warning',
+    })
+    await subscriptionApi.deleteSource(sub.id, source.id)
+    const target = allSubscriptions.value.find((item) => Number(item.id) === Number(sub.id))
+    if (target) {
+      target.sources = (target.sources || []).filter((item) => Number(item.id) !== Number(source.id))
+      target.source_summary = {
+        total: target.sources.length,
+        enabled: target.sources.filter((item) => item.enabled).length
+      }
+    }
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error.response?.data?.detail || error.message || '固定来源删除失败')
+  }
 }
 
 const openTvOptions = (sub) => {
@@ -708,6 +810,58 @@ onMounted(async () => {
         color: var(--ms-text-muted);
         font-size: 12px;
         line-height: 1.4;
+      }
+
+      .fixed-sources {
+        margin-top: 8px;
+        margin-bottom: 8px;
+        padding: 8px;
+        border: 1px solid var(--el-border-color-lighter);
+        border-radius: 6px;
+        background: var(--el-fill-color-light);
+      }
+
+      .fixed-source-title {
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+        margin-bottom: 6px;
+      }
+
+      .fixed-source-row + .fixed-source-row {
+        margin-top: 8px;
+      }
+
+      .fixed-source-main,
+      .fixed-source-meta,
+      .fixed-source-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .fixed-source-name {
+        min-width: 0;
+        font-size: 13px;
+        color: var(--el-text-color-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .fixed-source-link,
+      .fixed-source-meta {
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+        word-break: break-all;
+      }
+
+      .fixed-source-actions {
+        margin-top: 2px;
+      }
+
+      .source-error {
+        color: var(--el-color-danger);
       }
 
       .actions {
