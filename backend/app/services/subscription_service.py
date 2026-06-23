@@ -21,6 +21,7 @@ from app.models.models import (
     MediaType,
     Subscription,
     SubscriptionExecutionLog,
+    SubscriptionSource,
     SubscriptionStepLog,
 )
 from app.api.search import (
@@ -39,6 +40,7 @@ from app.services.pan115_service import Pan115Service
 from app.services.pansou_service import pansou_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.seedhub_service import seedhub_service
+from app.services.subscription_source_service import subscription_source_service
 from app.services.tg_service import tg_service
 from app.services.subscription_cleanup_policy import (
     build_tv_missing_status_kwargs,
@@ -377,10 +379,10 @@ class SubscriptionService:
                         )
 
                         should_auto_download = force_auto_download or bool(sub.auto_download)
+                        sub_saved_count = 0
+                        sub_failed_transfer_count = 0
+                        cleanup_after_auto: dict[str, Any] | None = None
                         if should_auto_download:
-                            sub_saved_count = 0
-                            sub_failed_transfer_count = 0
-                            cleanup_after_auto: dict[str, Any] | None = None
                             retry_records = []
                             if sub.auto_download:
                                 retry_records = await self._load_retryable_records(inner_db, sub_id)
@@ -625,6 +627,31 @@ class SubscriptionService:
                                 status="info",
                                 message="未开启自动转存，已记录资源供手动处理",
                             )
+
+                        if (
+                            cleanup_after_auto is None
+                            and self._should_scan_fixed_sources(
+                                sub,
+                                force_auto_download=force_auto_download,
+                            )
+                        ):
+                            fixed_source_stats = (
+                                await self._scan_fixed_sources_for_subscription(
+                                    inner_db,
+                                    run_id=run_id,
+                                    channel=normalized_channel,
+                                    sub=sub,
+                                    tv_missing_snapshot=tv_missing_snapshot,
+                                    force_auto_download=force_auto_download,
+                                )
+                            )
+                            fixed_saved = int(fixed_source_stats.get("saved") or 0)
+                            fixed_failed = int(fixed_source_stats.get("failed") or 0)
+                            sub_saved_count += fixed_saved
+                            sub_failed_transfer_count += fixed_failed
+                            async with result_lock:
+                                result["auto_saved_count"] += fixed_saved
+                                result["auto_failed_count"] += fixed_failed
 
                         await self._create_step_log(
                             inner_db,
@@ -2821,6 +2848,139 @@ class SubscriptionService:
                 break
 
         return merged
+
+    def _should_scan_fixed_sources(
+        self,
+        sub: "SubscriptionSnapshot",
+        *,
+        force_auto_download: bool = False,
+    ) -> bool:
+        return sub.media_type == MediaType.TV and sub.tmdb_id is not None and (
+            bool(sub.auto_download) or bool(force_auto_download)
+        )
+
+    async def _scan_fixed_sources_for_subscription(
+        self,
+        db: AsyncSession,
+        *,
+        run_id: str,
+        channel: str,
+        sub: "SubscriptionSnapshot",
+        tv_missing_snapshot: dict[str, Any] | None = None,
+        force_auto_download: bool = False,
+    ) -> dict[str, Any]:
+        if not self._should_scan_fixed_sources(
+            sub,
+            force_auto_download=force_auto_download,
+        ):
+            return {"saved": 0, "failed": 0, "checked": 0}
+
+        result = await db.execute(
+            select(SubscriptionSource).where(
+                SubscriptionSource.subscription_id == sub.id,
+                SubscriptionSource.enabled.is_(True),
+            )
+        )
+        sources = list(result.scalars().all())
+        if not sources:
+            return {"saved": 0, "failed": 0, "checked": 0}
+
+        pan_service = Pan115Service(runtime_settings_service.get_pan115_cookie())
+        default_folder = runtime_settings_service.get_pan115_default_folder() or {}
+        parent_folder_id = str(default_folder.get("folder_id") or "0")
+        quality_filter = self._resolve_subscription_quality_filter(sub)
+
+        tv_missing_result = tv_missing_snapshot
+        if tv_missing_result is None:
+            tv_missing_result = await tv_missing_service.get_tv_missing_status(
+                sub.tmdb_id,
+                include_specials=bool(sub.tv_include_specials),
+                season_number=sub.tv_season_number
+                if sub.tv_scope in {"season", "episode_range"}
+                else None,
+                episode_start=sub.tv_episode_start
+                if sub.tv_scope == "episode_range"
+                else None,
+                episode_end=sub.tv_episode_end
+                if sub.tv_scope == "episode_range"
+                else None,
+                aired_only=sub.tv_follow_mode == "new",
+            )
+        if str(tv_missing_result.get("status") or "") != "ok":
+            await self._create_step_log(
+                db,
+                run_id=run_id,
+                channel=channel,
+                subscription_id=sub.id,
+                subscription_title=sub.title,
+                step="fixed_source_missing_status_unavailable",
+                status="warning",
+                message=(
+                    "固定来源跳过：缺集状态不可用"
+                    f"（{tv_missing_result.get('message') or '未知错误'}）"
+                ),
+            )
+            return {"saved": 0, "failed": 0, "checked": len(sources)}
+
+        missing_episodes = {
+            (int(pair[0]), int(pair[1]))
+            for pair in (tv_missing_result.get("missing_episodes") or [])
+            if isinstance(pair, (list, tuple)) and len(pair) == 2
+        }
+
+        saved = 0
+        failed = 0
+        for source in sources:
+            await self._create_step_log(
+                db,
+                run_id=run_id,
+                channel=channel,
+                subscription_id=sub.id,
+                subscription_title=sub.title,
+                step="fixed_source_scan_start",
+                status="info",
+                message=f"开始扫描固定来源：{source.display_name or source.share_url}",
+                payload={"source_id": source.id},
+            )
+            try:
+                scan_result = await subscription_source_service.scan_manual_pan115_source(
+                    db,
+                    source=source,
+                    subscription=sub,
+                    pan_service=pan_service,
+                    parent_folder_id=parent_folder_id,
+                    missing_episodes=missing_episodes,
+                    quality_filter=quality_filter,
+                )
+                saved += int(scan_result.get("transferred_count") or 0)
+                await self._create_step_log(
+                    db,
+                    run_id=run_id,
+                    channel=channel,
+                    subscription_id=sub.id,
+                    subscription_title=sub.title,
+                    step="fixed_source_scan_done",
+                    status="success",
+                    message=(
+                        "固定来源扫描完成，转存 "
+                        f"{int(scan_result.get('transferred_count') or 0)} 个文件"
+                    ),
+                    payload={"source_id": source.id, **scan_result},
+                )
+            except Exception as exc:
+                failed += 1
+                await self._create_step_log(
+                    db,
+                    run_id=run_id,
+                    channel=channel,
+                    subscription_id=sub.id,
+                    subscription_title=sub.title,
+                    step="fixed_source_scan_failed",
+                    status="warning",
+                    message=f"固定来源扫描失败：{exc}",
+                    payload={"source_id": source.id},
+                )
+        return {"saved": saved, "failed": failed, "checked": len(sources)}
 
     async def _auto_save_resources(
         self,
