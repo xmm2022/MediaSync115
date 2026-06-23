@@ -19,6 +19,7 @@ from app.models.models import (
 )
 from app.services.operation_log_service import operation_log_service
 from app.services.subscription_service import subscription_service
+from app.services.subscription_source_service import subscription_source_service
 from app.services.subscription_run_task_service import subscription_run_task_service
 from app.services.tmdb_service import tmdb_service
 from app.services.tv_missing_service import tv_missing_service
@@ -242,6 +243,17 @@ class SubscriptionUpdate(BaseModel):
     tv_include_specials: Optional[bool] = None
 
 
+class SubscriptionSourceCreate(BaseModel):
+    share_url: str
+    receive_code: Optional[str] = None
+    display_name: Optional[str] = None
+
+
+class SubscriptionSourceUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    display_name: Optional[str] = None
+
+
 class DownloadRecordCreate(BaseModel):
     resource_name: str
     resource_url: str
@@ -260,6 +272,27 @@ class DownloadRecordUpdate(BaseModel):
     offline_info_hash: Optional[str] = None
     offline_task_id: Optional[str] = None
     offline_status: Optional[str] = None
+
+
+def serialize_subscription_source(source) -> dict[str, Any]:
+    return {
+        "id": source.id,
+        "subscription_id": source.subscription_id,
+        "source_type": source.source_type,
+        "display_name": source.display_name,
+        "share_url": source.share_url,
+        "receive_code": source.receive_code,
+        "enabled": bool(source.enabled),
+        "last_scanned_at": source.last_scanned_at.isoformat()
+        if source.last_scanned_at
+        else None,
+        "last_scan_status": source.last_scan_status,
+        "last_error": source.last_error,
+        "last_found_episode": source.last_found_episode,
+        "last_transferred_count": int(source.last_transferred_count or 0),
+        "created_at": source.created_at.isoformat() if source.created_at else None,
+        "updated_at": source.updated_at.isoformat() if source.updated_at else None,
+    }
 
 
 async def _enrich_subscription_ids(
@@ -596,6 +629,177 @@ async def get_subscription_status_map(
     result = await db.execute(query.order_by(Subscription.created_at.desc()))
     subscriptions = result.scalars().all()
     return _build_subscription_status_payload(subscriptions)
+
+
+@router.get("/{subscription_id}/sources")
+async def list_subscription_sources(
+    subscription_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    sources = await subscription_source_service.list_sources(db, subscription_id)
+    return {"items": [serialize_subscription_source(source) for source in sources]}
+
+
+@router.post("/{subscription_id}/sources")
+async def create_subscription_source(
+    subscription_id: int,
+    payload: SubscriptionSourceCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        source = await subscription_source_service.create_manual_pan115_source(
+            db,
+            subscription_id=subscription_id,
+            share_url=payload.share_url,
+            receive_code=payload.receive_code or "",
+            display_name=payload.display_name or "",
+        )
+        await db.commit()
+        await db.refresh(source)
+        return serialize_subscription_source(source)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="固定来源已存在")
+
+
+@router.patch("/{subscription_id}/sources/{source_id}")
+async def update_subscription_source(
+    subscription_id: int,
+    source_id: int,
+    payload: SubscriptionSourceUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        source = await subscription_source_service.get_source(
+            db,
+            subscription_id=subscription_id,
+            source_id=source_id,
+        )
+        if payload.enabled is not None:
+            source.enabled = bool(payload.enabled)
+        if payload.display_name is not None:
+            next_name = str(payload.display_name or "").strip()
+            if next_name:
+                source.display_name = next_name
+        source.updated_at = beijing_now()
+        await db.commit()
+        await db.refresh(source)
+        return serialize_subscription_source(source)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/{subscription_id}/sources/{source_id}")
+async def delete_subscription_source(
+    subscription_id: int,
+    source_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await subscription_source_service.delete_source(
+            db,
+            subscription_id=subscription_id,
+            source_id=source_id,
+        )
+        await db.commit()
+        return {"success": True}
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/{subscription_id}/sources/{source_id}/scan")
+async def scan_subscription_source(
+    subscription_id: int,
+    source_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Subscription).where(Subscription.id == subscription_id)
+    )
+    sub = result.scalar_one_or_none()
+    if sub is None:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    try:
+        source = await subscription_source_service.get_source(
+            db,
+            subscription_id=subscription_id,
+            source_id=source_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    from app.services.pan115_service import Pan115Service
+    from app.services.runtime_settings_service import runtime_settings_service
+    from app.services.subscription_service import SubscriptionSnapshot
+
+    snapshot = SubscriptionSnapshot(
+        id=sub.id,
+        tmdb_id=sub.tmdb_id,
+        douban_id=sub.douban_id,
+        title=sub.title,
+        media_type=sub.media_type,
+        year=sub.year,
+        auto_download=True,
+        tv_scope=sub.tv_scope,
+        tv_season_number=sub.tv_season_number,
+        tv_episode_start=sub.tv_episode_start,
+        tv_episode_end=sub.tv_episode_end,
+        tv_follow_mode=sub.tv_follow_mode,
+        tv_include_specials=bool(sub.tv_include_specials),
+        has_successful_transfer=False,
+    )
+    tv_missing_result = await tv_missing_service.get_tv_missing_status(
+        sub.tmdb_id,
+        include_specials=bool(sub.tv_include_specials),
+        season_number=sub.tv_season_number
+        if sub.tv_scope in {"season", "episode_range"}
+        else None,
+        episode_start=sub.tv_episode_start if sub.tv_scope == "episode_range" else None,
+        episode_end=sub.tv_episode_end if sub.tv_scope == "episode_range" else None,
+        aired_only=sub.tv_follow_mode == "new",
+    )
+    if str(tv_missing_result.get("status") or "") != "ok":
+        raise HTTPException(
+            status_code=400,
+            detail=tv_missing_result.get("message") or "缺集状态不可用",
+        )
+    missing_episodes = {
+        (int(pair[0]), int(pair[1]))
+        for pair in (tv_missing_result.get("missing_episodes") or [])
+        if isinstance(pair, (list, tuple)) and len(pair) == 2
+    }
+    pan_service = Pan115Service(runtime_settings_service.get_pan115_cookie())
+    default_folder = runtime_settings_service.get_pan115_default_folder() or {}
+    parent_folder_id = str(default_folder.get("folder_id") or "0")
+
+    try:
+        stats = await subscription_source_service.scan_manual_pan115_source(
+            db,
+            source=source,
+            subscription=snapshot,
+            pan_service=pan_service,
+            parent_folder_id=parent_folder_id,
+            missing_episodes=missing_episodes,
+            quality_filter=subscription_service._resolve_subscription_quality_filter(
+                snapshot
+            ),
+        )
+        await db.commit()
+        await db.refresh(source)
+        return {
+            "success": True,
+            "source": serialize_subscription_source(source),
+            "stats": stats,
+        }
+    except Exception as exc:
+        await db.commit()
+        await db.refresh(source)
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/{subscription_id}")

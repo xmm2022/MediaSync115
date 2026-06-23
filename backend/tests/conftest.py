@@ -9,7 +9,7 @@ from typing import AsyncGenerator, Generator
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,7 +33,8 @@ async def async_client() -> AsyncGenerator[AsyncClient, None]:
     """创建异步 HTTP 客户端"""
     from main import app
 
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 
 
