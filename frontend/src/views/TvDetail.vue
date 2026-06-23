@@ -679,11 +679,18 @@
         <el-form-item label="提取码">
           <el-input v-model="manualPanForm.receiveCode" placeholder="可留空，若链接里带提取码会自动解析" />
         </el-form-item>
+        <el-form-item label="操作">
+          <el-radio-group v-model="manualPanForm.mode">
+            <el-radio-button label="transfer">立即转存</el-radio-button>
+            <el-radio-button label="source">固定追新</el-radio-button>
+            <el-radio-button label="transfer_and_source">转存并追新</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="manualPanDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="manualPanSubmitting" @click="submitManualPanShare">
-          开始转存
+          {{ manualPanForm.mode === 'source' ? '保存来源' : '开始处理' }}
         </el-button>
       </template>
     </el-dialog>
@@ -853,7 +860,8 @@ const manualPanSubmitting = ref(false)
 const manualPanForm = ref({
   shareLink: '',
   folderName: '',
-  receiveCode: ''
+  receiveCode: '',
+  mode: 'transfer'
 })
 const manualMagnetDialogVisible = ref(false)
 const manualMagnetSubmitting = ref(false)
@@ -1409,6 +1417,44 @@ const checkSubscribed = async () => {
   }
 }
 
+const ensureTvSubscriptionForManualSource = async () => {
+  if (subscriptionId.value) return subscriptionId.value
+
+  await checkSubscribed()
+  if (subscriptionId.value) return subscriptionId.value
+
+  try {
+    const { data } = await subscriptionApi.create({
+      tmdb_id: tv.value.id,
+      title: tv.value.name,
+      media_type: 'tv',
+      poster_path: tv.value.poster_path,
+      overview: tv.value.overview,
+      year: tv.value.first_air_date?.split('-')[0],
+      rating: tv.value.vote_average
+    })
+    isSubscribed.value = true
+    subscriptionId.value = Number(data?.id || 0) || null
+    return subscriptionId.value
+  } catch (error) {
+    if (error.response?.status === 400) {
+      await checkSubscribed()
+      if (subscriptionId.value) return subscriptionId.value
+    }
+    throw error
+  }
+}
+
+const createManualPanSource = async ({ shareLink, receiveCode, folderName }) => {
+  const targetSubscriptionId = await ensureTvSubscriptionForManualSource()
+  if (!targetSubscriptionId) throw new Error('订阅创建失败，无法保存固定来源')
+  await subscriptionApi.createSource(targetSubscriptionId, {
+    share_url: shareLink,
+    receive_code: receiveCode,
+    display_name: folderName || buildDefaultTvFolderName()
+  })
+}
+
 const handleSaveToPan115 = async (item) => {
   if (saving.value || item?.saving || item?.extracting || checkHdhiveUnlocking(item)) return
 
@@ -1606,7 +1652,8 @@ const openManualPanDialog = () => {
   manualPanForm.value = {
     shareLink: '',
     folderName: buildDefaultTvFolderName(),
-    receiveCode: ''
+    receiveCode: '',
+    mode: 'transfer'
   }
   manualPanDialogVisible.value = true
 }
@@ -1629,6 +1676,18 @@ const submitManualPanShare = async () => {
 
   manualPanSubmitting.value = true
   try {
+    const receiveCode = String(manualPanForm.value.receiveCode || '').trim() || parseReceiveCodeFromShareLink(shareLink)
+    const folderName = String(manualPanForm.value.folderName || '').trim() || buildDefaultTvFolderName()
+    const mode = String(manualPanForm.value.mode || 'transfer')
+    if (mode === 'source' || mode === 'transfer_and_source') {
+      await createManualPanSource({ shareLink, receiveCode, folderName })
+    }
+    if (mode === 'source') {
+      ElMessage.success('已保存为固定追新来源')
+      manualPanDialogVisible.value = false
+      return
+    }
+
     let defaultFolderId = '0'
     try {
       const { data } = await pan115Api.getDefaultFolder()
@@ -1636,8 +1695,6 @@ const submitManualPanShare = async () => {
     } catch {
       defaultFolderId = '0'
     }
-    const receiveCode = String(manualPanForm.value.receiveCode || '').trim() || parseReceiveCodeFromShareLink(shareLink)
-    const folderName = String(manualPanForm.value.folderName || '').trim() || buildDefaultTvFolderName()
     const { data } = await pan115Api.saveShareToFolder(
       shareLink,
       folderName,
@@ -1649,7 +1706,7 @@ const submitManualPanShare = async () => {
       || data?.result?.success === true
       || data?.result?.state === true
     if (!saveSuccess) throw new Error(data?.message || data?.error || data?.result?.error || '转存失败')
-    ElMessage.success(data?.message || '转存成功')
+    ElMessage.success(data?.message || (mode === 'transfer_and_source' ? '转存成功，已保存固定追新来源' : '转存成功'))
     manualPanDialogVisible.value = false
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || error.message || '转存失败')
