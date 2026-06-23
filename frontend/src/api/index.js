@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { BEIJING_TIMEZONE } from '@/utils/timezone'
+import { shouldRedirectToLoginForUnauthorized } from '@/api/authErrorPolicy'
 
 const SAVE_OPERATION_TIMEOUT = 180000
 /** 运行时设置保存（会触发调度器同步），需长于默认 30s */
@@ -92,13 +93,6 @@ api.interceptors.response.use(
     const requestUrl = String(error.config?.url || '')
     const isOfflineTasksRequest = requestUrl.includes('/pan115/offline/tasks')
     const isAuthSessionRequest = requestUrl.includes('/auth/session')
-    const isAuthLoginRequest = requestUrl.includes('/auth/login')
-    const isAuthLogoutRequest = requestUrl.includes('/auth/logout')
-    const isUnauthorized = error.response?.status === 401
-    // 资源级凭证错误（如夸克/115 Cookie 失效）会返回对象型 detail（带 code），
-    // 这类 401 不代表应用登录态失效，不能跳转登录页。
-    // 仅 auth 中间件的会话失效（detail 为「请先登录」字符串）才视为登出。
-    const isResourceCredentialError = Boolean(rawDetail && typeof rawDetail === 'object')
 
     // 离线任务列表错误由 Downloads 页面自己处理，避免干扰转存等场景。
     if (isOfflineTasksRequest) {
@@ -114,7 +108,7 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    if (isUnauthorized && !isAuthLoginRequest && !isAuthLogoutRequest && !isResourceCredentialError) {
+    if (shouldRedirectToLoginForUnauthorized(error)) {
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
         // 使用 SPA 路由导航，避免整页刷新导致白屏和状态丢失
         import('@/router').then(({ default: router, resetAuthSessionCache }) => {
