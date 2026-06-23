@@ -77,6 +77,11 @@ class Subscription(Base):
     downloads: Mapped[list["DownloadRecord"]] = relationship(
         "DownloadRecord", back_populates="subscription"
     )
+    sources: Mapped[list["SubscriptionSource"]] = relationship(
+        "SubscriptionSource",
+        back_populates="subscription",
+        cascade="all, delete-orphan",
+    )
 
 
 class DownloadRecord(Base):
@@ -88,7 +93,7 @@ class DownloadRecord(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     subscription_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("subscriptions.id"), nullable=False, index=True
+        Integer, ForeignKey("subscriptions.id"), nullable=False
     )
     resource_name: Mapped[str] = mapped_column(String(500), nullable=False)
     resource_url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -108,6 +113,92 @@ class DownloadRecord(Base):
 
     subscription: Mapped["Subscription"] = relationship(
         "Subscription", back_populates="downloads"
+    )
+
+
+class SubscriptionSource(Base):
+    __tablename__ = "subscription_sources"
+    __table_args__ = (
+        Index("ix_subscription_sources_subscription_id", "subscription_id"),
+        Index("ix_subscription_sources_enabled", "enabled"),
+        UniqueConstraint(
+            "subscription_id",
+            "source_type",
+            "share_url",
+            name="uq_subscription_source_share_url",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    subscription_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("subscriptions.id"), nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_pan115_share"
+    )
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    share_url: Mapped[str] = mapped_column(Text, nullable=False)
+    receive_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_scan_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="never"
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_found_episode: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    last_transferred_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=beijing_now, onupdate=beijing_now
+    )
+
+    subscription: Mapped["Subscription"] = relationship(
+        "Subscription", back_populates="sources"
+    )
+    files: Mapped[list["SubscriptionSourceFile"]] = relationship(
+        "SubscriptionSourceFile",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
+
+
+class SubscriptionSourceFile(Base):
+    __tablename__ = "subscription_source_files"
+    __table_args__ = (
+        Index("ix_subscription_source_files_source_id", "source_id"),
+        Index(
+            "ix_subscription_source_files_episode",
+            "source_id",
+            "season_number",
+            "episode_number",
+        ),
+        UniqueConstraint(
+            "source_id",
+            "fingerprint",
+            name="uq_subscription_source_file_fingerprint",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("subscription_sources.id"), nullable=False
+    )
+    share_file_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    file_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    season_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    episode_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fingerprint: Mapped[str] = mapped_column(String(700), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="seen")
+    download_record_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("download_records.id"), nullable=True, index=True
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    transferred_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    source: Mapped["SubscriptionSource"] = relationship(
+        "SubscriptionSource", back_populates="files"
     )
 
 

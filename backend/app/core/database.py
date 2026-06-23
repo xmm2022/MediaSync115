@@ -111,11 +111,30 @@ PERFORMANCE_INDEX_SQL = (
     "ON watchlist_items (added_at)",
 )
 
+SUBSCRIPTION_SOURCE_INDEX_SQL = (
+    "CREATE INDEX IF NOT EXISTS ix_subscription_sources_subscription_id "
+    "ON subscription_sources (subscription_id)",
+    "CREATE INDEX IF NOT EXISTS ix_subscription_sources_enabled "
+    "ON subscription_sources (enabled)",
+    "CREATE INDEX IF NOT EXISTS ix_subscription_source_files_source_id "
+    "ON subscription_source_files (source_id)",
+    "CREATE INDEX IF NOT EXISTS ix_subscription_source_files_episode "
+    "ON subscription_source_files (source_id, season_number, episode_number)",
+)
+
 
 async def ensure_performance_indexes() -> None:
     async with engine.begin() as conn:
         for ddl in PERFORMANCE_INDEX_SQL:
             await conn.execute(text(ddl))
+        existing_tables = await conn.run_sync(
+            lambda sync_conn: set(inspect(sync_conn).get_table_names())
+        )
+        if {"subscription_sources", "subscription_source_files"}.issubset(
+            existing_tables
+        ):
+            for ddl in SUBSCRIPTION_SOURCE_INDEX_SQL:
+                await conn.execute(text(ddl))
 
 
 async def init_db():
