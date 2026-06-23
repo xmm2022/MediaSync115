@@ -2884,6 +2884,11 @@ class SubscriptionService:
                 )
             if str(tv_missing_result.get("status") or "") == "ok":
                 tv_missing_enabled = True
+                counts = (
+                    tv_missing_result.get("counts")
+                    if isinstance(tv_missing_result.get("counts"), dict)
+                    else {}
+                )
                 missing_episodes = {
                     (int(pair[0]), int(pair[1]))
                     for pair in (tv_missing_result.get("missing_episodes") or [])

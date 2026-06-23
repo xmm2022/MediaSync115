@@ -8,11 +8,30 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.timezone_utils import beijing_now
-from app.models.models import MediaType, Subscription, SubscriptionSource
+from app.models.models import (
+    MediaType,
+    Subscription,
+    SubscriptionSource,
+    SubscriptionSourceFile,
+)
 from app.services.pan115_service import Pan115Service
+from app.utils.name_parser import name_parser
 
 
 MANUAL_PAN115_SOURCE = "manual_pan115_share"
+VIDEO_EXTENSIONS = (
+    ".mp4",
+    ".mkv",
+    ".avi",
+    ".rmvb",
+    ".flv",
+    ".ts",
+    ".m2ts",
+    ".mov",
+    ".wmv",
+    ".m4v",
+    ".webm",
+)
 
 
 def _sanitize_receive_code(value: str | None) -> str:
@@ -39,6 +58,64 @@ def _extract_receive_code_from_url(value: str) -> str:
         re.I,
     )
     return _sanitize_receive_code(match.group(1)) if match else ""
+
+
+def is_video_filename(filename: str) -> bool:
+    return str(filename or "").strip().lower().endswith(VIDEO_EXTENSIONS)
+
+
+def _item_size(item: dict[str, Any]) -> int:
+    try:
+        return int(item.get("size") or item.get("file_size") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def build_source_file_fingerprint(item: dict[str, Any]) -> str:
+    fid = str(item.get("fid") or item.get("file_id") or "").strip()
+    if fid:
+        return f"fid:{fid}"
+    name = str(item.get("name") or "").strip()
+    return f"name:{name}|size:{_item_size(item)}"
+
+
+def select_missing_episode_files(
+    files: list[dict[str, Any]],
+    *,
+    missing_episodes: set[tuple[int, int]],
+    quality_filter: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], int, int]:
+    matched_candidates: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    parsed_count = 0
+    unparsed_video_count = 0
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        filename = str(item.get("name") or "").strip()
+        fid = str(item.get("fid") or item.get("file_id") or "").strip()
+        if not filename or not fid:
+            continue
+        if not is_video_filename(filename):
+            continue
+        parsed = name_parser.parse_episode(filename)
+        if parsed:
+            parsed_count += 1
+            pair = (int(parsed[0]), int(parsed[1]))
+            if pair in missing_episodes:
+                matched_candidates.setdefault(pair, []).append(item)
+            continue
+        unparsed_video_count += 1
+
+    selected: list[dict[str, Any]] = []
+    for items in matched_candidates.values():
+        if len(items) > 1:
+            selected.append(
+                Pan115Service.pick_best_video_file(items, quality_filter or {})
+                or items[0]
+            )
+        else:
+            selected.extend(items)
+    return selected, parsed_count, unparsed_video_count
 
 
 class SubscriptionSourceService:
@@ -130,6 +207,155 @@ class SubscriptionSourceService:
         )
         await db.delete(source)
         await db.flush()
+
+    async def scan_manual_pan115_source(
+        self,
+        db: AsyncSession,
+        *,
+        source: SubscriptionSource,
+        subscription: Any,
+        pan_service: Pan115Service,
+        parent_folder_id: str,
+        missing_episodes: set[tuple[int, int]],
+        quality_filter: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if source.source_type != MANUAL_PAN115_SOURCE:
+            raise ValueError("不支持的固定来源类型")
+        if not source.enabled:
+            return {"status": "skipped", "transferred_count": 0, "selected_count": 0}
+
+        now = beijing_now()
+        try:
+            share_code = pan_service._extract_share_code(source.share_url)
+            if not share_code:
+                raise ValueError("无效的 115 分享链接")
+
+            all_files = await pan_service.get_share_all_files_recursive(
+                share_code,
+                source.receive_code or "",
+            )
+            selected_items, parsed_count, unparsed_video_count = (
+                select_missing_episode_files(
+                    all_files,
+                    missing_episodes=missing_episodes,
+                    quality_filter=quality_filter or {},
+                )
+            )
+            selected_file_ids = list(
+                dict.fromkeys(
+                    str(item.get("fid") or item.get("file_id"))
+                    for item in selected_items
+                    if item.get("fid") or item.get("file_id")
+                )
+            )
+
+            for item in all_files:
+                await self._upsert_source_file_state(
+                    db,
+                    source=source,
+                    item=item,
+                    status="seen",
+                )
+
+            transferred_count = 0
+            if selected_file_ids:
+                await pan_service.save_share_files_directly(
+                    share_url=source.share_url,
+                    file_ids=selected_file_ids,
+                    parent_id=parent_folder_id,
+                    receive_code=source.receive_code or "",
+                )
+                transferred_count = len(selected_file_ids)
+                for item in selected_items:
+                    await self._upsert_source_file_state(
+                        db,
+                        source=source,
+                        item=item,
+                        status="transferred",
+                    )
+
+            parsed_pairs = []
+            for item in all_files:
+                parsed = name_parser.parse_episode(str(item.get("name") or ""))
+                if parsed:
+                    parsed_pairs.append((int(parsed[0]), int(parsed[1])))
+            latest_pair = ""
+            if parsed_pairs:
+                season, episode = sorted(parsed_pairs)[-1]
+                latest_pair = f"S{season:02d}E{episode:02d}"
+
+            source.last_scanned_at = now
+            source.last_scan_status = "success"
+            source.last_error = None
+            source.last_found_episode = latest_pair or None
+            source.last_transferred_count = transferred_count
+            source.updated_at = now
+            await db.flush()
+            return {
+                "status": "success",
+                "total_files": len(all_files),
+                "parsed_count": parsed_count,
+                "unparsed_video_count": unparsed_video_count,
+                "selected_count": len(selected_file_ids),
+                "transferred_count": transferred_count,
+                "last_found_episode": latest_pair,
+            }
+        except Exception as exc:
+            source.last_scanned_at = now
+            source.last_scan_status = "failed"
+            source.last_error = str(exc)
+            source.last_transferred_count = 0
+            source.updated_at = now
+            await db.flush()
+            raise
+
+    async def _upsert_source_file_state(
+        self,
+        db: AsyncSession,
+        *,
+        source: SubscriptionSource,
+        item: dict[str, Any],
+        status: str,
+    ) -> None:
+        filename = str(item.get("name") or "").strip()
+        if not filename:
+            return
+        fingerprint = build_source_file_fingerprint(item)
+        parsed = name_parser.parse_episode(filename)
+        season_number = int(parsed[0]) if parsed else None
+        episode_number = int(parsed[1]) if parsed else None
+        result = await db.execute(
+            select(SubscriptionSourceFile).where(
+                SubscriptionSourceFile.source_id == source.id,
+                SubscriptionSourceFile.fingerprint == fingerprint,
+            )
+        )
+        row = result.scalar_one_or_none()
+        now = beijing_now()
+        if row is None:
+            row = SubscriptionSourceFile(
+                source_id=source.id,
+                share_file_id=str(item.get("fid") or item.get("file_id") or "").strip()
+                or None,
+                file_name=filename,
+                file_size=_item_size(item) or None,
+                season_number=season_number,
+                episode_number=episode_number,
+                fingerprint=fingerprint,
+                status=status,
+                last_seen_at=now,
+                transferred_at=now if status == "transferred" else None,
+            )
+            db.add(row)
+            return
+        row.file_name = filename
+        row.file_size = _item_size(item) or None
+        row.season_number = season_number
+        row.episode_number = episode_number
+        row.status = status
+        row.last_seen_at = now
+        if status == "transferred":
+            row.transferred_at = now
 
     async def get_source(
         self,
