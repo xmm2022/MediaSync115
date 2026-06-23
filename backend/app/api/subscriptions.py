@@ -295,6 +295,62 @@ def serialize_subscription_source(source) -> dict[str, Any]:
     }
 
 
+async def enrich_subscriptions_with_sources(
+    db: AsyncSession,
+    subscriptions: list[Subscription],
+) -> list[dict[str, Any]]:
+    ids = [int(sub.id) for sub in subscriptions]
+    sources_by_subscription: dict[int, list[dict[str, Any]]] = {
+        sub_id: [] for sub_id in ids
+    }
+    if ids:
+        from app.models.models import SubscriptionSource
+
+        result = await db.execute(
+            select(SubscriptionSource)
+            .where(SubscriptionSource.subscription_id.in_(ids))
+            .order_by(SubscriptionSource.created_at.desc())
+        )
+        for source in result.scalars().all():
+            sources_by_subscription.setdefault(
+                int(source.subscription_id),
+                [],
+            ).append(serialize_subscription_source(source))
+
+    output: list[dict[str, Any]] = []
+    for sub in subscriptions:
+        sources = sources_by_subscription.get(int(sub.id), [])
+        row = {
+            "id": sub.id,
+            "douban_id": sub.douban_id,
+            "tmdb_id": sub.tmdb_id,
+            "imdb_id": sub.imdb_id,
+            "title": sub.title,
+            "media_type": sub.media_type,
+            "poster_path": sub.poster_path,
+            "overview": sub.overview,
+            "year": sub.year,
+            "rating": sub.rating,
+            "tv_scope": sub.tv_scope,
+            "tv_season_number": sub.tv_season_number,
+            "tv_episode_start": sub.tv_episode_start,
+            "tv_episode_end": sub.tv_episode_end,
+            "tv_follow_mode": sub.tv_follow_mode,
+            "tv_include_specials": sub.tv_include_specials,
+            "is_active": sub.is_active,
+            "auto_download": sub.auto_download,
+            "created_at": sub.created_at,
+            "updated_at": sub.updated_at,
+            "sources": sources,
+            "source_summary": {
+                "total": len(sources),
+                "enabled": sum(1 for source in sources if source.get("enabled")),
+            },
+        }
+        output.append(row)
+    return output
+
+
 async def _enrich_subscription_ids(
     douban_id: Optional[str],
     tmdb_id: Optional[int],
@@ -610,7 +666,10 @@ async def list_subscriptions(
         await db.commit()
 
     payload = _build_subscription_status_payload(subscriptions)
-    payload["items"] = subscriptions
+    payload["items"] = await enrich_subscriptions_with_sources(
+        db,
+        list(subscriptions),
+    )
     return payload
 
 
@@ -810,7 +869,8 @@ async def get_subscription(subscription_id: int, db: AsyncSession = Depends(get_
     subscription = result.scalar_one_or_none()
     if not subscription:
         raise HTTPException(status_code=404, detail="Subscription not found")
-    return subscription
+    items = await enrich_subscriptions_with_sources(db, [subscription])
+    return items[0]
 
 
 @router.get("/missing-status/tv")
