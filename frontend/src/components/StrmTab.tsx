@@ -12,6 +12,20 @@ import type { StrmConfig, ArchiveConfig } from "../api/types";
 import { Film, RefreshCw, Play, AlertTriangle, CheckCircle2, XCircle, Settings2, Folder, ScanLine } from "lucide-react";
 import { motion } from "motion/react";
 
+const INPUT_STYLE: React.CSSProperties = {
+  background: "var(--bg-elev)",
+  border: "1px solid var(--border)",
+  color: "var(--txt)",
+};
+const LABEL_STYLE: React.CSSProperties = { color: "var(--txt-muted)" };
+const CHECK_LABEL_STYLE: React.CSSProperties = {
+  background: "var(--surface-subtle)",
+  border: "1px solid var(--border)",
+  color: "var(--txt-secondary)",
+};
+const KEY_STYLE: React.CSSProperties = { color: "var(--txt-muted)" };
+const VALUE_STYLE: React.CSSProperties = { color: "var(--txt)" };
+
 export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ERROR", m: string) => Promise<void> }) {
   const [config, setConfig] = useState<StrmConfig | null>(null);
   const [archiveCfg, setArchiveCfg] = useState<ArchiveConfig | null>(null);
@@ -134,7 +148,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <RefreshCw className="w-6 h-6 text-brand-primary animate-spin" />
+        <RefreshCw className="w-6 h-6 animate-spin" style={{ color: "var(--brand-primary)" }} />
       </div>
     );
   }
@@ -142,21 +156,24 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
   return (
     <div className="space-y-6">
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-3 flex items-center gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-          <span className="text-xs font-bold text-red-700">{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600 text-xs font-bold">关闭</button>
+        <div
+          className="rounded-2xl px-5 py-3 flex items-center gap-2.5"
+          style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "var(--accent-danger)" }}
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "var(--accent-danger)" }} />
+          <span className="text-xs font-bold">{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto hover:opacity-70 text-xs font-bold">关闭</button>
         </div>
       )}
 
       {/* 标题 */}
-      <div className="bg-gradient-to-br from-indigo-500/10 via-brand-primary/5 to-white/30 backdrop-blur-md rounded-3xl p-6 border border-white/60 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="glass-heavy rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-txt-dark tracking-tight flex items-center gap-2.5">
-            <Film className="w-6.5 h-6.5 text-indigo-500" />
+          <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
+            <Film className="w-6.5 h-6.5" style={{ color: "var(--brand-primary)" }} />
             <span>STRM 虚拟文件管理</span>
           </h2>
-          <p className="text-xs text-gray-500 mt-1 max-w-xl leading-relaxed">
+          <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color: "var(--txt-secondary)" }}>
             生成 .strm 指向文件供 Emby/飞牛直链播放，支持 302 重定向与代理回源。点击生成后可在媒体库看到 STRM 资源。
           </p>
         </div>
@@ -172,7 +189,8 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
           <button
             onClick={handleDiagnose}
             disabled={diagnoseLoading}
-            className="bg-white/80 border border-white/60 text-slate-500 px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+            className="glass glass-hover px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+            style={{ color: "var(--txt-secondary)" }}
           >
             <ScanLine className="w-4 h-4" />
             <span>{diagnoseLoading ? "诊断中…" : "STRM 诊断"}</span>
@@ -182,16 +200,16 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
 
       {/* 运行时状态 */}
       {config?.runtime && (
-        <div className="bg-white/60 backdrop-blur-md rounded-3xl border border-white/60 p-4 shadow-sm">
-          <h3 className="text-sm font-black text-txt-dark flex items-center gap-2 mb-3">
-            <Settings2 className="w-4 h-4 text-brand-primary" />
+        <div className="glass rounded-3xl p-4">
+          <h3 className="text-sm font-black flex items-center gap-2 mb-3" style={{ color: "var(--txt)" }}>
+            <Settings2 className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
             <span>运行时状态</span>
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
             {Object.entries(config.runtime as Record<string, unknown>).slice(0, 8).map(([k, v]) => (
-              <div key={k} className="bg-white/70 border border-slate-200/50 rounded-xl px-3 py-2">
-                <div className="text-[10px] text-slate-400 font-bold truncate">{k}</div>
-                <div className="text-xs font-black text-txt-dark truncate">{String(v ?? "—")}</div>
+              <div key={k} className="glass rounded-xl px-3 py-2">
+                <div className="text-[10px] font-bold truncate" style={KEY_STYLE}>{k}</div>
+                <div className="text-xs font-black truncate" style={VALUE_STYLE}>{String(v ?? "—")}</div>
               </div>
             ))}
           </div>
@@ -199,53 +217,53 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
       )}
 
       {/* 配置表单 */}
-      <div className="bg-white/70 backdrop-blur-md rounded-3xl border border-white/60 p-5 space-y-4 shadow-sm">
-        <h3 className="text-sm font-black text-txt-dark flex items-center gap-2">
-          <Settings2 className="w-4 h-4 text-brand-primary" />
+      <div className="glass rounded-3xl p-5 space-y-4">
+        <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+          <Settings2 className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
           <span>STRM 配置</span>
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="flex items-center justify-between bg-white/60 border border-slate-200/50 rounded-xl px-3 py-2.5">
-            <span className="text-xs font-bold text-slate-500">启用 STRM 生成</span>
+          <label className="flex items-center justify-between rounded-xl px-3 py-2.5" style={CHECK_LABEL_STYLE}>
+            <span className="text-xs font-bold">启用 STRM 生成</span>
             <input type="checkbox" checked={strmEnabled} onChange={(e) => setStrmEnabled(e.target.checked)} className="w-4 h-4 accent-brand-primary" />
           </label>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400">输出目录 (strm_output_dir)</label>
-            <input type="text" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder="/app/strm" className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <label className="text-xs font-bold" style={LABEL_STYLE}>输出目录 (strm_output_dir)</label>
+            <input type="text" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder="/app/strm" className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={INPUT_STYLE} />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400">回源 Base URL (strm_base_url)</label>
-            <input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={config?.suggested_base_url as string || "http://host:9008"} className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <label className="text-xs font-bold" style={LABEL_STYLE}>回源 Base URL (strm_base_url)</label>
+            <input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={config?.suggested_base_url as string || "http://host:9008"} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={INPUT_STYLE} />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400">重定向模式 (strm_redirect_mode)</label>
-            <select value={redirectMode} onChange={(e) => setRedirectMode(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary bg-white">
+            <label className="text-xs font-bold" style={LABEL_STYLE}>重定向模式 (strm_redirect_mode)</label>
+            <select value={redirectMode} onChange={(e) => setRedirectMode(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={INPUT_STYLE}>
               <option value="302">302 重定向</option>
               <option value="proxy">代理回源</option>
             </select>
           </div>
 
-          <label className="flex items-center justify-between bg-white/60 border border-slate-200/50 rounded-xl px-3 py-2.5">
-            <span className="text-xs font-bold text-slate-500">生成后刷新 Emby</span>
+          <label className="flex items-center justify-between rounded-xl px-3 py-2.5" style={CHECK_LABEL_STYLE}>
+            <span className="text-xs font-bold">生成后刷新 Emby</span>
             <input type="checkbox" checked={refreshEmby} onChange={(e) => setRefreshEmby(e.target.checked)} className="w-4 h-4 accent-brand-primary" />
           </label>
 
-          <label className="flex items-center justify-between bg-white/60 border border-slate-200/50 rounded-xl px-3 py-2.5">
-            <span className="text-xs font-bold text-slate-500">生成后刷新飞牛</span>
+          <label className="flex items-center justify-between rounded-xl px-3 py-2.5" style={CHECK_LABEL_STYLE}>
+            <span className="text-xs font-bold">生成后刷新飞牛</span>
             <input type="checkbox" checked={refreshFeiniu} onChange={(e) => setRefreshFeiniu(e.target.checked)} className="w-4 h-4 accent-brand-primary" />
           </label>
 
-          <label className="flex items-center justify-between bg-white/60 border border-slate-200/50 rounded-xl px-3 py-2.5">
-            <span className="text-xs font-bold text-slate-500">启用 STRM 代理</span>
+          <label className="flex items-center justify-between rounded-xl px-3 py-2.5" style={CHECK_LABEL_STYLE}>
+            <span className="text-xs font-bold">启用 STRM 代理</span>
             <input type="checkbox" checked={proxyEnabled} onChange={(e) => setProxyEnabled(e.target.checked)} className="w-4 h-4 accent-brand-primary" />
           </label>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400">代理端口 (strm_proxy_port)</label>
-            <input type="number" value={proxyPort ?? ""} onChange={(e) => setProxyPort(e.target.value ? Number(e.target.value) : undefined)} className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <label className="text-xs font-bold" style={LABEL_STYLE}>代理端口 (strm_proxy_port)</label>
+            <input type="number" value={proxyPort ?? ""} onChange={(e) => setProxyPort(e.target.value ? Number(e.target.value) : undefined)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={INPUT_STYLE} />
           </div>
         </div>
 
@@ -262,16 +280,17 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
       </div>
 
       {/* 归档入口 */}
-      <div className="bg-white/60 backdrop-blur-md rounded-3xl border border-white/60 p-5 shadow-sm space-y-3">
+      <div className="glass rounded-3xl p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-black text-txt-dark flex items-center gap-2">
-            <Folder className="w-4 h-4 text-brand-primary" />
+          <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+            <Folder className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
             <span>自动归档</span>
           </h3>
           <button
             onClick={handleScan}
             disabled={scanning}
-            className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            className="glass glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+            style={{ color: "var(--txt-secondary)" }}
           >
             <ScanLine className="w-3.5 h-3.5" />
             {scanning ? "扫描中…" : "立即扫描归档"}
@@ -280,29 +299,29 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
         {archiveCfg && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
             {Object.entries(archiveCfg as Record<string, unknown>).slice(0, 9).map(([k, v]) => (
-              <div key={k} className="bg-white/60 border border-slate-200/50 rounded-lg px-2 py-1.5">
-                <div className="text-[9px] text-slate-400 font-bold truncate">{k}</div>
-                <div className="text-xs font-black text-txt-dark truncate">{String(v ?? "—")}</div>
+              <div key={k} className="glass rounded-lg px-2 py-1.5">
+                <div className="text-[9px] font-bold truncate" style={KEY_STYLE}>{k}</div>
+                <div className="text-xs font-black truncate" style={VALUE_STYLE}>{String(v ?? "—")}</div>
               </div>
             ))}
           </div>
         )}
-        {!archiveCfg && <p className="text-xs text-slate-400 font-semibold">未加载到归档配置</p>}
+        {!archiveCfg && <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>未加载到归档配置</p>}
       </div>
 
       {/* 诊断结果 */}
       {diagnose != null && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white/70 backdrop-blur-md rounded-3xl border border-white/60 p-5 shadow-sm space-y-2">
-          <h3 className="text-sm font-black text-txt-dark flex items-center gap-2">
-            <ScanLine className="w-4 h-4 text-brand-primary" />
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-3xl p-5 space-y-2">
+          <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+            <ScanLine className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
             <span>诊断结果</span>
             {(diagnose as Record<string, unknown>)?.error ? (
-              <XCircle className="w-4 h-4 text-red-500" />
+              <XCircle className="w-4 h-4" style={{ color: "var(--accent-danger)" }} />
             ) : (
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <CheckCircle2 className="w-4 h-4" style={{ color: "var(--accent-ok)" }} />
             )}
           </h3>
-          <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-3 overflow-auto max-h-80 font-mono leading-relaxed">
+          <pre className="text-[10px] rounded-xl p-3 overflow-auto max-h-80 font-mono leading-relaxed" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>
 {JSON.stringify(diagnose, null, 2)}
           </pre>
         </motion.div>

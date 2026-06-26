@@ -313,16 +313,16 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   return (
     <div className="space-y-12">
       <section className="mb-4">
-        <h2 className="font-headline text-4xl font-black text-txt-dark mb-2">系统参数设置</h2>
-        <p className="text-sm text-slate-500">配置 115 账号凭据、本地 Emby 钩子、线程吞吐及查看实时数据调试日志</p>
+        <h2 className="font-headline text-4xl font-black mb-2" style={{ color: "var(--txt)" }}>系统参数设置</h2>
+        <p className="text-sm" style={{ color: "var(--txt-secondary)" }}>配置 115 账号凭据、本地 Emby 钩子、线程吞吐及查看实时数据调试日志</p>
       </section>
 
       {/* ===== 服务集成面板 (批次5) ===== */}
       <div className="space-y-6">
         {/* 全服务健康总览 */}
-        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
+        <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
           <div className="flex items-center justify-between">
-            <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+            <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <HeartPulse className="w-5 h-5 text-rose-500" />
               全服务健康总览
             </h3>
@@ -340,22 +340,22 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             </button>
           </div>
           {healthAll != null ? (
-            <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-3 overflow-auto max-h-64 font-mono">{JSON.stringify(healthAll, null, 2)}</pre>
+            <pre className="text-[10px] rounded-xl p-3 overflow-auto max-h-64 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{JSON.stringify(healthAll, null, 2)}</pre>
           ) : (
-            <p className="text-xs text-slate-400 font-semibold">点击体检会批量探测 TMDB/Emby/飞牛/115/夸克/pansou/TG 等服务的连通性。</p>
+            <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>点击体检会批量探测 TMDB/Emby/飞牛/115/夸克/pansou/TG 等服务的连通性。</p>
           )}
         </div>
 
         {/* Emby / 飞牛 同步 */}
-        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
-          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+        <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
+          <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <RefreshCw className="w-5 h-5 text-brand-primary" />
             Emby / 飞牛 库同步
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-black text-txt-dark">Emby 同步</span>
+                <span className="text-xs font-black" style={{ color: "var(--txt)" }}>Emby 同步</span>
                 <button
                   disabled={isBusy("embySync")}
                   onClick={() => runAction("embySync", "Emby 同步", () => settingsApi.runEmbySync().then((r) => { void loadSyncStatus(); return r; }))}
@@ -364,11 +364,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   <Play className="w-3 h-3" /> {isBusy("embySync") ? "同步中…" : "立即同步"}
                 </button>
               </div>
-              <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-40 font-mono">{JSON.stringify(embySyncStatus ?? "—", null, 2)}</pre>
+              <pre className="text-[10px] rounded-xl p-2 overflow-auto max-h-40 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{JSON.stringify(embySyncStatus ?? "—", null, 2)}</pre>
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-black text-txt-dark">飞牛同步</span>
+                <span className="text-xs font-black" style={{ color: "var(--txt)" }}>飞牛同步</span>
                 <button
                   disabled={isBusy("feiniuSync")}
                   onClick={() => runAction("feiniuSync", "飞牛同步", () => settingsApi.runFeiniuSync().then((r) => { void loadSyncStatus(); return r; }))}
@@ -377,18 +377,18 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   <Play className="w-3 h-3" /> {isBusy("feiniuSync") ? "同步中…" : "立即同步"}
                 </button>
               </div>
-              <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-40 font-mono">{JSON.stringify(feiniuSyncStatus ?? "—", null, 2)}</pre>
+              <pre className="text-[10px] rounded-xl p-2 overflow-auto max-h-40 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{JSON.stringify(feiniuSyncStatus ?? "—", null, 2)}</pre>
             </div>
           </div>
           {/* 飞牛登录 */}
-          <div className="border-t border-slate-100 pt-3 space-y-2">
-            <span className="text-xs font-bold text-slate-500">飞牛影视登录 (feiniuLogin)</span>
+          <div className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <span className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>飞牛影视登录 (feiniuLogin)</span>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <input value={feiniuUrlField} onChange={(e) => setFeiniuUrlField(e.target.value)} placeholder="飞牛地址" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
-              <input value={feiniuKey} onChange={(e) => setFeiniuKey(e.target.value)} placeholder="API Key (可选)" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
-              <input value={feiniuUser} onChange={(e) => setFeiniuUser(e.target.value)} placeholder="用户名" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+              <input value={feiniuUrlField} onChange={(e) => setFeiniuUrlField(e.target.value)} placeholder="飞牛地址" className="text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+              <input value={feiniuKey} onChange={(e) => setFeiniuKey(e.target.value)} placeholder="API Key (可选)" className="text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+              <input value={feiniuUser} onChange={(e) => setFeiniuUser(e.target.value)} placeholder="用户名" className="text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
               <div className="flex gap-2">
-                <input type="password" value={feiniuPass} onChange={(e) => setFeiniuPass(e.target.value)} placeholder="密码" className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+                <input type="password" value={feiniuPass} onChange={(e) => setFeiniuPass(e.target.value)} placeholder="密码" className="flex-1 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
                 <button
                   disabled={isBusy("feiniuLogin")}
                   onClick={() => runAction("feiniuLogin", "飞牛登录", () => settingsApi.feiniuLogin(feiniuUser, feiniuPass, feiniuUrlField || undefined))}
@@ -402,23 +402,24 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           <button
             disabled={isBusy("feiniuCheck")}
             onClick={() => runAction("feiniuCheck", "飞牛连通检测", () => settingsApi.checkFeiniu())}
-            className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+            style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
           >
             <RefreshCw className="w-3 h-3" /> 飞牛连通检测
           </button>
           {resultOf("feiniuLogin") && (
-            <p className={`text-[10px] font-bold ${resultOf("feiniuLogin")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("feiniuLogin")!.msg}</p>
+            <p className="text-[10px] font-bold" style={{ color: resultOf("feiniuLogin")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>{resultOf("feiniuLogin")!.msg}</p>
           )}
         </div>
 
         {/* 飞牛/Emby 连通测试 */}
         {resultOf("embyCheck") && (
-          <p className={`text-[10px] font-bold ${resultOf("embyCheck")!.ok ? "text-emerald-600" : "text-red-500"}`}>Emby 检测: {resultOf("embyCheck")!.msg}</p>
+          <p className="text-[10px] font-bold" style={{ color: resultOf("embyCheck")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>Emby 检测: {resultOf("embyCheck")!.msg}</p>
         )}
 
         {/* Telegram 登录 / 索引 / Bot */}
-        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
-          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+        <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
+          <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Send className="w-5 h-5 text-sky-500" />
             Telegram 集成
           </h3>
@@ -428,17 +429,18 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             <button
               disabled={isBusy("tgCheck")}
               onClick={() => runAction("tgCheck", "TG 连通检测", () => settingsApi.checkTg())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <Radio className="w-3 h-3" /> 连通检测
             </button>
-            {resultOf("tgCheck") && <span className={`text-[10px] font-bold ${resultOf("tgCheck")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("tgCheck")!.msg}</span>}
+            {resultOf("tgCheck") && <span className="text-[10px] font-bold" style={{ color: resultOf("tgCheck")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>{resultOf("tgCheck")!.msg}</span>}
           </div>
 
           {/* TG 密码登录 */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <input value={tgSession} onChange={(e) => setTgSession(e.target.value)} placeholder="session (会话名)" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
-            <input type="password" value={tgPassword} onChange={(e) => setTgPassword(e.target.value)} placeholder="两步验证密码" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <input value={tgSession} onChange={(e) => setTgSession(e.target.value)} placeholder="session (会话名)" className="text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+            <input type="password" value={tgPassword} onChange={(e) => setTgPassword(e.target.value)} placeholder="两步验证密码" className="text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
             <button
               disabled={isBusy("tgPwd")}
               onClick={() => runAction("tgPwd", "TG 密码登录", () => settingsApi.tgVerifyPassword({ password: tgPassword, session: tgSession }))}
@@ -447,32 +449,35 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               <Key className="w-3 h-3" /> 密码登录
             </button>
           </div>
-          {resultOf("tgPwd") && <p className={`text-[10px] font-bold ${resultOf("tgPwd")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("tgPwd")!.msg}</p>}
+          {resultOf("tgPwd") && <p className="text-[10px] font-bold" style={{ color: resultOf("tgPwd")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>{resultOf("tgPwd")!.msg}</p>}
 
           {/* QR 登录 */}
           <div className="flex gap-2 items-center">
             <button
               disabled={isBusy("tgQr")}
               onClick={() => runAction("tgQr", "启动 TG 二维码登录", () => settingsApi.tgStartQrLogin())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <QrCode className="w-3 h-3" /> 启动二维码登录
             </button>
             <button
               disabled={isBusy("tgLogout")}
               onClick={() => runAction("tgLogout", "TG 退出登录", () => settingsApi.tgLogout())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <Trash2 className="w-3 h-3" /> 退出登录
             </button>
           </div>
 
           {/* 索引管理 */}
-          <div className="border-t border-slate-100 pt-3 space-y-2">
+          <div className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={loadTgIndexStatus}
-                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center gap-1"
+                className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1"
+                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
               >
                 <RefreshCw className="w-3 h-3" /> 刷新索引状态
               </button>
@@ -493,24 +498,26 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               <button
                 disabled={isBusy("tgRebuild")}
                 onClick={() => runAction("tgRebuild", "TG 重建索引", () => settingsApi.rebuildTgIndex().then((r) => { void loadTgIndexStatus(); return r; }))}
-                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-amber-200 text-amber-600 hover:bg-amber-50 disabled:opacity-50 flex items-center gap-1"
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+                style={{ background: "rgba(245,158,11,0.12)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.3)" }}
               >
                 <RefreshCw className="w-3 h-3" /> {isBusy("tgRebuild") ? "重建中" : "全量重建"}
               </button>
               <button
                 disabled={isBusy("tgStopJob")}
                 onClick={() => runAction("tgStopJob", "停止 TG 索引任务", () => settingsApi.stopTgIndexJob("backfill"))}
-                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-50 flex items-center gap-1"
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+                style={{ background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" }}
               >
                 <StopCircle className="w-3 h-3" /> 停止任务
               </button>
             </div>
-            <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-40 font-mono">{JSON.stringify(tgIndexStatus ?? "—", null, 2)}</pre>
+            <pre className="text-[10px] rounded-xl p-2 overflow-auto max-h-40 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{JSON.stringify(tgIndexStatus ?? "—", null, 2)}</pre>
           </div>
 
           {/* TG Bot */}
-          <div className="border-t border-slate-100 pt-3 flex gap-2 items-center">
-            <Bot className="w-4 h-4 text-slate-500" />
+          <div className="pt-3 flex gap-2 items-center" style={{ borderTop: "1px solid var(--border)" }}>
+            <Bot className="w-4 h-4" style={{ color: "var(--txt-secondary)" }} />
             <button
               disabled={isBusy("tgBotRestart")}
               onClick={() => runAction("tgBotRestart", "重启 TG Bot", () => settingsApi.restartTgBot())}
@@ -521,14 +528,16 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             <button
               disabled={isBusy("tgBotStop")}
               onClick={() => runAction("tgBotStop", "停止 TG Bot", () => settingsApi.stopTgBot())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-50 flex items-center gap-1"
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" }}
             >
               <StopCircle className="w-3 h-3" /> 停止 Bot
             </button>
             <button
               disabled={isBusy("tgBotStatus")}
               onClick={() => runAction("tgBotStatus", "查询 TG Bot 状态", () => settingsApi.getTgBotStatus())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <Server className="w-3 h-3" /> Bot 状态
             </button>
@@ -536,8 +545,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         </div>
 
         {/* HDHive */}
-        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
-          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+        <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
+          <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Server className="w-5 h-5 text-indigo-500" />
             HDHive 集成
           </h3>
@@ -545,7 +554,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             <button
               disabled={isBusy("hdhiveCheck")}
               onClick={() => runAction("hdhiveCheck", "HDHive 连通检测", () => settingsApi.checkHdhive())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <Radio className="w-3 h-3" /> 连通检测
             </button>
@@ -556,11 +566,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             >
               <CheckCircle2 className="w-3 h-3" /> 签到
             </button>
-            {resultOf("hdhiveCheck") && <span className={`text-[10px] font-bold ${resultOf("hdhiveCheck")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("hdhiveCheck")!.msg}</span>}
+            {resultOf("hdhiveCheck") && <span className="text-[10px] font-bold" style={{ color: resultOf("hdhiveCheck")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>{resultOf("hdhiveCheck")!.msg}</span>}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <input value={hdhiveUser} onChange={(e) => setHdhiveUser(e.target.value)} placeholder="HDHive 用户名" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
-            <input type="password" value={hdhivePass} onChange={(e) => setHdhivePass(e.target.value)} placeholder="密码" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <input value={hdhiveUser} onChange={(e) => setHdhiveUser(e.target.value)} placeholder="HDHive 用户名" className="text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+            <input type="password" value={hdhivePass} onChange={(e) => setHdhivePass(e.target.value)} placeholder="密码" className="text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
             <button
               disabled={isBusy("hdhiveLogin")}
               onClick={() => runAction("hdhiveLogin", "HDHive 登录", () => settingsApi.hdhiveLogin(hdhiveUser, hdhivePass))}
@@ -569,12 +579,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               {isBusy("hdhiveLogin") ? "登录中" : "登录"}
             </button>
           </div>
-          {resultOf("hdhiveLogin") && <p className={`text-[10px] font-bold ${resultOf("hdhiveLogin")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("hdhiveLogin")!.msg}</p>}
+          {resultOf("hdhiveLogin") && <p className="text-[10px] font-bold" style={{ color: resultOf("hdhiveLogin")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>{resultOf("hdhiveLogin")!.msg}</p>}
         </div>
 
         {/* 夸克网盘 */}
-        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
-          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+        <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
+          <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Cloud className="w-5 h-5 text-emerald-500" />
             夸克网盘集成
           </h3>
@@ -583,7 +593,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             placeholder="夸克网盘 Cookie"
             value={quarkCookie}
             onChange={(e) => setQuarkCookie(e.target.value)}
-            className="w-full text-xs font-mono p-3 rounded-lg border border-slate-100 bg-white resize-none"
+            className="w-full text-xs font-mono p-3 rounded-lg resize-none"
+            style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
           />
           <div className="flex flex-wrap gap-2 items-center">
             <button
@@ -596,19 +607,21 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             <button
               disabled={isBusy("quarkCheck")}
               onClick={() => runAction("quarkCheck", "夸克 Cookie 校验", () => quarkApi.checkCookie())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <RefreshCw className="w-3 h-3" /> 校验
             </button>
             <button
               disabled={isBusy("quarkConn")}
               onClick={() => runAction("quarkConn", "夸克连通检测", () => quarkApi.checkConnectivity())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <Wifi className="w-3 h-3" /> 连通性
             </button>
             {(resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn")) && (
-              <span className={`text-[10px] font-bold ${(resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn"))!.ok ? "text-emerald-600" : "text-red-500"}`}>
+              <span className="text-[10px] font-bold" style={{ color: (resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn"))!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
                 {(resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn"))!.msg}
               </span>
             )}
@@ -616,8 +629,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         </div>
 
         {/* pansou */}
-        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
-          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+        <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
+          <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Search className="w-5 h-5 text-purple-500" />
             pansou 网盘搜索服务
           </h3>
@@ -625,32 +638,35 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             <button
               disabled={isBusy("pansouHealth")}
               onClick={() => runAction("pansouHealth", "pansou 健康检查", () => pansouApi.health())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <HeartPulse className="w-3 h-3" /> 健康
             </button>
             <button
               disabled={isBusy("pansouGet")}
               onClick={() => runAction("pansouGet", "加载 pansou 配置", () => pansouApi.getConfig().then((r) => { setPansouConfig(r.data as Record<string, unknown>); return r; }))}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <RefreshCw className="w-3 h-3" /> 读取配置
             </button>
             <button
               disabled={isBusy("pansouCheck")}
               onClick={() => runAction("pansouCheck", "pansou 连通检测", () => settingsApi.checkPansou())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <Radio className="w-3 h-3" /> 连通检测
             </button>
           </div>
-          {pansouConfig && <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-32 font-mono">{JSON.stringify(pansouConfig, null, 2)}</pre>}
+          {pansouConfig && <pre className="text-[10px] rounded-xl p-2 overflow-auto max-h-32 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{JSON.stringify(pansouConfig, null, 2)}</pre>}
         </div>
 
         {/* 代理 */}
-        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
-          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
-            <Wifi className="w-5 h-5 text-slate-500" />
+        <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
+          <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
+            <Wifi className="w-5 h-5" style={{ color: "var(--txt-secondary)" }} />
             代理配置
           </h3>
           <div className="flex gap-2 items-center">
@@ -662,12 +678,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               <RefreshCw className="w-3 h-3" /> 读取当前代理
             </button>
           </div>
-          {proxyInfo != null && <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-32 font-mono">{JSON.stringify(proxyInfo, null, 2)}</pre>}
+          {proxyInfo != null && <pre className="text-[10px] rounded-xl p-2 overflow-auto max-h-32 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{JSON.stringify(proxyInfo, null, 2)}</pre>}
         </div>
 
         {/* 榜单订阅 / 影人同步 */}
-        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
-          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+        <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
+          <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <BarChart3 className="w-5 h-5 text-amber-500" />
             榜单订阅 / 影人关注任务
           </h3>
@@ -689,13 +705,14 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             <button
               disabled={isBusy("chartsList")}
               onClick={() => runAction("chartsList", "加载可用榜单", () => settingsApi.getAvailableCharts())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
             >
               <RefreshCw className="w-3 h-3" /> 查看可用榜单
             </button>
           </div>
           {(resultOf("chartsRun") || resultOf("pfRun") || resultOf("chartsList")) && (
-            <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-32 font-mono">
+            <pre className="text-[10px] rounded-xl p-2 overflow-auto max-h-32 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>
               {JSON.stringify((resultOf("chartsRun") || resultOf("pfRun") || resultOf("chartsList"))!.msg, null, 2)}
             </pre>
           )}
@@ -707,36 +724,38 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         {/* Left column forms: Standard Configurations */}
         <div className="lg:col-span-7 space-y-8">
           {/* Card 1: 115 Account cookie setting */}
-          <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-5 hover:bg-white/80 transition-all">
-            <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+          <div className="glass glass-hover p-6 rounded-2xl space-y-5 transition-all">
+            <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <Cloud className="w-5 h-5 text-brand-primary" />
               115 云盘授权参数设置 (Cookies)
             </h3>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500">115 浏览器 Cookie 原始字符串 (全字段) *</label>
+              <label className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>115 浏览器 Cookie 原始字符串 (全字段) *</label>
               <textarea
                 required
                 rows={3}
                 placeholder="键入您的 115 浏览器 Cookie 原始串 (包含 UID, CID, SEID, 登录令牌以保证同步后台握手正常...)"
                 value={cookie115}
                 onChange={(e) => setCookie115(e.target.value)}
-                className="w-full text-xs font-mono p-3 rounded-lg border border-slate-100 focus:outline-none focus:border-brand-primary bg-white resize-none"
+                className="w-full text-xs font-mono p-3 rounded-lg resize-none focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
               />
-              <p className="text-[10px] text-slate-400">
+              <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>
                 可以使用扫码或开发者工具抓取, 凭证均安全持久化保留在本地设备 or 会话缓存.
               </p>
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500">NAS 统筹媒体存储绝对路径 (strm 保存点) *</label>
+              <label className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>NAS 统筹媒体存储绝对路径 (strm 保存点) *</label>
               <input
                 type="text"
                 required
                 placeholder="e.g. /volume1/Media"
                 value={localMountPath}
                 onChange={(e) => setLocalMountPath(e.target.value)}
-                className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg border border-slate-100 focus:outline-none focus:border-brand-primary"
+                className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
               />
             </div>
 
@@ -745,7 +764,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 type="button"
                 onClick={test115Connection}
                 disabled={isTesting115}
-                className="w-full py-2.5 bg-slate-50 hover:bg-slate-100/50 text-brand-primary border border-slate-100 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                className="glass-hover w-full py-2.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                style={{ background: "var(--surface-subtle)", color: "var(--brand-primary)", border: "1px solid var(--border)" }}
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isTesting115 ? "animate-spin" : ""}`} />
                 <span>{isTesting115 ? "正与网盘安全连接建立中..." : "测试 115 API 会话可用性"}</span>
@@ -754,38 +774,40 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           </div>
 
           {/* Card 2: Emby & Plex webhooks client mapping */}
-          <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-5 hover:bg-white/80 transition-all">
-            <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+          <div className="glass glass-hover p-6 rounded-2xl space-y-5 transition-all">
+            <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <Server className="w-5 h-5 text-brand-secondary" />
               本地多媒体应用服务器连接 (Emby)
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-4 pt-1">
-                <div className="flex items-center gap-1 text-xs font-bold text-slate-500">
+                <div className="flex items-center gap-1 text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>
                   <div className="w-2 h-2 rounded-full bg-green-500" />
                   <span>Emby Server 极速钩子 (增量库刷新)</span>
                 </div>
 
                 <div className="space-y-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400">Emby API 地址</label>
+                    <label className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>Emby API 地址</label>
                     <input
                       type="text"
                       placeholder="e.g. http://192.168.1.100:8096"
                       value={embyUrl}
                       onChange={(e) => setEmbyUrl(e.target.value)}
-                      className="w-full text-xs font-mono px-3 py-2 rounded border border-slate-100 focus:outline-none focus:border-brand-primary bg-white"
+                      className="w-full text-xs font-mono px-3 py-2 rounded focus:outline-none focus:border-brand-primary"
+                      style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400">Emby 登录 API 证书秘钥 (Token)</label>
+                    <label className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>Emby 登录 API 证书秘钥 (Token)</label>
                     <input
                       type="password"
                       placeholder="e.g. emby_key_xxx"
                       value={embyKey}
                       onChange={(e) => setEmbyKey(e.target.value)}
-                      className="w-full text-xs font-mono px-3 py-2 rounded border border-slate-100 focus:outline-none focus:border-brand-primary bg-white"
+                      className="w-full text-xs font-mono px-3 py-2 rounded focus:outline-none focus:border-brand-primary"
+                      style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
                     />
                   </div>
                 </div>
@@ -793,32 +815,34 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
               {/* Plex section — backend has no Plex support; configuration is NOT persisted.
                   UI kept for potential future use. */}
-              <div className="space-y-4 pt-1 border-t md:border-t-0 md:border-l md:pl-4 border-slate-100">
-                <div className="flex items-center gap-1 text-xs font-bold text-slate-500">
+              <div className="space-y-4 pt-1 md:pl-4 theme-border border-t md:border-t-0 md:border-l">
+                <div className="flex items-center gap-1 text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>
                   <div className="w-2 h-2 rounded-full bg-amber-500" />
                   <span>Plex Server 极速钩子</span>
-                  <span className="text-[9px] text-red-400 ml-1">（后端暂未支持，配置不会保存）</span>
+                  <span className="text-[9px] ml-1" style={{ color: "var(--accent-danger)" }}>（后端暂未支持，配置不会保存）</span>
                 </div>
 
                 <div className="space-y-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400">Plex API 地址</label>
+                    <label className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>Plex API 地址</label>
                     <input
                       type="text"
                       placeholder="e.g. http://127.0.0.1:32400"
                       value={plexUrl}
                       onChange={(e) => setPlexUrl(e.target.value)}
-                      className="w-full text-xs font-mono px-3 py-2 rounded border border-slate-100 focus:outline-none focus:border-brand-primary bg-white"
+                      className="w-full text-xs font-mono px-3 py-2 rounded focus:outline-none focus:border-brand-primary"
+                      style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400">Plex-X-Token 认证识别码</label>
+                    <label className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>Plex-X-Token 认证识别码</label>
                     <input
                       type="password"
                       placeholder="e.g. plex_token_xxx"
                       value={plexToken}
                       onChange={(e) => setPlexToken(e.target.value)}
-                      className="w-full text-xs font-mono px-3 py-2 rounded border border-slate-100 focus:outline-none focus:border-brand-primary bg-white"
+                      className="w-full text-xs font-mono px-3 py-2 rounded focus:outline-none focus:border-brand-primary"
+                      style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
                     />
                   </div>
                 </div>
@@ -830,7 +854,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 type="button"
                 onClick={testEmbyConnection}
                 disabled={isTestingEmby}
-                className="w-full py-2.5 bg-slate-50 hover:bg-slate-100/50 text-brand-secondary border border-slate-100 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                className="glass-hover w-full py-2.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                style={{ background: "var(--surface-subtle)", color: "var(--brand-secondary)", border: "1px solid var(--border)" }}
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isTestingEmby ? "animate-spin" : ""}`} />
                 <span>{isTestingEmby ? "正在测试 Emby 连通状态..." : "测试 Emby API 通道与 Webscan 权限"}</span>
@@ -839,18 +864,18 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           </div>
 
           {/* Card 3: Advanced — maxThreads has no backend equivalent; subscription_interval_hours is mapped */}
-          <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-6 hover:bg-white/80 transition-all">
-            <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+          <div className="glass glass-hover p-6 rounded-2xl space-y-6 transition-all">
+            <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <Cpu className="w-5 h-5 text-brand-primary" />
               后台极速扫库 &amp; 并发性能 parameters 设定
             </h3>
 
             <div className="space-y-4">
               <div className="space-y-2">
-                <div className="flex justify-between text-xs font-bold text-slate-500">
+                <div className="flex justify-between text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>
                   <span>最大并行异步同步扫描线程限制</span>
                   <span className="text-brand-primary">{maxThreads} 个并发流</span>
-                  <span className="text-[9px] text-red-400 ml-1">（后端暂未支持，此参数不生效）</span>
+                  <span className="text-[9px] ml-1" style={{ color: "var(--accent-danger)" }}>（后端暂未支持，此参数不生效）</span>
                 </div>
                 <input
                   type="range"
@@ -858,15 +883,16 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   max={32}
                   value={maxThreads}
                   onChange={(e) => setMaxThreads(Number(e.target.value))}
-                  className="w-full accent-brand-primary h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer"
+                  className="w-full accent-brand-primary h-2 rounded-lg appearance-none cursor-pointer"
+                  style={{ background: "var(--surface-subtle)" }}
                 />
-                <p className="text-[10px] text-slate-400">
+                <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>
                   设置线程过高（超过 16 线程）在遭遇冷数据首次索引极易触发 115 端 API 403 频控，推荐设置为 8-12 线程。
                 </p>
               </div>
 
               <div className="space-y-2">
-                <div className="flex justify-between text-xs font-bold text-slate-500">
+                <div className="flex justify-between text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>
                   <span>视频目录定时扫描比对刷新间隔</span>
                   <span className="text-brand-primary">{refreshInterval} 分钟 / 周期</span>
                 </div>
@@ -877,9 +903,10 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   step={5}
                   value={refreshInterval}
                   onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                  className="w-full accent-brand-primary h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer"
+                  className="w-full accent-brand-primary h-2 rounded-lg appearance-none cursor-pointer"
+                  style={{ background: "var(--surface-subtle)" }}
                 />
-                <p className="text-[10px] text-slate-400">
+                <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>
                   每次循环检索 115 会话日志以抓取新文件，较短时间会令 CPU 与网盘处于轻微载荷中。
                 </p>
               </div>

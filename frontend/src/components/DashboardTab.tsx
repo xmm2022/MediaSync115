@@ -247,7 +247,7 @@ export default function DashboardTab({
   return (
     <div className="space-y-12">
       {/* 数据来源提示条：所有数据来自 /api/archive/* 端点 */}
-      <div className="bg-indigo-50/70 border border-indigo-100 rounded-xl px-4 py-2 flex items-center gap-2 text-xs text-indigo-600 font-medium">
+      <div className="glass-heavy rounded-xl px-4 py-2 flex items-center gap-2 text-xs font-medium" style={{ color: "var(--accent-info)" } as React.CSSProperties}>
         <Info className="w-4 h-4 shrink-0" />
         <span>仪表盘数据来自后端归档服务 (/api/archive/*)。速度/大小/项数等字段后端不提供，显示 "-"。完整归档配置请前往设置页。</span>
       </div>
@@ -318,16 +318,17 @@ export default function DashboardTab({
               key={currentSpeedMB}
               initial={{ scale: 0.9, opacity: 0.5 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="font-headline text-5xl md:text-6xl font-bold text-txt-dark leading-none"
+              className="font-headline text-5xl md:text-6xl font-bold leading-none"
+              style={{ color: "var(--txt)" } as React.CSSProperties}
             >
               {isSyncingAll ? "扫描中" : "安全挂载"}
             </motion.span>
-            <div className="text-sm font-medium text-gray-500 uppercase tracking-widest mt-2 flex items-center justify-center gap-1">
+            <div className="text-sm font-medium uppercase tracking-widest mt-2 flex items-center justify-center gap-1" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
               <Database className="w-3.5 h-3.5 text-brand-primary-light" />
               <span>多媒体归档就绪</span>
             </div>
 
-            <div className="mt-4 flex items-center justify-center gap-1.5 text-brand-secondary font-semibold bg-white/70 backdrop-blur px-3 py-1.5 rounded-full shadow-sm border border-brand-surface-high">
+            <div className="mt-4 flex items-center justify-center gap-1.5 text-brand-secondary font-semibold glass px-3 py-1.5 rounded-full" style={{ color: "var(--brand-secondary)" } as React.CSSProperties}>
               <Sparkles className="w-4 h-4 text-brand-primary-light" />
               <span className="font-headline text-base">{totalFiles.toLocaleString()} 项 (来自 ArchiveFolder 列表)</span>
             </div>
@@ -336,27 +337,27 @@ export default function DashboardTab({
 
         {/* Stats Metadata Area */}
         <div className="grid grid-cols-2 gap-8 mt-10 w-full max-w-md">
-          <div className="bg-white/75 backdrop-blur-md p-4 rounded-xl border border-white/60 flex flex-col justify-start space-y-1 shadow-xs hover:bg-white/85 transition-all">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">归档服务状态</span>
+          <div className="glass glass-hover p-4 rounded-xl flex flex-col justify-start space-y-1 transition-all">
+            <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>归档服务状态</span>
             <div className="flex items-center gap-1.5">
               <span className="font-headline text-2xl font-bold text-brand-primary">
                 {hasActiveTask ? "同步中" : "待命"}
               </span>
-              <div className="flex items-center bg-teal-50 px-1 py-0.5 rounded text-[10px] text-brand-primary font-bold">
+              <div className="flex items-center px-1 py-0.5 rounded text-[10px] text-brand-primary font-bold" style={{ background: "rgba(16,185,129,0.16)", color: "var(--accent-ok)" } as React.CSSProperties}>
                 <TrendingUp className="w-3 h-3 mr-0.5" />
                 在线
               </div>
             </div>
-            <span className="text-[10px] text-slate-400">{directories.length} 个 115 目录已加载</span>
+            <span className="text-[10px]" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>{directories.length} 个 115 目录已加载</span>
           </div>
 
-          <div className="bg-white/75 backdrop-blur-md p-4 rounded-xl border border-white/60 flex flex-col justify-start space-y-1 shadow-xs text-right hover:bg-white/85 transition-all">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">115 挂载状态</span>
+          <div className="glass glass-hover p-4 rounded-xl flex flex-col justify-start space-y-1 text-right transition-all">
+            <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>115 挂载状态</span>
             <div className="flex items-center justify-end gap-1.5">
-              <span className="font-headline text-xl font-bold text-txt-dark">已连接</span>
+              <span className="font-headline text-xl font-bold" style={{ color: "var(--txt)" } as React.CSSProperties}>已连接</span>
               <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
             </div>
-            <span className="text-[10px] text-slate-400">Cookie 会话有效</span>
+            <span className="text-[10px]" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>Cookie 会话有效</span>
           </div>
         </div>
       </section>
@@ -365,21 +366,22 @@ export default function DashboardTab({
       <section className="space-y-5">
         <div className="flex items-center justify-between px-1">
           <div>
-            <h2 className="font-headline text-2xl font-bold tracking-tight text-txt-dark">115 目录列表 ({activeCount} 个启用)</h2>
-            <p className="text-sm text-gray-500">从 /api/archive/folders 获取，状态从 /api/archive/tasks 派生</p>
+            <h2 className="font-headline text-2xl font-bold tracking-tight" style={{ color: "var(--txt)" } as React.CSSProperties}>115 目录列表 ({activeCount} 个启用)</h2>
+            <p className="text-sm" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>从 /api/archive/folders 获取，状态从 /api/archive/tasks 派生</p>
           </div>
           <div className="flex gap-2">
             <button
               onClick={triggerFullScan}
               disabled={isSyncingAll}
-              className="px-4 py-2 bg-brand-primary text-white text-xs font-bold rounded-lg hover:bg-opacity-90 transition-all flex items-center gap-1.5 shadow-md disabled:bg-slate-300"
+              className="px-4 py-2 bg-brand-primary text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md disabled:opacity-50 hover:bg-opacity-90 disabled:hover:bg-opacity-100"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingAll ? "animate-spin" : ""}`} />
               <span>{isSyncingAll ? "正在执行归档扫描..." : "手动归档扫描"}</span>
             </button>
             <button
               onClick={onNavigateToSettings}
-              className="px-4 py-2 bg-slate-50 text-brand-primary text-xs font-bold rounded-lg hover:bg-slate-100 transition-all flex items-center gap-1.5 border border-slate-100"
+              className="px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5"
+              style={{ background: "var(--surface-subtle)", color: "var(--brand-primary)", border: "1px solid var(--border)" } as React.CSSProperties}
             >
               <PlusCircle className="w-3.5 h-3.5" />
               <span>配置归档目录</span>
@@ -390,31 +392,27 @@ export default function DashboardTab({
         {/* Horizontal Scroll Cards */}
         <div className="flex gap-6 overflow-x-auto no-scrollbar pb-4 snap-x">
           {directories.length === 0 && (
-            <div className="snap-start flex-shrink-0 w-72 p-6 rounded-2xl bg-white/50 backdrop-blur-md border border-dashed border-slate-200 flex flex-col items-center justify-center text-center space-y-2 min-h-[280px]">
-              <Database className="w-8 h-8 text-slate-300" />
-              <p className="text-xs text-slate-400 font-semibold">暂无 115 目录数据</p>
-              <p className="text-[10px] text-slate-300">请检查后端归档服务及 115 连接</p>
+            <div className="snap-start flex-shrink-0 w-72 p-6 rounded-2xl glass flex flex-col items-center justify-center text-center space-y-2 min-h-[280px]" style={{ border: "1px dashed var(--border-strong)" } as React.CSSProperties}>
+              <Database className="w-8 h-8" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />
+              <p className="text-xs font-semibold" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>暂无 115 目录数据</p>
+              <p className="text-[10px]" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>请检查后端归档服务及 115 连接</p>
             </div>
           )}
           {directories.map((dir) => (
             <div
               key={dir.id}
-              className={`snap-start flex-shrink-0 w-72 p-6 rounded-2xl backdrop-blur-md border shadow-xs transition-all hover:shadow-sm ${
-                dir.enabled
-                  ? "bg-white/70 border-white/60 hover:bg-white/85 hover:border-slate-200/50"
-                  : "bg-slate-50/40 border-slate-100/40 opacity-80"
+              className={`snap-start flex-shrink-0 w-72 p-6 rounded-2xl glass glass-hover transition-all ${
+                dir.enabled ? "" : "opacity-80"
               }`}
             >
               <div className="flex justify-between items-start mb-6">
-                <div className={`p-3 rounded-xl flex items-center justify-center ${
-                  !dir.enabled
-                    ? "bg-slate-100 text-slate-400"
-                    : dir.targetClient === "emby"
-                    ? "bg-teal-50 text-brand-primary"
-                    : dir.targetClient === "feiniu"
-                    ? "bg-amber-50 text-amber-600"
-                    : "bg-indigo-50 text-brand-secondary"
-                }`}>
+                <div className="p-3 rounded-xl flex items-center justify-center" style={(!dir.enabled
+                  ? { background: "var(--surface-subtle)", color: "var(--txt-muted)" }
+                  : dir.targetClient === "emby"
+                  ? { background: "rgba(16,185,129,0.16)", color: "var(--accent-ok)" }
+                  : dir.targetClient === "feiniu"
+                  ? { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" }
+                  : { background: "rgba(99,102,241,0.16)", color: "var(--accent-info)" }) as React.CSSProperties}>
                   {dir.targetClient === "emby" ? (
                     <Film className="w-5 h-5" />
                   ) : dir.targetClient === "feiniu" ? (
@@ -433,35 +431,35 @@ export default function DashboardTab({
                   {dir.enabled ? (
                     <ToggleRight className="w-12 h-12 text-brand-primary-light" />
                   ) : (
-                    <ToggleLeft className="w-12 h-12 text-gray-300" />
+                    <ToggleLeft className="w-12 h-12" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />
                   )}
                 </button>
               </div>
 
-              <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+              <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
                 {dir.name}
-                {!dir.enabled && <span className="text-[10px] font-normal px-1.5 py-0.5 bg-gray-200 text-gray-500 rounded">已暂停</span>}
+                {!dir.enabled && <span className="text-[10px] font-normal px-1.5 py-0.5 rounded" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" } as React.CSSProperties}>已暂停</span>}
               </h3>
 
               <div className="mt-4 space-y-4">
                 <div className="space-y-1 text-xs">
-                  <div className="flex justify-between text-gray-500">
+                  <div className="flex justify-between" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
                     <span>115 目录 ID:</span>
-                    <span className="font-mono text-gray-700">{dir.folderId115}</span>
+                    <span className="font-mono" style={{ color: "var(--txt)" } as React.CSSProperties}>{dir.folderId115}</span>
                   </div>
-                  <div className="flex justify-between text-gray-500">
+                  <div className="flex justify-between" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
                     <span>监听 CID:</span>
-                    <span className="font-mono text-gray-700 truncate max-w-[150px]" title={dir.localPath}>{dir.localPath || "-"}</span>
+                    <span className="font-mono truncate max-w-[150px]" style={{ color: "var(--txt)" } as React.CSSProperties} title={dir.localPath}>{dir.localPath || "-"}</span>
                   </div>
-                  <div className="flex justify-between text-gray-500">
+                  <div className="flex justify-between" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
                     <span>目标客户端:</span>
-                    <span className="text-gray-700">{dir.targetClient === "emby" ? "Emby" : dir.targetClient === "feiniu" ? "飞牛" : "-"}</span>
+                    <span style={{ color: "var(--txt)" } as React.CSSProperties}>{dir.targetClient === "emby" ? "Emby" : dir.targetClient === "feiniu" ? "飞牛" : "-"}</span>
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs font-semibold">
-                    <span className="text-gray-500 flex items-center gap-1">
+                    <span className="flex items-center gap-1" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
                       {dir.status === "syncing" && hasActiveTask && <span className="w-1.5 h-1.5 rounded-full bg-brand-primary-light animate-ping" />}
                       {dir.status === "scanning" && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
                       {dir.status === "syncing" && hasActiveTask ? "正在归档..." : dir.status === "scanning" ? "扫库索引中..." : "空闲"}
@@ -470,7 +468,7 @@ export default function DashboardTab({
                     <span className="text-brand-primary font-bold">{dir.speed}</span>
                   </div>
                   {/* 进度条：后端无 per-folder 进度，有活跃任务时显示 100% (不确定进度)，否则 0 */}
-                  <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                  <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--surface-subtle)" } as React.CSSProperties}>
                     <motion.div
                       className={`h-full ${
                         dir.status === "scanning" ? "bg-amber-400" : "bg-brand-primary-light"
@@ -481,7 +479,7 @@ export default function DashboardTab({
                     />
                   </div>
                   {/* 后端无此粒度数据 */}
-                  <div className="flex justify-between text-[10px] text-slate-400">
+                  <div className="flex justify-between text-[10px]" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
                     <span>大小: {dir.totalSize}</span>
                     <span>项数: {dir.itemCount}</span>
                   </div>
@@ -495,18 +493,18 @@ export default function DashboardTab({
       {/* Bento Grid Insights Layout */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Left wider block: Peak Traffic Throttling */}
-        <div className="md:col-span-2 p-8 rounded-2xl bg-white/75 backdrop-blur-md border border-white/60 shadow-xs relative overflow-hidden group hover:bg-white/85 transition-all">
+        <div className="md:col-span-2 p-8 rounded-2xl glass glass-hover relative overflow-hidden group transition-all">
           <div className="relative z-10">
             <div className="flex items-center gap-2 mb-2">
               <span className="px-2.5 py-0.5 text-[10px] font-bold text-brand-primary uppercase tracking-widest bg-brand-primary/10 rounded-full">
                 避让拥堵
               </span>
-              <span className="text-xs text-slate-400">网盘API保护规则</span>
+              <span className="text-xs" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>网盘API保护规则</span>
             </div>
-            <h4 className="font-headline text-xl font-bold text-txt-dark flex items-center gap-2">
+            <h4 className="font-headline text-xl font-bold flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
               智能离峰高宽带提速视窗
             </h4>
-            <p className="text-sm text-slate-500 mt-2 max-w-sm leading-relaxed">
+            <p className="text-sm mt-2 max-w-sm leading-relaxed" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
               根据 115 接口每日高风险时间段数据，可在每日 **凌晨 11:00 至 次日上午 5:00** 启用智能极速提速，自动增加 8-16 线程而防风控，建议您前去规划配置。
             </p>
             <div className="mt-6 flex items-center gap-3">
@@ -516,14 +514,14 @@ export default function DashboardTab({
               >
                 前往参数设置
               </button>
-              <div className="text-xs text-amber-600 font-medium flex items-center gap-1">
+              <div className="text-xs font-medium flex items-center gap-1" style={{ color: "var(--accent-warn)" } as React.CSSProperties}>
                 <Info className="w-3.5 h-3.5" />
                 当前时段: 常规温和速率
               </div>
             </div>
           </div>
 
-          <div className="absolute right-0 bottom-0 text-gray-100 pointer-events-none group-hover:scale-110 group-hover:text-brand-surface-normal transition-all duration-500 transform translate-x-8 translate-y-8">
+          <div className="absolute right-0 bottom-0 pointer-events-none group-hover:scale-110 transition-all duration-500 transform translate-x-8 translate-y-8" style={{ color: "var(--surface-subtle)" } as React.CSSProperties}>
             <Zap className="w-48 h-48" strokeWidth={0.5} />
           </div>
         </div>
@@ -567,30 +565,31 @@ export default function DashboardTab({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white/85 backdrop-blur-xl rounded-2xl p-6 md:p-8 max-w-md w-full relative z-10 shadow-2xl border border-white/60 space-y-6"
+              className="glass-heavy rounded-2xl p-6 md:p-8 max-w-md w-full relative z-10 space-y-6"
             >
               <div>
-                <h3 className="font-headline text-xl font-bold text-txt-dark">配置归档监听目录</h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <h3 className="font-headline text-xl font-bold" style={{ color: "var(--txt)" } as React.CSSProperties}>配置归档监听目录</h3>
+                <p className="text-xs mt-1" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
                   设置 115 云盘归档监听目录 CID。后端无独立"添加同步目录"概念，此操作将更新全局归档配置 (archive_watch_cid/archive_output_cid)。
                 </p>
               </div>
 
               <form onSubmit={handleAddDirectory} className="space-y-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500">映射友好名称 *</label>
+                  <label className="text-xs font-bold" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>映射友好名称 *</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. 经典电影集锦"
                     value={newDirName}
                     onChange={(e) => setNewDirName(e.target.value)}
-                    className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-slate-100 focus:outline-none focus:border-brand-primary"
+                    className="w-full text-sm px-3.5 py-2.5 rounded-lg focus:outline-none"
+                    style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" } as React.CSSProperties}
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500">115 目录 Folder ID (CID) *</label>
+                  <label className="text-xs font-bold" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>115 目录 Folder ID (CID) *</label>
                   <input
                     type="text"
                     required
@@ -598,39 +597,43 @@ export default function DashboardTab({
                     placeholder="e.g. 115204481085"
                     value={newFolderId}
                     onChange={(e) => setNewFolderId(e.target.value)}
-                    className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg border border-slate-100 focus:outline-none focus:border-brand-primary"
+                    className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg focus:outline-none"
+                    style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" } as React.CSSProperties}
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500">归档输出目录 CID (可选)</label>
+                  <label className="text-xs font-bold" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>归档输出目录 CID (可选)</label>
                   <input
                     type="text"
                     placeholder="e.g. 115205593190 (115 目录 CID，非本地路径)"
                     value={newLocalPath}
                     onChange={(e) => setNewLocalPath(e.target.value)}
-                    className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg border border-slate-100 focus:outline-none focus:border-brand-primary"
+                    className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg focus:outline-none"
+                    style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" } as React.CSSProperties}
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500">对接的目标媒体客户端 *</label>
+                  <label className="text-xs font-bold" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>对接的目标媒体客户端 *</label>
                   <select
                     value={newClient}
                     onChange={(e) => setNewClient(e.target.value as "emby" | "feiniu")}
-                    className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-slate-100 focus:outline-none focus:border-brand-primary bg-white"
+                    className="w-full text-sm px-3.5 py-2.5 rounded-lg focus:outline-none"
+                    style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" } as React.CSSProperties}
                   >
                     <option value="emby">Emby Server</option>
                     <option value="feiniu">飞牛影视</option>
                   </select>
-                  <p className="text-[10px] text-slate-400 mt-1">后端仅支持 Emby 和飞牛。Plex/Jellyfin 无后端对应。</p>
+                  <p className="text-[10px] mt-1" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>后端仅支持 Emby 和飞牛。Plex/Jellyfin 无后端对应。</p>
                 </div>
 
                 <div className="flex gap-3 pt-4 justify-end">
                   <button
                     type="button"
                     onClick={() => setShowAddModal(false)}
-                    className="px-5 py-2.5 text-xs text-gray-500 font-semibold hover:bg-gray-100 rounded-lg transition-all"
+                    className="px-5 py-2.5 text-xs font-semibold rounded-lg transition-all"
+                    style={{ color: "var(--txt-secondary)" } as React.CSSProperties}
                   >
                     取消
                   </button>
@@ -642,8 +645,8 @@ export default function DashboardTab({
                   </button>
                 </div>
 
-                <div className="pt-2 border-t border-slate-100">
-                  <p className="text-[10px] text-slate-400 text-center">
+                <div className="pt-2" style={{ borderTop: "1px solid var(--border)" } as React.CSSProperties}>
+                  <p className="text-[10px] text-center" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
                     此操作将更新全局归档配置 (PUT /api/archive/config)。<br/>
                     如需完整配置归档间隔、命名格式等，请
                     <button

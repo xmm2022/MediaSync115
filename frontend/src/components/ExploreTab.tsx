@@ -137,13 +137,13 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
   return (
     <div id="explore-tab-container" className="space-y-6">
       {/* Billboard Hero Banner */}
-      <div className="bg-gradient-to-br from-violet-500/10 via-brand-primary/5 to-white/30 backdrop-blur-md rounded-3xl p-6 border border-white/60 shadow-sm relative overflow-hidden">
+      <div className="glass-heavy rounded-3xl p-6 relative overflow-hidden">
         <div className="relative z-10">
-          <h2 className="text-2xl font-black text-txt-dark tracking-tight flex items-center gap-2.5">
+          <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
             <Trophy className="w-6.5 h-6.5 text-amber-500" />
             <span>影视榜单 & 流行风向探索</span>
           </h2>
-          <p className="text-xs text-slate-500 mt-1 max-w-xl leading-relaxed">
+          <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color: "var(--txt-secondary)" }}>
             数据来源于 TMDB 全球流行趋势与豆瓣实时榜单，每日自动更新，追热门、挑高分、发现好片。
           </p>
         </div>
@@ -153,7 +153,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
       </div>
 
       {/* Toggle Tab Navigation for boards */}
-      <div className="flex border-b border-slate-200/40">
+      <div className="flex" style={{ borderBottom: "1px solid var(--border)" }}>
         <button
           onClick={() => setActiveBoard("tmdb")}
           className={`px-5 py-3.5 text-xs font-black relative flex items-center gap-2 transition-all ${
@@ -193,7 +193,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
 
       {/* Loading state */}
       {loading && (
-        <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
+        <div className="flex flex-col items-center justify-center py-20 gap-3" style={{ color: "var(--txt-muted)" }}>
           <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
           <span className="text-xs font-semibold">正在加载榜单数据...</span>
         </div>
@@ -203,7 +203,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
       {!loading && error && (
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <AlertTriangle className="w-8 h-8 text-amber-500" />
-          <p className="text-xs text-slate-500 font-semibold max-w-md text-center">{error}</p>
+          <p className="text-xs font-semibold max-w-md text-center" style={{ color: "var(--txt-secondary)" }}>{error}</p>
           <button
             onClick={() => fetchBoard(activeBoard)}
             className="px-4 py-2 rounded-xl text-xs font-black text-brand-primary border border-brand-primary/30 hover:bg-brand-primary/5 transition-all"
@@ -215,10 +215,10 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
 
       {/* Empty state (loaded but 0 items) */}
       {!loading && !error && items.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
+        <div className="flex flex-col items-center justify-center py-20 gap-3" style={{ color: "var(--txt-muted)" }}>
           <Eye className="w-8 h-8" />
           <p className="text-xs font-semibold">暂无榜单数据</p>
-          <p className="text-[10px] text-slate-400">该来源暂时没有可展示的内容，请稍后刷新</p>
+          <p className="text-[10px]">该来源暂时没有可展示的内容，请稍后刷新</p>
         </div>
       )}
 
@@ -239,25 +239,25 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
             return (
               <div
                 key={`${item.id ?? idx}-${idx}`}
-                className="bg-white/70 backdrop-blur-md rounded-2xl border border-white/60 p-4 flex gap-4 hover:shadow-xs hover:bg-white/85 transition-all relative overflow-hidden"
+                className="glass glass-hover rounded-2xl p-4 flex gap-4 transition-all relative overflow-hidden"
               >
                 {/* Rank badge ribbon */}
                 <div
                   className={`absolute top-0 left-0 w-8 h-8 flex items-center justify-center rounded-br-2xl font-black text-xs text-white ${
                     rankLabel === 1
-                      ? "bg-amber-500 shadow-xs"
+                      ? "bg-amber-500"
                       : rankLabel === 2
                         ? "bg-slate-400"
                         : rankLabel === 3
                           ? "bg-amber-700"
-                          : "bg-slate-300"
+                          : "bg-slate-500"
                   }`}
                 >
                   #{rankLabel}
                 </div>
 
                 {/* Poster cover thumbnail */}
-                <div className="w-20 h-28 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0 relative mt-2">
+                <div className="w-20 h-28 rounded-xl overflow-hidden shrink-0 relative mt-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
                   <img
                     src={poster}
                     alt={title}
@@ -274,12 +274,12 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
                 <div className="flex-1 flex flex-col justify-between pt-1">
                   <div>
                     <div className="flex items-start justify-between gap-2 pl-4">
-                      <h4 className="font-headline font-bold text-sm text-txt-dark truncate leading-snug">
+                      <h4 className="font-headline font-bold text-sm truncate leading-snug" style={{ color: "var(--txt)" }}>
                         {title}
                       </h4>
                     </div>
 
-                    <div className="flex gap-2 items-center text-[10px] text-slate-400 font-bold pl-4 mt-0.5">
+                    <div className="flex gap-2 items-center text-[10px] font-bold pl-4 mt-0.5" style={{ color: "var(--txt-muted)" }}>
                       {rating && (
                         <>
                           <span className="flex items-center text-amber-500 gap-0.5">
@@ -295,23 +295,24 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
                       {item.year && (
                         <>
                           <span>.</span>
-                          <span className="text-slate-400">{item.year}</span>
+                          <span style={{ color: "var(--txt-muted)" }}>{item.year}</span>
                         </>
                       )}
                     </div>
 
                     {badge && <div className="pl-4 mt-1.5">{badge}</div>}
 
-                    <p className="text-xs text-slate-500 line-clamp-2 mt-2 leading-relaxed pl-4">
+                    <p className="text-xs line-clamp-2 mt-2 leading-relaxed pl-4" style={{ color: "var(--txt-secondary)" }}>
                       {desc}
                     </p>
                   </div>
 
                   {/* Action buttons */}
-                  <div className="flex justify-end gap-2 mt-3 pt-3 border-t border-slate-200/40">
+                  <div className="flex justify-end gap-2 mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
                     <button
                       onClick={() => onSearchQuery(title.split(" (")[0])}
-                      className="px-2.5 py-1.5 rounded-lg text-[10px] font-black text-slate-500 hover:text-brand-primary hover:bg-brand-primary/5 transition-all flex items-center gap-1 border border-slate-100"
+                      className="px-2.5 py-1.5 rounded-lg text-[10px] font-black hover:text-brand-primary transition-all flex items-center gap-1 glass-hover"
+                      style={{ color: "var(--txt-secondary)", background: "var(--surface-subtle)", border: "1px solid var(--border)" }}
                     >
                       <Search className="w-3.5 h-3.5" />
                       <span>影视检索</span>
@@ -353,21 +354,22 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
       )}
 
       {/* Bottom widget */}
-      <div className="bg-white/50 backdrop-blur-md border border-white/40 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 hover:bg-white/60 transition-all">
+      <div className="glass glass-hover rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex gap-3 items-center text-left">
-          <div className="w-10 h-10 rounded-full bg-brand-secondary-light/10 text-brand-secondary flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface-subtle)", color: "var(--brand-secondary)" }}>
             <BookmarkCheck className="w-5.5 h-5.5" />
           </div>
           <div>
-            <h4 className="text-xs font-black text-txt-dark">想看的新影视榜单中没有？</h4>
-            <p className="text-[10px] text-slate-400 font-semibold leading-relaxed mt-0.5">
+            <h4 className="text-xs font-black" style={{ color: "var(--txt)" }}>想看的新影视榜单中没有？</h4>
+            <p className="text-[10px] font-semibold leading-relaxed mt-0.5" style={{ color: "var(--txt-muted)" }}>
               您可以直接利用顶部的 磁力云端检索 或在 自动订阅 中配置私有 RSS 地址进行全自动轮询追踪。
             </p>
           </div>
         </div>
         <button
           onClick={() => onSearchQuery("")}
-          className="bg-white/80 backdrop-blur-xs border border-white/60 hover:border-slate-300 text-slate-500 px-4 py-2 rounded-xl text-xs font-black tracking-wider flex items-center gap-1.5 shrink-0 transition-all active:scale-95 shadow-xs"
+          className="px-4 py-2 rounded-xl text-xs font-black tracking-wider flex items-center gap-1.5 shrink-0 transition-all active:scale-95 glass-hover"
+          style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
         >
           <span>立即前往磁力搜索</span>
           <ArrowRight className="w-3.5 h-3.5" />

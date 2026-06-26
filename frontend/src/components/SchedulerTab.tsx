@@ -4,11 +4,21 @@
  * schedulerApi 此前 9 个封装只用了 listTasks。本面板补齐列表/启停/手动运行/创建/编辑/删除，
  * 并展示后端注册的 job_keys 与 jobs 清单（runJob 按 job_key 触发内置任务）。
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, type CSSProperties } from "react";
 import { schedulerApi } from "../api";
 import type { SchedulerTask } from "../api/types";
 import { Clock, Play, Pause, Trash2, Plus, RefreshCw, Calendar, Save, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+
+const sBtnSubtle: CSSProperties = { background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" };
+const sOkSoft: CSSProperties = { background: "rgba(34,197,94,0.14)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.3)" };
+const sWarnSoft: CSSProperties = { background: "rgba(245,158,11,0.14)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.3)" };
+const sDangerSoft: CSSProperties = { background: "rgba(239,68,68,0.14)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" };
+const sOkBadge: CSSProperties = { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" };
+const sWarnBadge: CSSProperties = { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" };
+const sPre: CSSProperties = { background: "var(--surface-subtle)", color: "var(--txt-secondary)" };
+const sInput: CSSProperties = { background: "var(--bg-elev)", color: "var(--txt)", border: "1px solid var(--border)" };
+const sModal: CSSProperties = { background: "var(--bg-elev)", border: "1px solid var(--border-strong)" };
 
 export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ERROR", m: string) => Promise<void> }) {
   const [tasks, setTasks] = useState<SchedulerTask[]>([]);
@@ -60,24 +70,24 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
   return (
     <div className="space-y-6">
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-3 flex items-center gap-2.5">
-          <span className="text-xs font-bold text-red-700">{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 text-xs font-bold">关闭</button>
+        <div className="rounded-2xl px-5 py-3 flex items-center gap-2.5" style={{ background:"rgba(239,68,68,0.14)", border:"1px solid rgba(239,68,68,0.3)" }}>
+          <span className="text-xs font-bold" style={{ color:"var(--accent-danger)" }}>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-xs font-bold" style={{ color:"var(--accent-danger)" }}>关闭</button>
         </div>
       )}
 
-      <div className="bg-gradient-to-br from-cyan-500/10 via-brand-primary/5 to-white/30 backdrop-blur-md rounded-3xl p-6 border border-white/60 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="glass-heavy rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-txt-dark tracking-tight flex items-center gap-2.5">
-            <Clock className="w-6.5 h-6.5 text-cyan-500" />
+          <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color:"var(--txt)" }}>
+            <Clock className="w-6.5 h-6.5" style={{ color:"var(--accent-info)" }} />
             <span>定时任务管理</span>
           </h2>
-          <p className="text-xs text-gray-500 mt-1 max-w-xl leading-relaxed">
+          <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color:"var(--txt-secondary)" }}>
             管理后台 APScheduler 定时任务：启用/暂停、手动运行、创建自定义定时器与删除。任务在本机时区下按 cron 或间隔运行。
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={load} disabled={loading} className="bg-white/80 border border-white/60 text-slate-500 px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 disabled:opacity-50">
+          <button onClick={load} disabled={loading} className="glass-hover px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-1.5 disabled:opacity-50" style={sBtnSubtle}>
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> 刷新
           </button>
           <button
@@ -90,18 +100,18 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
       </div>
 
       {/* Job Keys / Jobs 概览 */}
-      <div className="bg-white/60 backdrop-blur-md rounded-3xl border border-white/60 p-5 shadow-sm">
-        <h3 className="text-sm font-black text-txt-dark flex items-center gap-2 mb-3">
-          <Calendar className="w-4 h-4 text-brand-primary" />
+      <div className="glass rounded-3xl p-5">
+        <h3 className="text-sm font-black flex items-center gap-2 mb-3" style={{ color:"var(--txt)" }}>
+          <Calendar className="w-4 h-4" style={{ color:"var(--brand-primary)" }} />
           <span>内置 Job Keys ({jobKeys.length})</span>
         </h3>
         {jobKeys.length === 0 ? (
-          <p className="text-xs text-slate-400 font-semibold">无内置 job 注册</p>
+          <p className="text-xs font-semibold" style={{ color:"var(--txt-muted)" }}>无内置 job 注册</p>
         ) : (
           <div className="space-y-2">
             {jobKeys.map((k) => (
-              <div key={k} className="flex items-center justify-between bg-white/70 border border-slate-200/50 rounded-lg px-3 py-2">
-                <span className="text-xs font-bold text-txt-dark truncate">{k}</span>
+              <div key={k} className="glass flex items-center justify-between rounded-lg px-3 py-2">
+                <span className="text-xs font-bold truncate" style={{ color:"var(--txt)" }}>{k}</span>
                 <button
                   disabled={busy === `run-${k}`}
                   onClick={() => runBusy(`run-${k}`, `手动运行 ${k}`, () => schedulerApi.runJob(k))}
@@ -114,30 +124,30 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
           </div>
         )}
         {jobs != null && (
-          <pre className="mt-3 text-[10px] text-slate-600 bg-slate-50 rounded-xl p-3 overflow-auto max-h-48 font-mono">{JSON.stringify(jobs, null, 2)}</pre>
+          <pre className="mt-3 text-[10px] rounded-xl p-3 overflow-auto max-h-48 font-mono" style={sPre}>{JSON.stringify(jobs, null, 2)}</pre>
         )}
       </div>
 
       {/* 任务列表 */}
-      <div className="bg-white/60 backdrop-blur-md rounded-3xl border border-white/60 p-5 shadow-sm">
-        <h3 className="text-sm font-black text-txt-dark mb-3">自定义定时任务 ({tasks.length})</h3>
+      <div className="glass rounded-3xl p-5">
+        <h3 className="text-sm font-black mb-3" style={{ color:"var(--txt)" }}>自定义定时任务 ({tasks.length})</h3>
         {loading ? (
-          <p className="text-xs text-slate-400 font-semibold">加载中…</p>
+          <p className="text-xs font-semibold" style={{ color:"var(--txt-muted)" }}>加载中…</p>
         ) : tasks.length === 0 ? (
-          <p className="text-xs text-slate-400 font-semibold">暂无自定义定时任务</p>
+          <p className="text-xs font-semibold" style={{ color:"var(--txt-muted)" }}>暂无自定义定时任务</p>
         ) : (
           <div className="space-y-2">
             {tasks.map((t) => (
-              <div key={t.id} className="bg-white/70 border border-slate-200/50 rounded-xl px-3 py-2.5">
+              <div key={t.id} className="glass rounded-xl px-3 py-2.5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-black text-txt-dark truncate">{t.name}</span>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${t.enabled ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                      <span className="text-xs font-black truncate" style={{ color:"var(--txt)" }}>{t.name}</span>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={t.enabled ? sOkBadge : sWarnBadge}>
                         {t.enabled ? "启用" : "暂停"}
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-bold mt-0.5 truncate">
+                    <div className="text-[10px] font-bold mt-0.5 truncate" style={{ color:"var(--txt-muted)" }}>
                       {t.job_key} · {t.trigger_type || "—"} {t.cron_expr ? `· ${t.cron_expr}` : t.interval_seconds ? `· 每 ${t.interval_seconds}s` : ""}
                     </div>
                   </div>
@@ -149,7 +159,8 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
                           t.enabled ? schedulerApi.pauseTask(t.id) : schedulerApi.enableTask(t.id),
                         )
                       }
-                      className={`p-1.5 rounded-lg border ${t.enabled ? "bg-amber-50 text-amber-600 border-amber-200/50" : "bg-emerald-50 text-emerald-600 border-emerald-200/50"}`}
+                      className="p-1.5 rounded-lg"
+                      style={t.enabled ? sWarnSoft : sOkSoft}
                       title={t.enabled ? "暂停" : "启用"}
                     >
                       {t.enabled ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
@@ -164,8 +175,8 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
                     </button>
                     <button
                       onClick={() => { setEditingTask(t); setShowForm(true); }}
-                      className="p-1.5 rounded-lg bg-slate-50 text-slate-500 border border-slate-200/50"
-                      title="编辑"
+                      className="p-1.5 rounded-lg"
+                      style={sBtnSubtle} title="编辑"
                     >
                       <Save className="w-3.5 h-3.5" />
                     </button>
@@ -175,8 +186,8 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
                         if (!confirm(`删除任务 [${t.name}]？`)) return;
                         runBusy(`del-${t.id}`, `删除 ${t.name}`, () => schedulerApi.deleteTask(t.id));
                       }}
-                      className="p-1.5 rounded-lg bg-red-50 text-red-500 border border-red-200/50"
-                      title="删除"
+                      className="p-1.5 rounded-lg"
+                      style={sDangerSoft} title="删除"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -248,48 +259,48 @@ function SchedulerForm({
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl border border-slate-200 p-6 w-full max-w-lg space-y-4 shadow-xl"
+        className="rounded-2xl p-6 w-full max-w-lg space-y-4" style={sModal}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-black text-txt-dark">{initial ? "编辑定时任务" : "新建定时任务"}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+          <h3 className="text-sm font-black" style={{ color:"var(--txt)" }}>{initial ? "编辑定时任务" : "新建定时任务"}</h3>
+          <button onClick={onClose} style={{ color:"var(--txt-muted)" }}><X className="w-4 h-4" /></button>
         </div>
         <div className="space-y-3">
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500">任务名 *</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <label className="text-xs font-bold" style={{ color:"var(--txt-muted)" }}>任务名 *</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={sInput} />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500">Job Key</label>
-            <select value={jobKey} onChange={(e) => setJobKey(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white">
+            <label className="text-xs font-bold" style={{ color:"var(--txt-muted)" }}>Job Key</label>
+            <select value={jobKey} onChange={(e) => setJobKey(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2" style={sInput}>
               {jobKeys.map((k) => <option key={k} value={k}>{k}</option>)}
             </select>
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500">触发类型</label>
-            <select value={triggerType} onChange={(e) => setTriggerType(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white">
+            <label className="text-xs font-bold" style={{ color:"var(--txt-muted)" }}>触发类型</label>
+            <select value={triggerType} onChange={(e) => setTriggerType(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2" style={sInput}>
               <option value="interval">间隔(interval)</option>
               <option value="cron">Cron 表达式</option>
             </select>
           </div>
           {triggerType === "interval" ? (
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500">间隔秒数</label>
-              <input type="number" value={intervalSeconds ?? ""} onChange={(e) => setIntervalSeconds(e.target.value ? Number(e.target.value) : undefined)} className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2" />
+              <label className="text-xs font-bold" style={{ color:"var(--txt-muted)" }}>间隔秒数</label>
+              <input type="number" value={intervalSeconds ?? ""} onChange={(e) => setIntervalSeconds(e.target.value ? Number(e.target.value) : undefined)} className="w-full text-xs rounded-lg px-3 py-2" style={sInput} />
             </div>
           ) : (
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500">Cron 表达式 (6 字段, 含秒)</label>
-              <input value={cronExpr} onChange={(e) => setCronExpr(e.target.value)} placeholder="0 */15 * * * *" className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 font-mono" />
+              <label className="text-xs font-bold" style={{ color:"var(--txt-muted)" }}>Cron 表达式 (6 字段, 含秒)</label>
+              <input value={cronExpr} onChange={(e) => setCronExpr(e.target.value)} placeholder="0 */15 * * * *" className="w-full text-xs rounded-lg px-3 py-2 font-mono" style={sInput} />
             </div>
           )}
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500">额外 kwargs (JSON, 可选)</label>
-            <textarea rows={2} value={cronKwargs} onChange={(e) => setCronKwargs(e.target.value)} placeholder='{"key":"value"}' className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 font-mono" />
+            <label className="text-xs font-bold" style={{ color:"var(--txt-muted)" }}>额外 kwargs (JSON, 可选)</label>
+            <textarea rows={2} value={cronKwargs} onChange={(e) => setCronKwargs(e.target.value)} placeholder='{"key":"value"}' className="w-full text-xs rounded-lg px-3 py-2 font-mono" style={sInput} />
           </div>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-xs font-bold bg-slate-100 text-slate-500">取消</button>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-xs font-bold" style={sBtnSubtle}>取消</button>
           <button
             onClick={() => {
               const payload: Partial<SchedulerTask> & { kwargs?: Record<string, unknown> } = {
