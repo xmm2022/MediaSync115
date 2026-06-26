@@ -416,13 +416,47 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="bg-brand-primary text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider flex items-center gap-1.5 shrink-0 transition-all active:scale-95 self-start sm:self-auto"
-        >
-          <Plus className="w-4.5 h-4.5" />
-          <span>新增订阅</span>
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+          {/* 频道扫描按钮 */}
+          <div className="flex gap-1">
+            {(["hdhive", "pansou", "tg"] as const).map(ch => (
+              <button
+                key={ch}
+                onClick={async () => {
+                  try {
+                    await subscriptionApi.runChannelCheckBackground(ch);
+                    await addLog("INFO", `已触发 ${ch} 频道后台扫描`);
+                  } catch (err: unknown) { await addLog("ERROR", `触发 ${ch} 扫描失败: ${String(err)}`); }
+                }}
+                className="px-2 py-1.5 rounded-lg text-[9px] font-black glass-hover transition-all"
+                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+                title={`后台运行 ${ch} 频道扫描`}
+              >
+                {ch === "hdhive" ? "HDHive" : ch === "pansou" ? "Pansou" : "TG"}
+              </button>
+            ))}
+            <button
+              onClick={async () => {
+                try {
+                  await subscriptionApi.runAllChannelsCheckBackground(true);
+                  await addLog("INFO", "已触发全频道后台扫描");
+                } catch (err: unknown) { await addLog("ERROR", `全频道扫描失败: ${String(err)}`); }
+              }}
+              className="px-2 py-1.5 rounded-lg text-[9px] font-black text-white"
+              style={{ background: "var(--brand-primary)" }}
+              title="后台运行全部频道扫描"
+            >
+              全部
+            </button>
+          </div>
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="bg-brand-primary text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider flex items-center gap-1.5 shrink-0 transition-all active:scale-95 self-start sm:self-auto"
+          >
+            <Plus className="w-4.5 h-4.5" />
+            <span>新增订阅</span>
+          </button>
+        </div>
       </div>
 
       {/* 缺集总览：GET /api/subscriptions/missing-status/tv */}

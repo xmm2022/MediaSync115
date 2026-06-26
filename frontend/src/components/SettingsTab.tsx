@@ -129,6 +129,18 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   // 健康总览
   const [healthAll, setHealthAll] = useState<unknown>(null);
 
+  // TG 登录状态
+  const [tgLoginStatus, setTgLoginStatus] = useState<unknown>(null);
+
+  // Bot 状态
+  const [botStatus, setBotStatus] = useState<unknown>(null);
+
+  // HDHive 登录状态
+  const [hdhiveLoginStatus, setHdhiveLoginStatus] = useState<unknown>(null);
+
+  // 可用榜单
+  const [availableCharts, setAvailableCharts] = useState<unknown>(null);
+
   // HDHive 登录凭据
   const [hdhiveUser, setHdhiveUser] = useState("");
   const [hdhivePass, setHdhivePass] = useState("");
@@ -139,9 +151,55 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [feiniuUrlField, setFeiniuUrlField] = useState("");
   const [feiniuKey, setFeiniuKey] = useState("");
 
+  // TG QR 登录状态
+  const [tgQrToken, setTgQrToken] = useState<string | null>(null);
+  const [tgQrImage, setTgQrImage] = useState<string | null>(null);
+  const [tgQrPolling, setTgQrPolling] = useState(false);
+  const [tgQrStatus, setTgQrStatus] = useState<string | null>(null);
+
   // TG 密码登录
   const [tgPassword, setTgPassword] = useState("");
   const [tgSession, setTgSession] = useState("");
+
+  // TG QR 登录 + 轮询
+  const startTgQrLogin = async () => {
+    setTgQrPolling(true);
+    setTgQrStatus("启动中…");
+    try {
+      const startResp = await settingsApi.tgStartQrLogin();
+      const data = startResp.data as { token?: string; qr_image?: string };
+      if (data.token) {
+        setTgQrToken(data.token);
+        setTgQrImage(data.qr_image || null);
+        setTgQrStatus("请用 Telegram 扫描二维码");
+        // Poll for login status every 2s, up to 30 times (60s)
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const statusResp = await settingsApi.tgCheckQrLogin(data.token);
+            const sData = statusResp.data as { status?: string; message?: string };
+            if (sData.status === "authorized" || sData.status === "success") {
+              setTgQrStatus("登录成功!");
+              setTgQrImage(null);
+              setTgQrToken(null);
+              break;
+            }
+            if (sData.status === "cancelled" || sData.status === "expired") {
+              setTgQrStatus(`二维码已${sData.status === "expired" ? "过期" : "取消"}`);
+              break;
+            }
+            setTgQrStatus("等待扫码…");
+          } catch { /* poll error — keep trying */ }
+        }
+      } else {
+        setTgQrStatus("启动二维码失败: 无 token");
+      }
+    } catch (err: unknown) {
+      setTgQrStatus(`启动失败: ${String(err)}`);
+    } finally {
+      setTgQrPolling(false);
+    }
+  };
 
   const resultOf = (key: string) => lastResult[key];
   const isBusy = (key: string) => busy === key;
@@ -187,6 +245,28 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       }
     };
     loadConfig();
+
+    // Auto-load service integration data (fire-and-forget, non-blocking)
+    const loadServices = async () => {
+      const safe = <T,>(p: Promise<T>) => p.catch(() => null);
+      const [health, quarkInfo, pansouCfg, proxyCfg, botStatus, hdhiveStatus, charts] = await Promise.all([
+        safe(settingsApi.checkAllHealth()),
+        safe(quarkApi.getCookieInfo()),
+        safe(pansouApi.getConfig()),
+        safe(settingsApi.getProxy()),
+        safe(settingsApi.getTgBotStatus()),
+        safe(settingsApi.checkHdhive()),
+        safe(settingsApi.getAvailableCharts()),
+      ]);
+      if (health) setHealthAll(health.data);
+      if (quarkInfo) setQuarkCookie(String((quarkInfo.data as Record<string, unknown>)?.cookie || ""));
+      if (pansouCfg) setPansouConfig(pansouCfg.data as Record<string, unknown>);
+      if (proxyCfg) setProxyInfo(proxyCfg.data);
+      if (botStatus) setBotStatus(botStatus.data);
+      if (hdhiveStatus) setHdhiveLoginStatus(hdhiveStatus.data);
+      if (charts) setAvailableCharts(charts.data);
+    };
+    void loadServices();
   }, []);
 
   // Save settings to real backend: runtime settings PUT + 115 cookie update
@@ -454,23 +534,39 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           {resultOf("tgPwd") && <p className="text-[10px] font-bold" style={{ color: resultOf("tgPwd")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>{resultOf("tgPwd")!.msg}</p>}
 
           {/* QR 登录 */}
-          <div className="flex gap-2 items-center">
-            <button
-              disabled={isBusy("tgQr")}
-              onClick={() => runAction("tgQr", "启动 TG 二维码登录", () => settingsApi.tgStartQrLogin())}
-              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
-              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-            >
-              <QrCode className="w-3 h-3" /> 启动二维码登录
-            </button>
-            <button
-              disabled={isBusy("tgLogout")}
-              onClick={() => runAction("tgLogout", "TG 退出登录", () => settingsApi.tgLogout())}
-              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
-              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-            >
-              <Trash2 className="w-3 h-3" /> 退出登录
-            </button>
+          <div className="space-y-2">
+            <div className="flex gap-2 items-center flex-wrap">
+              <button
+                disabled={tgQrPolling}
+                onClick={startTgQrLogin}
+                className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+              >
+                <QrCode className="w-3 h-3" /> {tgQrPolling ? "轮询中…" : "启动二维码登录"}
+              </button>
+              <button
+                disabled={isBusy("tgLogout")}
+                onClick={() => runAction("tgLogout", "TG 退出登录", () => settingsApi.tgLogout())}
+                className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+              >
+                <Trash2 className="w-3 h-3" /> 退出登录
+              </button>
+            </div>
+            {/* QR code image + status */}
+            {tgQrImage && (
+              <div className="flex items-start gap-4 p-3 rounded-xl" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                <img src={tgQrImage} alt="TG QR Code" className="w-32 h-32 rounded-lg border" />
+                <div>
+                  <p className="text-xs font-black" style={{ color: "var(--txt)" }}>Telegram 扫码登录</p>
+                  <p className="text-[10px] font-semibold mt-1" style={{ color: "var(--txt-secondary)" }}>{tgQrStatus || "准备中…"}</p>
+                  <p className="text-[9px] mt-2" style={{ color: "var(--txt-muted)" }}>用 Telegram 客户端扫描二维码即可登录</p>
+                </div>
+              </div>
+            )}
+            {tgQrStatus && !tgQrImage && (
+              <p className="text-[10px] font-bold" style={{ color: tgQrStatus.includes("成功") ? "var(--accent-ok)" : "var(--txt-muted)" }}>{tgQrStatus}</p>
+            )}
           </div>
 
           {/* 索引管理 */}

@@ -15,7 +15,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   FolderOpen, File, Search, Plus, Trash2, RefreshCw, RotateCcw, HardDrive,
   Shield, User, AlertTriangle, CheckCircle2, Upload, FolderPlus, Download,
-  Layers, X, ChevronRight, Home, Database, Zap, Info,
+  Layers, X, ChevronRight, Home, Database, Zap, Info, FileText, Share2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { pan115Api } from "../api/pan115";
@@ -415,6 +415,93 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
     }
   };
 
+  // ---- 文件操作: 重命名 / 删除 / 复制链接 ----
+  const [renamingFile, setRenamingFile] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const handleRenameFile = async (fid: string, newName: string) => {
+    if (!newName.trim()) return;
+    try {
+      await pan115Api.renameFile(fid, newName.trim());
+      setRenamingFile(null);
+      await addLog("SUCCESS", `已重命名为: ${newName.trim()}`);
+      await loadFiles(currentCid);
+    } catch (err: unknown) { await addLog("ERROR", `重命名失败: ${String(err)}`); }
+  };
+
+  const handleDeleteFile = async (file: Pan115File) => {
+    if (!confirm(`确定删除 [${file.name}]？此操作不可撤销。`)) return;
+    try {
+      await pan115Api.deleteFile(file.fid);
+      await addLog("WARN", `已删除: ${file.name}`);
+      await loadFiles(currentCid);
+    } catch (err: unknown) { await addLog("ERROR", `删除失败: ${String(err)}`); }
+  };
+
+  const handleCopyDownloadUrl = async (pickCode: string, name: string) => {
+    try {
+      const resp = await pan115Api.getDownloadUrl(pickCode);
+      const url = String((resp.data as Record<string, unknown>)?.url || (resp.data as Record<string, unknown>)?.download_url || "");
+      if (url) {
+        await navigator.clipboard.writeText(url);
+        await addLog("SUCCESS", `已复制下载链接: ${name}`);
+      } else {
+        await addLog("WARN", `无法获取下载链接: ${name}`);
+      }
+    } catch (err: unknown) { await addLog("ERROR", `获取下载链接失败: ${String(err)}`); }
+  };
+
+  // ---- 分享管理: 解析 + 浏览 + 保存 ----
+  interface ShareState {
+    shareUrl: string;
+    receiveCode: string;
+    files: { file_id: string; name: string; size?: number }[];
+    shareCode: string;
+    loading: boolean;
+    error: string;
+  }
+  const [share, setShare] = useState<ShareState>({ shareUrl: "", receiveCode: "", files: [], shareCode: "", loading: false, error: "" });
+  const [showShare, setShowShare] = useState(false);
+
+  const handleParseShare = async () => {
+    if (!share.shareUrl.trim()) return;
+    setShare(s => ({ ...s, loading: true, error: "", files: [] }));
+    try {
+      const resp = await pan115Api.parseShareLink(share.shareUrl.trim());
+      const d = resp.data as Record<string, unknown>;
+      const sc = String(d.share_code || d.code || d.receive_code || "");
+      const rc = share.receiveCode || String(d.receive_code || d.access_code || "");
+      setShare(s => ({ ...s, shareCode: sc, receiveCode: rc, loading: false }));
+      // Load share file list
+      if (sc) {
+        const flResp = await pan115Api.getShareFileList(sc, rc);
+        const flData = flResp.data as { files?: unknown[]; list?: unknown[]; data?: unknown[] } | unknown[];
+        const rawFiles = Array.isArray(flData)
+          ? flData
+          : (flData as Record<string, unknown>)?.files || (flData as Record<string, unknown>)?.list || (flData as Record<string, unknown>)?.data || [];
+        setShare(s => ({ ...s, files: (rawFiles as Record<string, unknown>[]).map(f => ({ file_id: String(f.file_id || f.fid || ""), name: String(f.name || f.file_name || ""), size: Number(f.size || 0) })), loading: false }));
+      }
+    } catch (err: unknown) {
+      setShare(s => ({ ...s, loading: false, error: `解析失败: ${String(err)}` }));
+    }
+  };
+
+  const handleSaveShareFile = async (fileId: string, name: string) => {
+    if (!share.shareCode) return;
+    try {
+      await pan115Api.saveShareFile(share.shareCode, fileId, "0", share.receiveCode);
+      await addLog("SUCCESS", `已保存分享文件: ${name}`);
+    } catch (err: unknown) { await addLog("ERROR", `保存失败: ${String(err)}`); }
+  };
+
+  const handleSaveAllShare = async () => {
+    if (!share.shareCode) return;
+    try {
+      await pan115Api.saveShareAll(share.shareCode, "0", share.receiveCode);
+      await addLog("SUCCESS", `已提交全部分享文件转存`);
+    } catch (err: unknown) { await addLog("ERROR", `转存失败: ${String(err)}`); }
+  };
+
   // ---- 初始化 ----
   useEffect(() => {
     loadStatus();
@@ -726,10 +813,49 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                       </p>
                     </div>
 
-                    {/* 进入箭头（仅文件夹） */}
-                    {file.type === "folder" && (
-                      <ChevronRight className="w-4 h-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "var(--txt-muted)" }} />
-                    )}
+                    {/* 文件操作按钮 */}
+                    <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {file.type === "folder" ? (
+                        <ChevronRight className="w-4 h-4" style={{ color: "var(--txt-muted)" }} />
+                      ) : (
+                        <>
+                          {renamingFile === file.fid ? (
+                            <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                              <input
+                                autoFocus
+                                value={renameValue}
+                                onChange={e => setRenameValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter") handleRenameFile(file.fid, renameValue); if (e.key === "Escape") setRenamingFile(null); }}
+                                className="w-24 px-1.5 py-0.5 text-[10px] rounded border outline-none"
+                                style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                              />
+                              <button onClick={() => handleRenameFile(file.fid, renameValue)}
+                                className="text-[9px] px-1.5 py-0.5 rounded font-bold" style={{ background: "var(--brand-primary)", color: "#fff" }}>确定</button>
+                            </div>
+                          ) : (
+                            <>
+                              {file.pickCode && (
+                                <button onClick={(e) => { e.stopPropagation(); handleCopyDownloadUrl(file.pickCode, file.name); }}
+                                  className="p-1 rounded hover:bg-[var(--surface-hover)]" title="复制下载链接"
+                                  style={{ color: "var(--txt-muted)" }}>
+                                  <Download className="w-3 h-3" />
+                                </button>
+                              )}
+                              <button onClick={(e) => { e.stopPropagation(); setRenamingFile(file.fid); setRenameValue(file.name); }}
+                                className="p-1 rounded hover:bg-[var(--surface-hover)]" title="重命名"
+                                style={{ color: "var(--txt-muted)" }}>
+                                <FileText className="w-3 h-3" />
+                              </button>
+                              <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }}
+                                className="p-1 rounded hover:bg-[rgba(239,68,68,0.12)]" title="删除"
+                                style={{ color: "var(--accent-danger)" }}>
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -923,12 +1049,85 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
             </div>
           </div>
 
+          {/* 分享链接管理 */}
+          <div className="glass rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+                <Share2 className="w-3.5 h-3.5" style={{ color: "var(--brand-primary)" }} />
+                <span>分享链接转存</span>
+              </h4>
+              <button onClick={() => setShowShare(!showShare)}
+                className="text-[10px] font-bold px-2 py-1 rounded-lg glass-hover"
+                style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+                {showShare ? "收起" : "展开"}
+              </button>
+            </div>
+            {showShare && (
+              <div className="space-y-2">
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="115 分享链接"
+                    value={share.shareUrl}
+                    onChange={e => setShare(s => ({ ...s, shareUrl: e.target.value }))}
+                    className="flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold outline-none"
+                    style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="提取码"
+                    value={share.receiveCode}
+                    onChange={e => setShare(s => ({ ...s, receiveCode: e.target.value }))}
+                    className="w-20 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold outline-none"
+                    style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
+                  />
+                  <button
+                    onClick={handleParseShare}
+                    disabled={share.loading || !share.shareUrl.trim()}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {share.loading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                    解析
+                  </button>
+                </div>
+                {share.error && <p className="text-[10px] font-semibold" style={{ color: "var(--accent-danger)" }}>{share.error}</p>}
+                {share.files.length > 0 && (
+                  <div className="space-y-1 max-h-[200px] overflow-y-auto pr-1">
+                    {share.files.slice(0, 30).map(f => (
+                      <div key={f.file_id} className="flex items-center justify-between rounded-lg px-2 py-1.5"
+                        style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                        <span className="text-[10px] font-semibold truncate" style={{ color: "var(--txt)" }}>{f.name}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {f.size && f.size > 0 && (
+                            <span className="text-[8px] font-semibold" style={{ color: "var(--txt-muted)" }}>{formatBytes(f.size)}</span>
+                          )}
+                          <button onClick={() => handleSaveShareFile(f.file_id, f.name)}
+                            className="px-1.5 py-0.5 rounded text-[8px] font-black text-white"
+                            style={{ background: "var(--brand-primary)" }}>
+                            转存
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {share.files.length > 1 && (
+                      <button onClick={handleSaveAllShare}
+                        className="w-full py-1.5 rounded-lg text-[10px] font-black text-white mt-1"
+                        style={{ background: "var(--brand-primary)" }}>
+                        全部转存 ({share.files.length} 个文件)
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* 使用提示 */}
           <div className="rounded-2xl p-3 flex gap-2 items-start"
             style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.14)" }}>
             <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--brand-primary)" }} />
             <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--brand-primary)" }}>
-              点击文件夹即可进入浏览；离线任务支持磁力 / HTTP / ED2K 链接。设置默认文件夹后，新增离线任务将直接下载到指定目录。
+              点击文件夹即可进入浏览；离线任务支持磁力 / HTTP / ED2K 链接。分享链接解析后可选择单个或全量转存到网盘。
             </p>
           </div>
         </div>
