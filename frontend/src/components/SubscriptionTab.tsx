@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import type { SubscriptionItem } from "../api/types";
+import type { SubscriptionItem, SubscriptionSource, DownloadRecord } from "../api/types";
 import { subscriptionApi } from "../api";
-import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle } from "lucide-react";
+import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import type { SyncDirectory } from "../types";
 
@@ -92,6 +92,141 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const [autoDownload, setAutoDownload] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ---- 缺集总览 (GET /subscriptions/missing-status/tv) ----
+  type MissingOverviewItem = {
+    subscription_id: number;
+    tmdb_id: number | null;
+    title: string;
+    status: string;
+    message?: string;
+    aired_count: number;
+    existing_count: number;
+    missing_count: number;
+    missing_by_season: Record<string, unknown>;
+  };
+  const [missingOverview, setMissingOverview] = useState<MissingOverviewItem[] | null>(null);
+  const [missingOverviewLoading, setMissingOverviewLoading] = useState(false);
+
+  // ---- 展开详情（缺集明细 / 来源 / 下载） ----
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailMissing, setDetailMissing] = useState<Record<string, unknown> | null>(null);
+  const [detailSources, setDetailSources] = useState<SubscriptionSource[]>([]);
+  const [detailDownloads, setDetailDownloads] = useState<DownloadRecord[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [newSourceUrl, setNewSourceUrl] = useState("");
+  const [newSourceCode, setNewSourceCode] = useState("");
+  const [addingSource, setAddingSource] = useState(false);
+
+  // 缺集总览加载
+  const loadMissingOverview = async () => {
+    setMissingOverviewLoading(true);
+    try {
+      const resp = await subscriptionApi.getTvMissingStatus({ only_missing: true, limit: 200 });
+      const data = (resp as { data?: { items?: MissingOverviewItem[] } }).data;
+      setMissingOverview(data?.items ?? []);
+    } catch (err) {
+      // 未配置 Emby/TMDB 或无 TV 订阅时静默：列表可能为空属正常
+      console.warn("missing overview failed", err);
+      setMissingOverview([]);
+    } finally {
+      setMissingOverviewLoading(false);
+    }
+  };
+
+  // 展开某订阅详情
+  const loadDetail = async (sub: SubscriptionItem) => {
+    setDetailLoading(true);
+    setDetailMissing(null);
+    setDetailSources([]);
+    setDetailDownloads([]);
+    try {
+      const tasks: Promise<unknown>[] = [];
+      if (sub.media_type === "tv") {
+        tasks.push(
+          subscriptionApi.getSubscriptionTvMissingStatus(sub.id).then((r) => setDetailMissing((r as { data?: Record<string, unknown> }).data ?? null)).catch(() => setDetailMissing(null)),
+        );
+      }
+      tasks.push(
+        subscriptionApi.listSources(sub.id).then((r) => setDetailSources((r as { data?: SubscriptionSource[] }).data ?? [])).catch(() => setDetailSources([])),
+      );
+      tasks.push(
+        subscriptionApi.getDownloads(sub.id).then((r) => setDetailDownloads((r as { data?: DownloadRecord[] }).data ?? [])).catch(() => setDetailDownloads([])),
+      );
+      await Promise.all(tasks);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const toggleExpand = (sub: SubscriptionItem) => {
+    if (expandedId === sub.id) {
+      setExpandedId(null);
+    } else {
+      setExpandedId(sub.id);
+      void loadDetail(sub);
+    }
+  };
+
+  // 来源增删启停扫描
+  const handleAddSource = async (sub: SubscriptionItem) => {
+    if (!newSourceUrl.trim()) return;
+    setAddingSource(true);
+    try {
+      await subscriptionApi.createSource(sub.id, {
+        share_url: newSourceUrl.trim(),
+        receive_code: newSourceCode.trim() || undefined,
+      });
+      setNewSourceUrl("");
+      setNewSourceCode("");
+      await loadDetail(sub);
+      await addLog("SUCCESS", `订阅 [${sub.title}] 新增来源`);
+    } catch (err) {
+      console.error("add source failed", err);
+      setErrorMessage("新增来源失败");
+    } finally {
+      setAddingSource(false);
+    }
+  };
+
+  const handleToggleSource = async (sub: SubscriptionItem, src: SubscriptionSource) => {
+    try {
+      await subscriptionApi.updateSource(sub.id, String(src.id), { enabled: !src.enabled });
+      setDetailSources(prev => prev.map(s => s.id === src.id ? { ...s, enabled: !src.enabled } : s));
+    } catch (err) {
+      console.error("toggle source failed", err);
+    }
+  };
+
+  const handleDeleteSource = async (sub: SubscriptionItem, src: SubscriptionSource) => {
+    if (!confirm(`删除来源 [${src.display_name || src.source_type}]？`)) return;
+    try {
+      await subscriptionApi.deleteSource(sub.id, String(src.id));
+      setDetailSources(prev => prev.filter(s => s.id !== src.id));
+    } catch (err) {
+      console.error("delete source failed", err);
+    }
+  };
+
+  const handleScanSource = async (sub: SubscriptionItem, src: SubscriptionSource) => {
+    try {
+      await subscriptionApi.scanSource(sub.id, String(src.id));
+      await addLog("INFO", `已触发来源 [${src.display_name || src.source_type}] 扫描`);
+      await loadDetail(sub);
+    } catch (err) {
+      console.error("scan source failed", err);
+      setErrorMessage("扫描来源失败（超时或后端错误）");
+    }
+  };
+
+  const handleDeleteDownload = async (sub: SubscriptionItem, dl: DownloadRecord) => {
+    try {
+      await subscriptionApi.deleteDownload(sub.id, String(dl.id));
+      setDetailDownloads(prev => prev.filter(d => d.id !== dl.id));
+    } catch (err) {
+      console.error("delete download failed", err);
+    }
+  };
+
   // ---- Load subscriptions from real backend ----
   const loadSubscriptions = async () => {
     setIsLoading(true);
@@ -109,6 +244,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
 
   useEffect(() => {
     loadSubscriptions();
+    loadMissingOverview();
   }, []);
 
   // ---- Create subscription ----
@@ -234,6 +370,51 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
           <Plus className="w-4.5 h-4.5" />
           <span>新增订阅</span>
         </button>
+      </div>
+
+      {/* 缺集总览：GET /api/subscriptions/missing-status/tv */}
+      <div className="bg-white/60 backdrop-blur-md rounded-3xl border border-white/60 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-black text-txt-dark flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-500" />
+            <span>TV 缺集总览</span>
+            <span className="text-[10px] font-bold text-slate-400">
+              {missingOverviewLoading ? "加载中…" : `共 ${missingOverview?.length ?? 0} 个有缺集的订阅`}
+            </span>
+          </h3>
+          <button
+            onClick={loadMissingOverview}
+            disabled={missingOverviewLoading}
+            className="text-[10px] font-bold text-brand-primary hover:bg-brand-primary/5 px-2 py-1 rounded-lg flex items-center gap-1 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${missingOverviewLoading ? "animate-spin" : ""}`} />
+            刷新
+          </button>
+        </div>
+        {missingOverview && missingOverview.length === 0 && !missingOverviewLoading && (
+          <p className="text-xs text-slate-400 font-semibold py-2">
+            {missingOverview === null ? "" : "暂无缺集（所有 TV 订阅均已补齐，或未配置 Emby/TMDB）"}
+          </p>
+        )}
+        {missingOverview && missingOverview.length > 0 && (
+          <div className="space-y-2">
+            {missingOverview.map((m) => (
+              <div key={m.subscription_id} className="flex items-center justify-between gap-3 bg-amber-50/60 border border-amber-200/40 rounded-xl px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-txt-dark truncate">{m.title}</div>
+                  <div className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                    {m.status === "no_tmdb" ? "缺少 TMDB ID" : `已入库 ${m.existing_count} / 已播 ${m.aired_count}`}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end shrink-0">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-700">
+                    缺 {m.missing_count} 集
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Add Subscription Form Drawer */}
@@ -440,10 +621,12 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
               const progress = deriveProgress(sub);
               const rssSource = deriveRssSource(sub);
               const lastUpdated = (sub.updated_at || sub.created_at || "").toString().replace("T", " ").substring(0, 19);
+              const isExpanded = expandedId === sub.id;
 
               return (
+                <div key={sub.id} className="space-y-2">
                 <div
-                  key={sub.id}
+                  key={sub.id + "-card"}
                   className="bg-white/70 backdrop-blur-md rounded-2xl border border-white/60 p-4 flex gap-4 hover:shadow-xs hover:bg-white/85 transition-all relative overflow-hidden"
                 >
                   {/* Poster */}
@@ -498,6 +681,15 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                       </span>
 
                       <div className="flex items-center gap-1.5">
+                        {/* Expand detail */}
+                        <button
+                          onClick={() => toggleExpand(sub)}
+                          className={`p-1.5 rounded-lg border transition-all flex items-center gap-1 ${isExpanded ? "bg-brand-primary/10 text-brand-primary border-brand-primary/30" : "bg-slate-50 text-slate-500 border-slate-200/50 hover:bg-slate-100"}`}
+                          title="展开缺集/来源/下载"
+                        >
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                        </button>
+
                         {/* Play/Pause toggle */}
                         <button
                           onClick={() => handleToggleStatus(sub)}
@@ -526,6 +718,179 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                       </div>
                     </div>
                   </div>
+                </div>
+
+                {/* 展开详情面板 */}
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="bg-white/50 backdrop-blur-md rounded-2xl border border-slate-200/40 p-3 space-y-3">
+                        {detailLoading && (
+                          <div className="text-[10px] text-slate-400 font-bold py-2">加载详情中…</div>
+                        )}
+
+                        {/* 缺集明细（仅 TV） */}
+                        {sub.media_type === "tv" && detailMissing && (
+                          <div>
+                            <div className="flex items-center gap-1.5 text-[10px] font-black text-txt-dark mb-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                              <span>缺集明细</span>
+                            </div>
+                            {(() => {
+                              const dm = detailMissing as {
+                                status?: string; message?: string;
+                                counts?: { aired?: number; existing?: number; missing?: number };
+                                missing_by_season?: Record<string, unknown>;
+                                missing_episodes?: unknown[];
+                              };
+                              if (dm.status === "no_tmdb") {
+                                return <p className="text-[10px] text-slate-400 font-semibold">缺少 TMDB ID，无法比对</p>;
+                              }
+                              const counts = dm.counts || {};
+                              const seasons = dm.missing_by_season || {};
+                              const seasonKeys = Object.keys(seasons);
+                              return (
+                                <div className="space-y-1">
+                                  <p className="text-[10px] text-slate-500 font-bold">
+                                    已入库 {counts.existing ?? 0} / 已播 {counts.aired ?? 0} / 缺 {counts.missing ?? 0}
+                                  </p>
+                                  {seasonKeys.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1">
+                                      {seasonKeys.map(sk => (
+                                        <span key={sk} className="text-[9px] bg-amber-50 text-amber-700 font-bold px-1.5 py-0.5 rounded border border-amber-200/50">
+                                          S{sk}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-[10px] text-emerald-600 font-bold">无缺集，已全部入库</p>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+
+                        {/* 来源管理 */}
+                        <div>
+                          <div className="flex items-center gap-1.5 text-[10px] font-black text-txt-dark mb-1.5">
+                            <Link2 className="w-3.5 h-3.5 text-brand-primary" />
+                            <span>订阅来源 ({detailSources.length})</span>
+                          </div>
+                          {detailSources.length === 0 ? (
+                            <p className="text-[10px] text-slate-400 font-semibold">暂无来源（仅靠系统自动扫描）</p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {detailSources.map(src => (
+                                <div key={src.id} className="flex items-center justify-between gap-2 bg-white/70 border border-slate-200/50 rounded-lg px-2 py-1.5">
+                                  <div className="min-w-0">
+                                    <div className="text-[10px] font-bold text-txt-dark truncate">
+                                      {src.display_name || src.source_type}
+                                    </div>
+                                    <div className="text-[9px] text-slate-400 font-semibold truncate">
+                                      {src.enabled ? "启用" : "已禁用"}
+                                      {src.last_scan_status ? ` · ${src.last_scan_status}` : ""}
+                                      {src.last_error ? ` · ${src.last_error}` : ""}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      onClick={() => handleToggleSource(sub, src)}
+                                      className={`px-1.5 py-1 rounded text-[9px] font-bold border ${src.enabled ? "bg-amber-50 text-amber-600 border-amber-200/50" : "bg-emerald-50 text-emerald-600 border-emerald-200/50"}`}
+                                      title={src.enabled ? "禁用" : "启用"}
+                                    >
+                                      {src.enabled ? "停" : "启"}
+                                    </button>
+                                    <button
+                                      onClick={() => handleScanSource(sub, src)}
+                                      className="p-1 rounded text-brand-primary hover:bg-brand-primary/10 border border-slate-200/50"
+                                      title="扫描此来源"
+                                    >
+                                      <RefreshCw className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteSource(sub, src)}
+                                      className="p-1 rounded text-red-500 hover:bg-red-50 border border-slate-200/50"
+                                      title="删除来源"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {/* 新增来源 */}
+                          <div className="flex gap-1.5 mt-2">
+                            <input
+                              type="text"
+                              placeholder="分享链接 url"
+                              value={newSourceUrl}
+                              onChange={(e) => setNewSourceUrl(e.target.value)}
+                              className="flex-1 min-w-0 text-[10px] border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-brand-primary"
+                            />
+                            <input
+                              type="text"
+                              placeholder="提取码"
+                              value={newSourceCode}
+                              onChange={(e) => setNewSourceCode(e.target.value)}
+                              className="w-20 text-[10px] border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-brand-primary"
+                            />
+                            <button
+                              onClick={() => handleAddSource(sub)}
+                              disabled={addingSource || !newSourceUrl.trim()}
+                              className="px-2 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+                            >
+                              <Plus className="w-3 h-3" />
+                              添加
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 下载记录 */}
+                        <div>
+                          <div className="flex items-center gap-1.5 text-[10px] font-black text-txt-dark mb-1.5">
+                            <Database className="w-3.5 h-3.5 text-slate-500" />
+                            <span>下载记录 ({detailDownloads.length})</span>
+                          </div>
+                          {detailDownloads.length === 0 ? (
+                            <p className="text-[10px] text-slate-400 font-semibold">暂无下载记录</p>
+                          ) : (
+                            <div className="space-y-1">
+                              {detailDownloads.map(dl => (
+                                <div key={dl.id} className="flex items-center justify-between gap-2 bg-white/70 border border-slate-200/50 rounded-lg px-2 py-1.5">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    {dl.status === "completed" || dl.status === "offline_completed"
+                                      ? <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                                      : dl.status === "failed"
+                                        ? <XCircle className="w-3 h-3 text-red-500 shrink-0" />
+                                        : <ClipboardList className="w-3 h-3 text-slate-400 shrink-0" />}
+                                    <span className="text-[10px] font-bold text-txt-dark truncate">{dl.resource_name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="text-[9px] text-slate-400 font-bold uppercase">{dl.status}</span>
+                                    <button
+                                      onClick={() => handleDeleteDownload(sub, dl)}
+                                      className="p-1 rounded text-red-400 hover:bg-red-50"
+                                      title="删除记录"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 </div>
               );
             })}
