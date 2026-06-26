@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { PageName, SyncDirectory, SyncLog, type DetailContext } from "./types";
-import { logsApi, archiveApi, workflowApi } from "./api";
+import { logsApi, archiveApi, workflowApi, authApi } from "./api";
 import type { WorkflowItem } from "./api/types";
+import { AUTH_REQUIRED_EVENT, getApiErrorMessage } from "./api/errors";
 import { waitForBackendReady } from "./utils/health";
 import { ACTIVE_ARCHIVE_TASK_STATUS } from "./utils/runtimeDefaults";
 import DashboardTab from "./components/DashboardTab";
@@ -42,6 +43,11 @@ import {
   Sun,
   Moon,
   Layers,
+  LogIn,
+  LogOut,
+  Lock,
+  User,
+  Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useTheme } from "./utils/useTheme";
@@ -57,89 +63,121 @@ export default function App() {
   // Backend ready state
   const [backendReady, setBackendReady] = useState(false);
   const [backendError, setBackendError] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [authUsername, setAuthUsername] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
 
   // 主题切换（深色玻璃拟态默认，持久化到 localStorage）
   const { theme, toggle: toggleTheme } = useTheme();
 
-  // Wait for backend and load initial data
+  const loadInitialData = useCallback(async (isCancelled: () => boolean = () => false) => {
+    // 1. Load directories from archive API (folders + config + tasks)
+    try {
+      const [foldersRes, configRes, tasksRes] = await Promise.all([
+        archiveApi.listFolders("0"),
+        archiveApi.getConfig(),
+        archiveApi.listTasks({ status: ACTIVE_ARCHIVE_TASK_STATUS, limit: 50 }).catch(() => ({ data: [] })),
+      ]);
+      const folderData = foldersRes.data;
+      const configData = configRes.data;
+      const tasksData = (tasksRes as { data: unknown }).data;
+      const tasksArr: Record<string, unknown>[] = Array.isArray(tasksData) ? tasksData as Record<string, unknown>[] : [];
+      const hasActiveTask = tasksArr.length > 0;
+
+      const dirs: SyncDirectory[] = [];
+      if (Array.isArray(folderData)) {
+        for (const f of folderData.slice(0, 20)) {
+          dirs.push({
+            id: f.cid || String((f as Record<string, string>).id || "") || `dir-${dirs.length}`,
+            name: f.name || f.cid || "未知目录",
+            localPath: String((configData as Record<string, string>).archive_watch_cid || ""),
+            folderId115: f.cid || "",
+            targetClient: "emby",
+            status: hasActiveTask ? "syncing" : "idle",
+            speed: "-",
+            progress: 0,
+            enabled: Boolean((configData as Record<string, unknown>).archive_enabled),
+            totalSize: "-",
+            itemCount: 0,
+          });
+        }
+      }
+      if (!isCancelled()) setDirectories(dirs);
+    } catch (err) {
+      console.error("Failed to load directories from archive API:", err);
+    }
+
+    // 2. Load logs from logs API
+    try {
+      const logsRes = await logsApi.list({ limit: 50, offset: 0 });
+      const logData = logsRes.data;
+      if (logData && Array.isArray(logData.items)) {
+        const mapped: SyncLog[] = logData.items.map((item) => ({
+          id: String(item.id),
+          timestamp: item.created_at || "",
+          level: mapLogLevel(item.status),
+          message: item.message || "",
+        }));
+        if (!isCancelled()) setLogs(mapped);
+      }
+    } catch (err) {
+      console.error("Failed to load logs from backend:", err);
+    }
+
+    // 3. Load workflows from workflow API
+    try {
+      const wfRes = await workflowApi.list();
+      if (!isCancelled() && Array.isArray(wfRes.data)) {
+        setWorkflows(wfRes.data as WorkflowItem[]);
+      }
+    } catch (err) {
+      console.error("Failed to load workflows from backend:", err);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
     const init = async () => {
-      // 1. Wait for backend health
+      setAuthChecking(true);
       try {
         await waitForBackendReady();
-        if (!cancelled) setBackendReady(true);
+        if (cancelled) return;
+        setBackendReady(true);
+        setBackendError(false);
       } catch {
-        if (!cancelled) setBackendError(true);
+        if (!cancelled) {
+          setBackendError(true);
+          setAuthChecking(false);
+        }
         console.error("Backend not ready after timeout");
         return;
       }
 
-      // 2. Load directories from archive API (folders + config + tasks)
       try {
-        const [foldersRes, configRes, tasksRes] = await Promise.all([
-          archiveApi.listFolders("0"),
-          archiveApi.getConfig(),
-          archiveApi.listTasks({ status: ACTIVE_ARCHIVE_TASK_STATUS, limit: 50 }).catch(() => ({ data: [] })),
-        ]);
-        const folderData = foldersRes.data;
-        const configData = configRes.data;
-        const tasksData = (tasksRes as { data: unknown }).data;
-        const tasksArr: Record<string, unknown>[] = Array.isArray(tasksData) ? tasksData as Record<string, unknown>[] : [];
-        const hasActiveTask = tasksArr.length > 0;
-
-        // Build SyncDirectory list from archive config + folders
-        // Fields without backend data: speed→"-", totalSize→"-", itemCount→0
-        // status derived from ArchiveTask (processing→syncing), targetClient from config
-        const dirs: SyncDirectory[] = [];
-        if (Array.isArray(folderData)) {
-          for (const f of folderData.slice(0, 20)) {
-            dirs.push({
-              id: f.cid || String((f as Record<string, string>).id || "") || `dir-${dirs.length}`,
-              name: f.name || f.cid || "未知目录",
-              localPath: String((configData as Record<string, string>).archive_watch_cid || ""),
-              folderId115: f.cid || "",
-              targetClient: "emby",
-              status: hasActiveTask ? "syncing" : "idle",
-              speed: "-",
-              progress: 0,
-              enabled: Boolean((configData as Record<string, unknown>).archive_enabled),
-              totalSize: "-",
-              itemCount: 0,
-            });
-          }
+        const session = await authApi.getSession();
+        if (cancelled) return;
+        if (!session.data.authenticated) {
+          setAuthenticated(false);
+          setAuthUsername("");
+          setAuthChecking(false);
+          return;
         }
-        if (!cancelled) setDirectories(dirs);
+        setAuthenticated(true);
+        setAuthUsername(session.data.username || "");
+        await loadInitialData(() => cancelled);
       } catch (err) {
-        console.error("Failed to load directories from archive API:", err);
-      }
-
-      // 3. Load logs from logs API
-      try {
-        const logsRes = await logsApi.list({ limit: 50, offset: 0 });
-        const logData = logsRes.data;
-        if (logData && Array.isArray(logData.items)) {
-          const mapped: SyncLog[] = logData.items.map((item) => ({
-            id: String(item.id),
-            timestamp: item.created_at || "",
-            level: mapLogLevel(item.status),
-            message: item.message || "",
-          }));
-          if (!cancelled) setLogs(mapped);
+        if (!cancelled) {
+          setAuthenticated(false);
+          setAuthNotice(getApiErrorMessage(err, "无法确认登录状态，请重新登录"));
         }
-      } catch (err) {
-        console.error("Failed to load logs from backend:", err);
-      }
-
-      // 4. Load workflows from workflow API
-      try {
-        const wfRes = await workflowApi.list();
-        if (!cancelled && Array.isArray(wfRes.data)) {
-          setWorkflows(wfRes.data as WorkflowItem[]);
-        }
-      } catch (err) {
-        console.error("Failed to load workflows from backend:", err);
+      } finally {
+        if (!cancelled) setAuthChecking(false);
       }
     };
 
@@ -148,7 +186,19 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadInitialData]);
+
+  useEffect(() => {
+    const handleAuthRequired = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      setAuthenticated(false);
+      setAuthNotice(detail?.message || "登录会话已过期，请重新登录");
+      setLoginPassword("");
+      setActivePage(PageName.DASHBOARD);
+    };
+
+    window.addEventListener(AUTH_REQUIRED_EVENT, handleAuthRequired);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, handleAuthRequired);
   }, []);
 
   // Workflow save: handled inside AutomationsTab via workflowApi (start/pause/run/delete/create/update).
@@ -169,6 +219,42 @@ export default function App() {
     ]);
   };
 
+  const handleLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setLoginBusy(true);
+    setLoginError("");
+    try {
+      const response = await authApi.login({
+        username: loginUsername.trim(),
+        password: loginPassword,
+      });
+      const username = response.data.username || loginUsername.trim();
+      setAuthenticated(true);
+      setAuthUsername(username);
+      setAuthNotice("");
+      setLoginPassword("");
+      await loadInitialData();
+    } catch (err) {
+      setLoginError(getApiErrorMessage(err, "登录失败，请检查账号密码"));
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+    } finally {
+      setAuthenticated(false);
+      setAuthUsername("");
+      setAuthNotice("已退出登录");
+      setDirectories([]);
+      setWorkflows([]);
+      setLogs([]);
+      setActivePage(PageName.DASHBOARD);
+    }
+  };
+
   // State for detail page navigation
   const [detailContext, setDetailContext] = useState<DetailContext | null>(null);
 
@@ -178,11 +264,13 @@ export default function App() {
 
   // Notification dropdown state
   const [showNotifications, setShowNotifications] = useState(false);
-  const notificationsList = [
-    { id: "n-1", type: "success", title: "Emby 视频刷新成功", desc: "经典电影库单文件比对并刷新完毕", time: "5 分钟前" },
-    { id: "n-2", type: "warn", title: "网盘API速率节制避让", desc: "在 Movies 同步期间触发了 1.5s 安全限速避让", time: "18 分钟前" },
-    { id: "n-3", type: "info", title: "夜间提速参数调配完成", desc: "自动规则已成功在后台初始化", time: "1小时前" },
-  ];
+  const notificationsList = logs.slice(-5).reverse().map((log) => ({
+    id: log.id,
+    type: log.level === "SUCCESS" ? "success" : log.level === "WARN" || log.level === "ERROR" ? "warn" : "info",
+    title: log.level === "ERROR" ? "操作失败" : log.level === "WARN" ? "操作警告" : "系统日志",
+    desc: log.message || "暂无日志内容",
+    time: log.timestamp || "刚刚",
+  }));
 
   // Navigation groups
   const navigationGroups = [
@@ -231,6 +319,26 @@ export default function App() {
     }
     return "控制台";
   };
+
+  if (authChecking || backendError || authenticated === false) {
+    return (
+      <LoginScreen
+        backendReady={backendReady}
+        backendError={backendError}
+        checking={authChecking}
+        notice={authNotice}
+        username={loginUsername}
+        password={loginPassword}
+        error={loginError}
+        busy={loginBusy}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onUsernameChange={setLoginUsername}
+        onPasswordChange={setLoginPassword}
+        onSubmit={handleLogin}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen font-body flex flex-col md:flex-row relative overflow-x-hidden" style={{ background: "var(--bg)", color: "var(--txt)" }}>
@@ -318,19 +426,23 @@ export default function App() {
 
         {/* Sidebar Footer */}
         <div className="p-4 border-t flex items-center gap-3" style={{ borderColor: "var(--border)", background: "var(--surface-subtle)" }}>
-          <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 flex items-center justify-center" style={{ background: "var(--surface-hover)", border: "1px solid var(--border)" }}>
-            <img
-              alt="User Portrait"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover"
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuBOI4rQlgUONwEE0nNCcLvZ-SCpzZxcZYw-NLGQU8qVNywWy84mHJql_Qwk7nn4f9Rn6xmK7ROa8ezQPvEKJ6ggSlhDkfSKHxpl4y7amsn6IbqoLTflXauOLBGeQot0jO8_ua2PuNouSCZg7as2em6Sk95S-li_ypDxRqXtWDfPi_6jIwbJ3BlMaXl6_-_IJ9UT1eh8xVcWFqLZpHpoFKxLe-FI7yvsits_2DnQLsejkWlNZ5CEyFpChg6XzH67ykt9AZBalRdJNnQC"
-            />
+          <div className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center" style={{ background: "var(--surface-hover)", border: "1px solid var(--border)", color: "var(--brand-primary)" }}>
+            <User className="w-4.5 h-4.5" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-bold truncate" style={{ color: "var(--txt)" }}>高级云端站长</p>
-            <p className="text-[9px] font-semibold truncate" style={{ color: "var(--txt-muted)" }}>nhxdev@gmail.com</p>
+            <p className="text-xs font-bold truncate" style={{ color: "var(--txt)" }}>{authUsername || "已登录用户"}</p>
+            <p className="text-[9px] font-semibold truncate" style={{ color: "var(--txt-muted)" }}>本机会话认证</p>
           </div>
           <div className={`w-2 h-2 rounded-full ${backendReady ? 'bg-teal-500' : 'bg-slate-300'}`} title="在线联通状态" />
+          <button
+            type="button"
+            title="退出登录"
+            onClick={handleLogout}
+            className="p-1.5 rounded-lg transition-all glass-hover"
+            style={{ color: "var(--txt-muted)" }}
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </aside>
 
@@ -700,6 +812,131 @@ export default function App() {
             更多系统
           </span>
         </button>
+      </div>
+    </div>
+  );
+}
+
+interface LoginScreenProps {
+  backendReady: boolean;
+  backendError: boolean;
+  checking: boolean;
+  notice: string;
+  username: string;
+  password: string;
+  error: string;
+  busy: boolean;
+  theme: string;
+  onToggleTheme: () => void;
+  onUsernameChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onSubmit: (event: React.FormEvent) => void;
+}
+
+function LoginScreen({
+  backendReady,
+  backendError,
+  checking,
+  notice,
+  username,
+  password,
+  error,
+  busy,
+  theme,
+  onToggleTheme,
+  onUsernameChange,
+  onPasswordChange,
+  onSubmit,
+}: LoginScreenProps) {
+  return (
+    <div className="min-h-screen flex items-center justify-center px-6 py-10 relative overflow-hidden" style={{ background: "var(--bg)", color: "var(--txt)" }}>
+      <button
+        type="button"
+        onClick={onToggleTheme}
+        title={theme === "dark" ? "切换到浅色" : "切换到深色"}
+        className="absolute right-6 top-6 w-9.5 h-9.5 flex items-center justify-center rounded-full transition-all glass-hover"
+        style={{ border: "1px solid var(--border)", color: "var(--txt-secondary)", background: "var(--surface)" }}
+      >
+        {theme === "dark" ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
+      </button>
+
+      <div className="absolute top-[-10%] left-[-8%] w-[42vw] h-[42vw] min-w-[260px] min-h-[260px] rounded-full blur-[100px] pointer-events-none" style={{ background: "radial-gradient(circle at 30% 30%, var(--ambient-1), transparent 70%)" }} />
+      <div className="absolute bottom-[-12%] right-[-10%] w-[40vw] h-[40vw] min-w-[240px] min-h-[240px] rounded-full blur-[100px] pointer-events-none" style={{ background: "radial-gradient(circle at 70% 70%, var(--ambient-2), transparent 70%)" }} />
+
+      <div className="glass-heavy w-full max-w-sm rounded-2xl p-6 relative z-10">
+        <div className="space-y-2 mb-6">
+          <div className="w-11 h-11 rounded-xl bg-brand-primary/10 text-brand-primary flex items-center justify-center">
+            <Activity className="w-5.5 h-5.5" />
+          </div>
+          <h1 className="font-headline text-2xl font-black tracking-tight" style={{ color: "var(--txt)" }}>MediaSync115</h1>
+          <div className="text-[10px] font-bold inline-flex items-center gap-1.5" style={{ color: backendError ? "var(--accent-danger)" : backendReady ? "var(--accent-ok)" : "var(--txt-muted)" }}>
+            <span className={`w-1.5 h-1.5 rounded-full ${backendError ? "bg-red-500" : backendReady ? "bg-teal-500" : "bg-amber-500 animate-pulse"}`} />
+            {backendError ? "后端连接失败" : backendReady ? "后端已就绪" : "正在连接后端"}
+          </div>
+        </div>
+
+        {checking ? (
+          <div className="py-10 flex flex-col items-center gap-3" style={{ color: "var(--txt-muted)" }}>
+            <Loader2 className="w-7 h-7 animate-spin text-brand-primary" />
+            <span className="text-xs font-semibold">正在检查登录状态</span>
+          </div>
+        ) : backendError ? (
+          <div className="rounded-xl p-4 text-xs font-semibold flex gap-2" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "var(--accent-danger)" }}>
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>后端服务未就绪，请检查 API 服务后刷新页面。</span>
+          </div>
+        ) : (
+          <form onSubmit={onSubmit} className="space-y-4">
+            {notice && (
+              <div className="rounded-xl px-3 py-2 text-[11px] font-semibold" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+                {notice}
+              </div>
+            )}
+            {error && (
+              <div className="rounded-xl px-3 py-2 text-[11px] font-semibold" style={{ background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                {error}
+              </div>
+            )}
+
+            <label className="block space-y-1.5">
+              <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>账号</span>
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2.5" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                <User className="w-4 h-4" style={{ color: "var(--txt-muted)" }} />
+                <input
+                  value={username}
+                  onChange={(event) => onUsernameChange(event.target.value)}
+                  autoComplete="username"
+                  className="w-full bg-transparent text-sm font-semibold focus:outline-none"
+                  style={{ color: "var(--txt)" }}
+                />
+              </div>
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>密码</span>
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2.5" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                <Lock className="w-4 h-4" style={{ color: "var(--txt-muted)" }} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => onPasswordChange(event.target.value)}
+                  autoComplete="current-password"
+                  className="w-full bg-transparent text-sm font-semibold focus:outline-none"
+                  style={{ color: "var(--txt)" }}
+                />
+              </div>
+            </label>
+
+            <button
+              type="submit"
+              disabled={busy || !username.trim() || !password}
+              className="w-full py-3 rounded-xl text-sm font-black bg-brand-primary text-white hover:bg-brand-primary-light disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+              <span>{busy ? "登录中" : "登录"}</span>
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

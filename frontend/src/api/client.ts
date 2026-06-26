@@ -1,4 +1,5 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
+import { AUTH_REQUIRED_EVENT, getApiErrorMessage } from './errors';
 
 const api = axios.create({
   baseURL: '/api',
@@ -12,7 +13,7 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
-// Response interceptor: handle 401 redirects
+// Response interceptor: surface session expiry through the SPA auth flow.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -35,9 +36,12 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Redirect to login page
-    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-      window.location.href = '/login';
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent(AUTH_REQUIRED_EVENT, {
+          detail: { message: getApiErrorMessage(error) },
+        }),
+      );
     }
 
     return Promise.reject(error);

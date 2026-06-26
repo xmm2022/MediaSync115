@@ -7,16 +7,12 @@ import React, { useState, useRef, useEffect } from "react";
 import { SyncLog } from "../types";
 import {
   Save,
-  Settings,
   Key,
   Terminal,
   Trash2,
   RefreshCw,
   CheckCircle2,
-  AlertCircle,
   Server,
-  UserCheck,
-  Cpu,
   Database,
   Cloud,
   HeartPulse,
@@ -55,12 +51,6 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [embyUrl, setEmbyUrl] = useState("");
   const [embyKey, setEmbyKey] = useState("");
 
-  // Plex fields — backend has no Plex support; UI kept for future use
-  const [plexUrl, setPlexUrl] = useState("");
-  const [plexToken, setPlexToken] = useState("");
-
-  // maxThreads — no backend equivalent; UI kept as informational placeholder
-  const [maxThreads, setMaxThreads] = useState(8);
   // refreshInterval maps to backend subscription_interval_hours
   const [refreshInterval, setRefreshInterval] = useState(15);
 
@@ -277,7 +267,6 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
     setIsSaving(true);
     try {
       // Build runtime settings payload with backend field names.
-      // Fields with no backend support (plexUrl, plexToken, maxThreads) are deliberately omitted.
       const payload: Record<string, unknown> = {
         emby_url: embyUrl || undefined,
         emby_api_key: embyKey || undefined,
@@ -485,7 +474,10 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           </div>
           <button
             disabled={isBusy("feiniuCheck")}
-            onClick={() => runAction("feiniuCheck", "飞牛连通检测", () => settingsApi.checkFeiniu())}
+            onClick={() => runAction("feiniuCheck", "飞牛连通检测", () => settingsApi.checkFeiniu({
+              feiniu_url: feiniuUrlField || undefined,
+              feiniu_api_key: feiniuKey || undefined,
+            }))}
             className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
             style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
           >
@@ -909,7 +901,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               本地多媒体应用服务器连接 (Emby)
             </h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div className="space-y-4 pt-1">
                 <div className="flex items-center gap-1 text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>
                   <div className="w-2 h-2 rounded-full bg-green-500" />
@@ -941,41 +933,6 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   </div>
                 </div>
               </div>
-
-              {/* Plex section — backend has no Plex support; configuration is NOT persisted.
-                  UI kept for potential future use. */}
-              <div className="space-y-4 pt-1 md:pl-4 theme-border border-t md:border-t-0 md:border-l">
-                <div className="flex items-center gap-1 text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>
-                  <div className="w-2 h-2 rounded-full bg-amber-500" />
-                  <span>Plex Server 极速钩子</span>
-                  <span className="text-[9px] ml-1" style={{ color: "var(--accent-danger)" }}>（后端暂未支持，配置不会保存）</span>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>Plex API 地址</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. http://127.0.0.1:32400"
-                      value={plexUrl}
-                      onChange={(e) => setPlexUrl(e.target.value)}
-                      className="w-full text-xs font-mono px-3 py-2 rounded focus:outline-none focus:border-brand-primary"
-                      style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>Plex-X-Token 认证识别码</label>
-                    <input
-                      type="password"
-                      placeholder="e.g. plex_token_xxx"
-                      value={plexToken}
-                      onChange={(e) => setPlexToken(e.target.value)}
-                      className="w-full text-xs font-mono px-3 py-2 rounded focus:outline-none focus:border-brand-primary"
-                      style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
-                    />
-                  </div>
-                </div>
-              </div>
             </div>
 
             <div className="pt-2">
@@ -993,38 +950,17 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           </div>
           </CollapsibleSection>
 
-          {/* Card 3: Advanced — maxThreads has no backend equivalent; subscription_interval_hours is mapped */}
-          <CollapsibleSection icon={<Cpu className="w-4 h-4" />} title="系统性能参数" badge="调优" defaultOpen>
+          <CollapsibleSection icon={<RefreshCw className="w-4 h-4" />} title="订阅扫描参数" badge="调度" defaultOpen>
           <div className="space-y-6 pt-3">
             <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
-              <Cpu className="w-5 h-5 text-brand-primary" />
-              后台极速扫库 &amp; 并发性能 parameters 设定
+              <RefreshCw className="w-5 h-5 text-brand-primary" />
+              订阅扫描间隔
             </h3>
 
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="flex justify-between text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>
-                  <span>最大并行异步同步扫描线程限制</span>
-                  <span className="text-brand-primary">{maxThreads} 个并发流</span>
-                  <span className="text-[9px] ml-1" style={{ color: "var(--accent-danger)" }}>（后端暂未支持，此参数不生效）</span>
-                </div>
-                <input
-                  type="range"
-                  min={1}
-                  max={32}
-                  value={maxThreads}
-                  onChange={(e) => setMaxThreads(Number(e.target.value))}
-                  className="w-full accent-brand-primary h-2 rounded-lg appearance-none cursor-pointer"
-                  style={{ background: "var(--surface-subtle)" }}
-                />
-                <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>
-                  设置线程过高（超过 16 线程）在遭遇冷数据首次索引极易触发 115 端 API 403 频控，推荐设置为 8-12 线程。
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>
-                  <span>视频目录定时扫描比对刷新间隔</span>
+                  <span>订阅任务定时检查间隔</span>
                   <span className="text-brand-primary">{refreshInterval} 分钟 / 周期</span>
                 </div>
                 <input
@@ -1038,7 +974,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   style={{ background: "var(--surface-subtle)" }}
                 />
                 <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>
-                  每次循环检索 115 会话日志以抓取新文件，较短时间会令 CPU 与网盘处于轻微载荷中。
+                  保存后会写入后端 subscription_interval_hours，并由调度服务接管。
                 </p>
               </div>
             </div>
@@ -1127,7 +1063,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             <div className="pt-3 border-t border-gray-700/60 flex items-center justify-between text-[10px] text-gray-500 shrink-0">
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block animate-pulse" />
-                离线仿真模拟服务已全开
+                后端 API 日志已连接
               </span>
               <span>v1.0.8-Alpha-Stable</span>
             </div>

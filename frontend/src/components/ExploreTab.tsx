@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Sparkles, Trophy, Star, Search, Plus, Calendar, BookmarkCheck, ArrowRight, Eye, Loader2, AlertTriangle } from "lucide-react";
 import { motion } from "motion/react";
 import { searchApi } from "../api/search";
+import { getApiErrorMessage } from "../api/errors";
 import type { ExploreItem } from "../api/types";
 import { DEFAULT_EXPLORE_BOARD, getExplorePosterSrc } from "../utils/runtimeDefaults";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
@@ -123,9 +124,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
       }
       setStatusMap(agg);
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : "探索数据加载失败，请稍后重试";
-      setError(msg);
+      setError(getApiErrorMessage(err, "探索数据加载失败，请稍后重试"));
     } finally {
       setLoading(false);
     }
