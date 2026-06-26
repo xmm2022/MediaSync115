@@ -22,13 +22,22 @@ export interface MediaResource {
   category: "Movie" | "TV" | "Anime";
   description: string;
   tags: string[];
-  links: {
-    name: string;
-    size: string;
-    seeds?: number;
-    pickcode?: string;
-    url: string;
-  }[];
+  links: MediaResourceLink[];
+  // Fields for real backend API (search/explore + transfer)
+  tmdb_id?: number;
+  media_type?: "movie" | "tv" | "collection";
+}
+
+export interface MediaResourceLink {
+  name: string;
+  size: string;
+  seeds?: number;
+  pickcode?: string;
+  url: string;
+  /** Raw 115 share link used for transfer */
+  shareUrl?: string;
+  /** Receive code extracted from share link */
+  receiveCode?: string;
 }
 
 export interface SubscriptionItem {

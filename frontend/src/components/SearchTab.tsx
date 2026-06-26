@@ -1,12 +1,51 @@
-import React, { useState, useEffect } from "react";
-import { MediaResource } from "../types";
-import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, ExternalLink } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { MediaResource, MediaResourceLink } from "../types";
+import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, ExternalLink, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { searchApi } from "../api/search";
+import { pan115Api } from "../api/pan115";
 
 interface SearchTabProps {
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+}
+
+// Item shape from GET /api/search/explore/sections → sections[].items[]
+interface ExploreItem {
+  id?: string | number;
+  title?: string;
+  name?: string;
+  poster_path?: string;
+  poster_url?: string;
+  rating?: number;
+  vote_average?: number;
+  year?: number;
+  release_date?: string;
+  media_type?: "movie" | "tv" | "collection";
+  tmdb_id?: number;
+  douban_id?: string;
+  overview?: string;
+  genres?: string[];
+  genre_ids?: number[];
+  tags?: string[];
+}
+
+// Link shape from GET /api/search/{media_type}/{tmdb_id}/resources
+interface ResourceLinkRaw {
+  title?: string;
+  name?: string;
+  size?: string | number;
+  seeds?: number;
+  pick_code?: string;
+  pickcode?: string;
+  share_link?: string;
+  share_url?: string;
+  url?: string;
+  receive_code?: string;
+  access_code?: string;
+  source_service?: string;
+  resolution?: string;
 }
 
 export default function SearchTab({ addLog, searchQuery, setSearchQuery }: SearchTabProps) {
@@ -16,70 +55,220 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   const [transferringLinkId, setTransferringLinkId] = useState<string | null>(null);
   const [transferSuccessId, setTransferSuccessId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingLinks, setLoadingLinks] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Load resources from backend
-  const loadResources = async () => {
+  // ---- Helper: map explore item → MediaResource ----
+  const mapExploreItem = (item: ExploreItem, sectionTag?: string): MediaResource => {
+    const mediaType = item.media_type || "movie";
+    // category: backend media_type "movie"/"tv"/"collection" → UI "Movie"/"TV"
+    const category: "Movie" | "TV" | "Anime" =
+      mediaType === "movie" ? "Movie" : "TV"; // collection also maps to TV for now
+
+    const year =
+      item.year ||
+      (item.release_date ? new Date(item.release_date).getFullYear() : undefined) ||
+      0;
+
+    const tags: string[] = [
+      ...(item.genres || []),
+      ...(sectionTag ? [sectionTag] : []),
+    ].slice(0, 5);
+
+    return {
+      id: String(item.tmdb_id || item.douban_id || item.id || Math.random()),
+      title: item.title || item.name || "未命名",
+      poster: item.poster_path || item.poster_url || "",
+      rating: item.rating || item.vote_average || 0,
+      year,
+      category,
+      description: item.overview || "",
+      tags,
+      links: [],
+      tmdb_id: item.tmdb_id,
+      media_type: mediaType,
+    };
+  };
+
+  // ---- Load explore sections (browse / discovery) ----
+  // Rationale: SearchTab UI shows "热搜影视精品推荐" — a browse/discovery view
+  // without mandatory keyword input. The most natural backend endpoint is
+  // GET /api/search/explore/sections (douban rankings), which returns curated
+  // sections of media items. This matches the existing card-grid UX.
+  const loadResources = useCallback(async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
-      const response = await fetch("/api/resources");
-      if (response.ok) {
-        setResources(await response.json());
+      const response = await searchApi.getExploreSections("douban", 24, false);
+      const data = response.data as {
+        source: string;
+        sections?: { key: string; title: string; tag?: string; items?: ExploreItem[] }[];
+      };
+
+      const sections = data.sections || [];
+      const allItems: MediaResource[] = [];
+
+      for (const section of sections) {
+        const items = section.items || [];
+        for (const item of items) {
+          allItems.push(mapExploreItem(item, section.tag || section.title));
+        }
       }
-    } catch (err) {
-      console.error("Failed to fetch resources:", err);
+
+      // Deduplicate by id
+      const seen = new Set<string>();
+      const unique = allItems.filter((r) => {
+        if (seen.has(r.id)) return false;
+        seen.add(r.id);
+        return true;
+      });
+
+      setResources(unique);
+      if (unique.length === 0) {
+        setLoadError("探索列表为空，请检查后端搜索配置（TMDB API Key / 豆瓣可达性）");
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || String(err);
+      console.error("Failed to load explore sections:", msg);
+      setLoadError(`加载探索列表失败: ${msg}`);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadResources();
   }, []);
 
-  // Filtered list
-  const filteredResources = resources.filter(res => {
-    const matchesSearch = res.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          res.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          res.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesCategory = selectedCategory === "All" || res.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  // ---- Fetch resource links for detail panel ----
+  const fetchResourceLinks = async (resource: MediaResource): Promise<MediaResourceLink[]> => {
+    if (!resource.tmdb_id || !resource.media_type) {
+      console.warn("Resource missing tmdb_id/media_type, cannot fetch links");
+      return [];
+    }
+    try {
+      const response = await searchApi.getMediaResources(
+        resource.tmdb_id,
+        resource.media_type,
+        null,
+        false,
+      );
+      const rawLinks: ResourceLinkRaw[] = Array.isArray(response.data)
+        ? response.data
+        : (response.data as any)?.items || (response.data as any)?.resources || [];
 
-  // Handle 115 transfer action
-  const handleTransfer = async (resource: MediaResource, linkName: string, linkIndex: number) => {
+      return rawLinks.map((rl) => {
+        const shareUrl = rl.share_link || rl.share_url || rl.url || "";
+        // Extract receive_code from share URL or dedicated field
+        const receiveCode =
+          rl.receive_code ||
+          rl.access_code ||
+          (() => {
+            const m = shareUrl.match(/[?&](?:password|pwd|receive_code)=([^&#]+)/i);
+            return m ? m[1] : "";
+          })();
+
+        return {
+          name: rl.title || rl.name || "未命名资源",
+          size: typeof rl.size === "number" ? formatSize(rl.size) : String(rl.size || "未知"),
+          seeds: rl.seeds,
+          pickcode: rl.pick_code || rl.pickcode,
+          url: shareUrl,
+          shareUrl,
+          receiveCode,
+        };
+      });
+    } catch (err: any) {
+      console.error("Failed to fetch resource links:", err);
+      return [];
+    }
+  };
+
+  // ---- Format file size ----
+  const formatSize = (bytes: number): string => {
+    if (bytes >= 1 << 40) return (bytes / (1 << 40)).toFixed(1) + " TB";
+    if (bytes >= 1 << 30) return (bytes / (1 << 30)).toFixed(1) + " GB";
+    if (bytes >= 1 << 20) return (bytes / (1 << 20)).toFixed(1) + " MB";
+    if (bytes >= 1 << 10) return (bytes / (1 << 10)).toFixed(1) + " KB";
+    return bytes + " B";
+  };
+
+  // ---- Handle resource selection (lazy-load links) ----
+  const handleSelectResource = async (resource: MediaResource) => {
+    setSelectedResource({ ...resource, links: [] });
+    if (resource.links.length > 0) return; // already loaded
+
+    setLoadingLinks(true);
+    const links = await fetchResourceLinks(resource);
+    setSelectedResource((prev) => (prev ? { ...prev, links } : null));
+    setLoadingLinks(false);
+  };
+
+  // ---- Transfer handler ----
+  const handleTransfer = async (resource: MediaResource, link: MediaResourceLink, linkIndex: number) => {
     const actionId = `${resource.id}-${linkIndex}`;
     setTransferringLinkId(actionId);
-    
-    try {
-      const res = await fetch("/api/transfer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: resource.title,
-          linkName: linkName,
-          category: resource.category
-        })
-      });
 
-      if (res.ok) {
-        setTransferSuccessId(actionId);
-        setTimeout(() => {
-          setTransferSuccessId(null);
-        }, 4000);
-      } else {
-        addLog("ERROR", `无法完成转存：服务器返回 ${res.status}`);
+    try {
+      // Guard: share URL is required for save-to-folder
+      if (!link.shareUrl) {
+        addLog("WARN", `该资源无分享链接，无法转存`);
+        return;
       }
-    } catch (err) {
-      console.error("Transfer error:", err);
-      addLog("ERROR", `转存通信故障：${err}`);
+
+      const folderName = resource.title || link.name || "MediaSync115";
+      const receiveCode = link.receiveCode || "";
+
+      await pan115Api.saveShareToFolder(
+        link.shareUrl,
+        folderName,
+        "0",
+        receiveCode,
+        String(resource.tmdb_id || ""),
+      );
+
+      setTransferSuccessId(actionId);
+      setTimeout(() => {
+        setTransferSuccessId(null);
+      }, 4000);
+      addLog("SUCCESS", `已提交转存: ${link.name}`);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || String(err);
+      console.error("Transfer error:", detail);
+      addLog("ERROR", `转存失败: ${detail}`);
     } finally {
       setTransferringLinkId(null);
     }
   };
 
+  // ---- Initial load ----
+  useEffect(() => {
+    loadResources();
+  }, [loadResources]);
+
+  // ---- Filtered list ----
+  const filteredResources = resources.filter((res) => {
+    const matchesSearch =
+      res.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      res.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      res.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    // Category filter aligned to backend media_type:
+    //   All → no filter
+    //   Movie → media_type === "movie"
+    //   TV → media_type === "tv"
+    //   Anime → merged into TV (backend has no "anime" media_type; uses "tv" for anime series)
+    const matchesCategory =
+      selectedCategory === "All" ||
+      (selectedCategory === "Movie" && res.media_type === "movie") ||
+      ((selectedCategory === "TV" || selectedCategory === "Anime") && res.media_type === "tv");
+
+    return matchesSearch && matchesCategory;
+  });
+
+  // ---- Determine if a link's transfer button should be disabled ----
+  const isTransferDisabled = (link: MediaResourceLink): boolean => {
+    return !link.shareUrl;
+  };
+
   return (
     <div id="search-tab-container" className="space-y-6">
-      
       {/* Search Header Banner */}
       <div className="bg-gradient-to-br from-brand-primary/10 via-brand-secondary/5 to-transparent rounded-3xl p-6 border border-brand-primary/10 shadow-sm">
         <h2 className="text-2xl font-black text-txt-dark tracking-tight flex items-center gap-2.5">
@@ -93,7 +282,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
 
       {/* Control row */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-        
         {/* Search Bar Input */}
         <div className="w-full md:max-w-md relative">
           <input
@@ -109,7 +297,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
 
         {/* Category Filters */}
         <div className="flex flex-wrap gap-2 self-start md:self-auto">
-          {(["All", "Movie", "TV", "Anime"] as const).map(cat => (
+          {(["All", "Movie", "TV", "Anime"] as const).map((cat) => (
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
@@ -127,7 +315,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
 
       {/* Resources grid & Detail section split */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
         {/* Resource List Left Side */}
         <div className="lg:col-span-7 space-y-4">
           <h3 className="text-sm font-black text-txt-dark flex items-center gap-2">
@@ -141,17 +328,28 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
               <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="text-xs text-slate-400 font-bold">正在云端搜索索引库...</p>
             </div>
+          ) : loadError ? (
+            <div className="bg-white rounded-3xl p-8 text-center border border-red-100 space-y-3">
+              <AlertTriangle className="w-8 h-8 text-red-400 mx-auto" />
+              <p className="text-sm text-red-500 font-semibold">{loadError}</p>
+              <button
+                onClick={loadResources}
+                className="px-4 py-2 text-xs font-bold text-brand-primary bg-brand-primary/5 rounded-xl hover:bg-brand-primary/10 transition-all"
+              >
+                重试
+              </button>
+            </div>
           ) : filteredResources.length === 0 ? (
             <div className="bg-white rounded-3xl p-12 text-center border border-slate-100">
               <p className="text-sm text-slate-400 font-bold">未找到匹配的媒体资源，换个词试试吧</p>
             </div>
           ) : (
             <div className="space-y-3.5">
-              {filteredResources.map(res => (
+              {filteredResources.map((res) => (
                 <div
                   key={res.id}
                   id={`res-card-${res.id}`}
-                  onClick={() => setSelectedResource(res)}
+                  onClick={() => handleSelectResource(res)}
                   className={`bg-white/70 backdrop-blur-md rounded-2xl border p-4 flex gap-4 cursor-pointer transition-all hover:shadow-xs hover:bg-white/85 ${
                     selectedResource?.id === res.id
                       ? "border-brand-primary ring-2 ring-brand-primary/10 bg-brand-primary/5"
@@ -160,12 +358,17 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                 >
                   {/* Poster Placeholder */}
                   <div className="w-16 h-24 rounded-xl overflow-hidden bg-slate-50 shrink-0 border border-slate-100 relative">
-                    <img
-                      src={res.poster}
-                      alt={res.title}
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
+                    {res.poster ? (
+                      <img
+                        src={res.poster}
+                        alt={res.title}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <Film className="w-6 h-6 text-slate-300 absolute inset-0 m-auto" />
+                    )}
                     <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/70 text-white text-[8px] font-black uppercase tracking-widest">
                       {res.category === "Movie" ? "电影" : res.category === "TV" ? "剧集" : "动漫"}
                     </span>
@@ -177,11 +380,15 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                       <div className="flex items-start justify-between gap-2">
                         <h4 className="font-headline font-bold text-sm text-txt-dark truncate">{res.title}</h4>
                         <span className="shrink-0 bg-amber-50 text-amber-600 border border-amber-200/50 rounded px-1.5 py-0.5 text-[10px] font-black">
-                          ★ {res.rating.toFixed(1)}
+                          {res.rating > 0 ? `★ ${res.rating.toFixed(1)}` : "暂无评分"}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-400 font-semibold mt-0.5">{res.year} 年公映</p>
-                      <p className="text-xs text-slate-500 mt-2 line-clamp-2 leading-relaxed">{res.description}</p>
+                      <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                        {res.year > 0 ? `${res.year} 年` : ""}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2 line-clamp-2 leading-relaxed">
+                        {res.description || "暂无简介"}
+                      </p>
                     </div>
 
                     <div className="flex flex-wrap gap-1 mt-2">
@@ -212,12 +419,16 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                 {/* Header info */}
                 <div className="flex gap-4">
                   <div className="w-24 h-36 rounded-2xl overflow-hidden shrink-0 border border-slate-100 shadow-xs">
-                    <img
-                      src={selectedResource.poster}
-                      alt={selectedResource.title}
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
+                    {selectedResource.poster ? (
+                      <img
+                        src={selectedResource.poster}
+                        alt={selectedResource.title}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <Film className="w-8 h-8 text-slate-300 absolute inset-0 m-auto" />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <span className="bg-brand-primary/10 text-brand-primary text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
@@ -229,7 +440,9 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                     <div className="flex items-center gap-2 text-xs text-slate-400 font-semibold">
                       <span>{selectedResource.year}</span>
                       <span>•</span>
-                      <span className="text-amber-500 font-bold">★ {selectedResource.rating} TMDB</span>
+                      <span className="text-amber-500 font-bold">
+                        {selectedResource.rating > 0 ? `★ ${selectedResource.rating} TMDB` : "暂无评分"}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -237,7 +450,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                 <div className="space-y-1.5">
                   <span className="text-xs font-black text-txt-dark block">资源简介</span>
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    {selectedResource.description}
+                    {selectedResource.description || "暂无简介"}
                   </p>
                 </div>
 
@@ -251,59 +464,83 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                     <span className="text-[10px] text-brand-primary font-bold">秒级秒传</span>
                   </div>
 
-                  <div className="space-y-2.5">
-                    {selectedResource.links.map((link, idx) => {
-                      const actionId = `${selectedResource.id}-${idx}`;
-                      const isTransferring = transferringLinkId === actionId;
-                      const isSuccess = transferSuccessId === actionId;
+                  {loadingLinks ? (
+                    <div className="text-center py-6">
+                      <div className="w-6 h-6 border-3 border-brand-primary border-t-transparent rounded-full animate-spin mx-auto" />
+                      <p className="text-[10px] text-slate-400 mt-2 font-semibold">正在拉取资源链接...</p>
+                    </div>
+                  ) : selectedResource.links.length === 0 ? (
+                    <div className="text-center py-6 bg-slate-50/50 rounded-xl border border-slate-100">
+                      <p className="text-xs text-slate-400 font-semibold">
+                        {selectedResource.tmdb_id
+                          ? "该资源暂无可用下载链接"
+                          : "该资源缺少 TMDB ID，无法获取下载链接"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {selectedResource.links.map((link, idx) => {
+                        const actionId = `${selectedResource.id}-${idx}`;
+                        const isTransferring = transferringLinkId === actionId;
+                        const isSuccess = transferSuccessId === actionId;
+                        const disabled = isTransferDisabled(link);
 
-                      return (
-                        <div key={idx} className="bg-white/50 backdrop-blur-xs rounded-xl p-3 border border-white/60 flex flex-col gap-2 hover:bg-white/75 transition-all">
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="text-xs font-semibold text-txt-dark break-all leading-snug line-clamp-2">
-                              {link.name}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mt-1">
-                            <div className="flex gap-3">
-                              <span>大小: <strong className="text-slate-600">{link.size}</strong></span>
-                              {link.seeds && <span>健康度: <strong className="text-green-600">{link.seeds}</strong></span>}
+                        return (
+                          <div key={idx} className="bg-white/50 backdrop-blur-xs rounded-xl p-3 border border-white/60 flex flex-col gap-2 hover:bg-white/75 transition-all">
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-xs font-semibold text-txt-dark break-all leading-snug line-clamp-2">
+                                {link.name}
+                              </span>
                             </div>
 
-                            <button
-                              disabled={isTransferring}
-                              onClick={() => handleTransfer(selectedResource, link.name, idx)}
-                              className={`px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wider transition-all flex items-center gap-1.5 shadow-sm ${
-                                isSuccess
-                                  ? "bg-green-100 text-green-700 border border-green-200"
-                                  : isTransferring
-                                  ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-                                  : "bg-brand-primary text-white border border-brand-primary hover:bg-brand-primary-light hover:border-brand-primary-light active:scale-95"
-                              }`}
-                            >
-                              {isSuccess ? (
-                                <>
-                                  <CheckCircle className="w-3.5 h-3.5" />
-                                  <span>转存成功!</span>
-                                </>
-                              ) : isTransferring ? (
-                                <>
-                                  <span className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                                  <span>正在转存...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Plus className="w-3.5 h-3.5" />
-                                  <span>115 一键秒传</span>
-                                </>
-                              )}
-                            </button>
+                            <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mt-1">
+                              <div className="flex gap-3">
+                                <span>大小: <strong className="text-slate-600">{link.size}</strong></span>
+                                {link.seeds != null && <span>健康度: <strong className="text-green-600">{link.seeds}</strong></span>}
+                              </div>
+
+                              <button
+                                disabled={isTransferring || disabled}
+                                onClick={() => handleTransfer(selectedResource, link, idx)}
+                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wider transition-all flex items-center gap-1.5 shadow-sm ${
+                                  isSuccess
+                                    ? "bg-green-100 text-green-700 border border-green-200"
+                                    : disabled
+                                    ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                                    : isTransferring
+                                    ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                                    : "bg-brand-primary text-white border border-brand-primary hover:bg-brand-primary-light hover:border-brand-primary-light active:scale-95"
+                                }`}
+                                title={disabled ? "该资源无分享链接，无法转存" : "一键转存到115网盘"}
+                              >
+                                {isSuccess ? (
+                                  <>
+                                    <CheckCircle className="w-3.5 h-3.5" />
+                                    <span>转存成功!</span>
+                                  </>
+                                ) : isTransferring ? (
+                                  <>
+                                    <span className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                    <span>正在转存...</span>
+                                  </>
+                                ) : disabled ? (
+                                  <>
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span>无链接</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>115 一键秒传</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Cloud security badge */}
@@ -325,7 +562,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
             )}
           </AnimatePresence>
         </div>
-
       </div>
     </div>
   );
