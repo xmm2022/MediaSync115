@@ -407,12 +407,12 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   return (
     <div id="search-tab-container" className="space-y-6">
       {/* Search Header Banner */}
-      <div className="bg-gradient-to-br from-brand-primary/10 via-brand-secondary/5 to-transparent rounded-3xl p-6 border border-brand-primary/10 shadow-sm">
-        <h2 className="text-2xl font-black text-txt-dark tracking-tight flex items-center gap-2.5">
-          <Search className="w-6 h-6 text-brand-primary" />
+      <div className="glass-heavy rounded-3xl p-6">
+        <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
+          <Search className="w-6 h-6" style={{ color: "var(--brand-primary)" }} />
           <span>全网磁力 & 云端资源秒传检索</span>
         </h2>
-        <p className="text-xs text-gray-500 mt-1 max-w-xl leading-relaxed">
+        <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color: "var(--txt-secondary)" }}>
           聚合海量磁力、BT、RSS发布站以及 115 官方云端转存通道。在这里搜索您的心仪影视，点击一键即可瞬间挂载至您的 Emby / Plex 服务器中，无需本地耗时下载。
         </p>
       </div>
@@ -427,9 +427,10 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
             placeholder="搜索电影、电视剧、动漫、或资源标签..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white/70 backdrop-blur-md border border-white/60 focus:border-brand-primary rounded-2xl py-3 pl-11 pr-4 text-sm font-semibold outline-none transition-all shadow-xs placeholder:text-slate-400 focus:bg-white"
+            className="w-full glass rounded-2xl py-3 pl-11 pr-4 text-sm font-semibold outline-none transition-all placeholder:text-slate-400"
+            style={{ color: "var(--txt)" }}
           />
-          <Search className="w-5 h-5 text-slate-400 absolute left-4 top-3.5" />
+          <Search className="w-5 h-5 absolute left-4 top-3.5" style={{ color: "var(--txt-muted)" }} />
         </div>
 
         {/* Category Filters */}
@@ -438,11 +439,12 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+              className="px-4 py-2 rounded-xl text-xs font-bold transition-all glass-hover"
+              style={
                 selectedCategory === cat
-                  ? "bg-brand-primary text-white border-brand-primary shadow-md shadow-brand-primary/15"
-                  : "bg-white/70 backdrop-blur-md text-slate-500 border-white/60 hover:bg-white/80"
-              }`}
+                  ? { background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }
+                  : { background: "var(--surface)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }
+              }
             >
               {cat === "All" ? "全部类型" : cat === "Movie" ? "4K电影" : cat === "TV" ? "热门美剧" : "新番动漫"}
             </button>
@@ -454,31 +456,32 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Resource List Left Side */}
         <div className="lg:col-span-7 space-y-4">
-          <h3 className="text-sm font-black text-txt-dark flex items-center gap-2">
-            <Flame className="w-4 h-4 text-brand-primary-light" />
+          <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+            <Flame className="w-4 h-4" style={{ color: "var(--brand-primary-light)" }} />
             <span>热搜影视精品推荐</span>
-            <span className="text-xs font-semibold text-gray-400">({filteredResources.length} 个结果)</span>
+            <span className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>({filteredResources.length} 个结果)</span>
           </h3>
 
           {isLoading ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-slate-100 space-y-3">
-              <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="text-xs text-slate-400 font-bold">正在云端搜索索引库...</p>
+            <div className="glass rounded-3xl p-12 text-center space-y-3">
+              <div className="w-8 h-8 border-4 rounded-full animate-spin mx-auto" style={{ borderColor: "var(--brand-primary)", borderTopColor: "transparent" }} />
+              <p className="text-xs font-bold" style={{ color: "var(--txt-muted)" }}>正在云端搜索索引库...</p>
             </div>
           ) : loadError ? (
-            <div className="bg-white rounded-3xl p-8 text-center border border-red-100 space-y-3">
-              <AlertTriangle className="w-8 h-8 text-red-400 mx-auto" />
-              <p className="text-sm text-red-500 font-semibold">{loadError}</p>
+            <div className="glass rounded-3xl p-8 text-center space-y-3">
+              <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
+              <p className="text-sm font-semibold" style={{ color: "var(--accent-danger)" }}>{loadError}</p>
               <button
                 onClick={loadResources}
-                className="px-4 py-2 text-xs font-bold text-brand-primary bg-brand-primary/5 rounded-xl hover:bg-brand-primary/10 transition-all"
+                className="px-4 py-2 text-xs font-bold rounded-xl glass-hover"
+                style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}
               >
                 重试
               </button>
             </div>
           ) : filteredResources.length === 0 ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-slate-100">
-              <p className="text-sm text-slate-400 font-bold">未找到匹配的媒体资源，换个词试试吧</p>
+            <div className="glass rounded-3xl p-12 text-center">
+              <p className="text-sm font-bold" style={{ color: "var(--txt-muted)" }}>未找到匹配的媒体资源，换个词试试吧</p>
             </div>
           ) : (
             <div className="space-y-3.5">
@@ -487,14 +490,15 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                   key={res.id}
                   id={`res-card-${res.id}`}
                   onClick={() => handleSelectResource(res)}
-                  className={`bg-white/70 backdrop-blur-md rounded-2xl border p-4 flex gap-4 cursor-pointer transition-all hover:shadow-xs hover:bg-white/85 ${
+                  className="glass glass-hover rounded-2xl p-4 flex gap-4 cursor-pointer transition-all"
+                  style={
                     selectedResource?.id === res.id
-                      ? "border-brand-primary ring-2 ring-brand-primary/10 bg-brand-primary/5"
-                      : "border-white/60"
-                  }`}
+                      ? { borderColor: "var(--brand-primary)", boxShadow: "0 0 0 2px rgba(139,92,246,0.18), 0 0 24px rgba(139,92,246,0.10)" }
+                      : {}
+                  }
                 >
                   {/* Poster Placeholder */}
-                  <div className="w-16 h-24 rounded-xl overflow-hidden bg-slate-50 shrink-0 border border-slate-100 relative">
+                  <div className="w-16 h-24 rounded-xl overflow-hidden shrink-0 relative" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
                     {res.poster ? (
                       <img
                         src={res.poster}
@@ -504,9 +508,9 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                         loading="lazy"
                       />
                     ) : (
-                      <Film className="w-6 h-6 text-slate-300 absolute inset-0 m-auto" />
+                      <Film className="w-6 h-6 absolute inset-0 m-auto" style={{ color: "var(--txt-muted)" }} />
                     )}
-                    <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/70 text-white text-[8px] font-black uppercase tracking-widest">
+                    <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-white text-[8px] font-black uppercase tracking-widest" style={{ background: "rgba(0,0,0,0.65)" }}>
                       {res.category === "Movie" ? "电影" : res.category === "TV" ? "剧集" : "动漫"}
                     </span>
                   </div>
@@ -515,22 +519,22 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                   <div className="flex-1 min-w-0 flex flex-col justify-between">
                     <div>
                       <div className="flex items-start justify-between gap-2">
-                        <h4 className="font-headline font-bold text-sm text-txt-dark truncate">{res.title}</h4>
-                        <span className="shrink-0 bg-amber-50 text-amber-600 border border-amber-200/50 rounded px-1.5 py-0.5 text-[10px] font-black">
+                        <h4 className="font-headline font-bold text-sm truncate" style={{ color: "var(--txt)" }}>{res.title}</h4>
+                        <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-black" style={{ color: "var(--accent-warn)", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}>
                           {res.rating > 0 ? `★ ${res.rating.toFixed(1)}` : "暂无评分"}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                      <p className="text-[11px] font-semibold mt-0.5" style={{ color: "var(--txt-muted)" }}>
                         {res.year > 0 ? `${res.year} 年` : ""}
                       </p>
-                      <p className="text-xs text-slate-500 mt-2 line-clamp-2 leading-relaxed">
+                      <p className="text-xs mt-2 line-clamp-2 leading-relaxed" style={{ color: "var(--txt-secondary)" }}>
                         {res.description || "暂无简介"}
                       </p>
                     </div>
 
                     <div className="flex flex-wrap gap-1 mt-2 items-center">
                       {res.tags.map((tag, i) => (
-                        <span key={i} className="text-[9px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full">
+                        <span key={i} className="text-[9px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>
                           {tag}
                         </span>
                       ))}
@@ -555,11 +559,11 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -15 }}
-                className="bg-white/75 backdrop-blur-xl rounded-3xl border border-white/60 p-5 space-y-5 sticky top-28 shadow-xs"
+                className="glass-heavy rounded-3xl p-5 space-y-5 sticky top-28"
               >
                 {/* Header info */}
                 <div className="flex gap-4">
-                  <div className="w-24 h-36 rounded-2xl overflow-hidden shrink-0 border border-slate-100 shadow-xs">
+                  <div className="w-24 h-36 rounded-2xl overflow-hidden shrink-0 relative" style={{ border: "1px solid var(--border)" }}>
                     {selectedResource.poster ? (
                       <img
                         src={selectedResource.poster}
@@ -568,20 +572,20 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <Film className="w-8 h-8 text-slate-300 absolute inset-0 m-auto" />
+                      <Film className="w-8 h-8 absolute inset-0 m-auto" style={{ color: "var(--txt-muted)" }} />
                     )}
                   </div>
                   <div className="space-y-2">
-                    <span className="bg-brand-primary/10 text-brand-primary text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider" style={{ color: "var(--brand-primary)", background: "rgba(139,92,246,0.14)" }}>
                       {selectedResource.category === "Movie" ? "超级大片" : selectedResource.category === "TV" ? "多集连载" : "当季热门"}
                     </span>
-                    <h3 className="font-headline font-black text-base text-txt-dark leading-tight">
+                    <h3 className="font-headline font-black text-base leading-tight" style={{ color: "var(--txt)" }}>
                       {selectedResource.title}
                     </h3>
-                    <div className="flex items-center gap-2 text-xs text-slate-400 font-semibold">
+                    <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>
                       <span>{selectedResource.year}</span>
                       <span>•</span>
-                      <span className="text-amber-500 font-bold">
+                      <span className="font-bold" style={{ color: "var(--accent-warn)" }}>
                         {selectedResource.rating > 0 ? `★ ${selectedResource.rating} TMDB` : "暂无评分"}
                       </span>
                     </div>
@@ -589,23 +593,23 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                 </div>
 
                 <div className="space-y-1.5">
-                  <span className="text-xs font-black text-txt-dark block">资源简介</span>
-                  <p className="text-xs text-slate-500 leading-relaxed">
+                  <span className="text-xs font-black block" style={{ color: "var(--txt)" }}>资源简介</span>
+                  <p className="text-xs leading-relaxed" style={{ color: "var(--txt-secondary)" }}>
                     {selectedResource.description || "暂无简介"}
                   </p>
                 </div>
 
                 {/* Torrent/Link Tables */}
-                <div className="space-y-3 pt-3 border-t border-slate-200/40">
+                <div className="space-y-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-black text-txt-dark flex items-center gap-1.5">
-                      <Download className="w-4 h-4 text-brand-primary" />
+                    <span className="text-xs font-black flex items-center gap-1.5" style={{ color: "var(--txt)" }}>
+                      <Download className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
                       <span>资源通道</span>
                     </span>
                     {selectedResource.tmdb_id ? (
-                      <span className="text-[10px] text-brand-primary font-bold">多源可切换</span>
+                      <span className="text-[10px] font-bold" style={{ color: "var(--brand-primary)" }}>多源可切换</span>
                     ) : (
-                      <span className="text-[10px] text-slate-400 font-bold">无 TMDB ID</span>
+                      <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>无 TMDB ID</span>
                     )}
                   </div>
 
@@ -618,11 +622,12 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                           onClick={() => handleSwitchSource(s.key)}
                           disabled={loadingLinks}
                           title={s.desc}
-                          className={`px-2 py-1 rounded-lg text-[9px] font-bold border transition-all ${
+                          className="px-2.5 py-1.5 rounded-lg text-[9px] font-bold transition-all glass-hover"
+                          style={
                             activeSource === s.key
-                              ? "bg-brand-primary text-white border-brand-primary"
-                              : "bg-white/70 text-slate-500 border-slate-200/60 hover:bg-white"
-                          } disabled:opacity-50`}
+                              ? { background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }
+                              : { background: "var(--surface)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }
+                          }
                         >
                           {s.label}
                         </button>
@@ -632,14 +637,14 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
 
                   {loadingLinks ? (
                     <div className="text-center py-6">
-                      <div className="w-6 h-6 border-3 border-brand-primary border-t-transparent rounded-full animate-spin mx-auto" />
-                      <p className="text-[10px] text-slate-400 mt-2 font-semibold">正在拉取资源链接...</p>
+                      <div className="w-6 h-6 rounded-full animate-spin mx-auto" style={{ borderWidth: 3, borderColor: "var(--brand-primary)", borderTopColor: "transparent" }} />
+                      <p className="text-[10px] mt-2 font-semibold" style={{ color: "var(--txt-muted)" }}>正在拉取资源链接...</p>
                     </div>
                   ) : selectedResource.links.length === 0 ? (
-                    <div className="text-center py-6 bg-slate-50/50 rounded-xl border border-slate-100">
-                      <p className="text-xs text-slate-400 font-semibold">
+                    <div className="text-center py-6 rounded-xl" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                      <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>
                         {selectedResource.tmdb_id
-                          ? "该资源暂无可用下载链接"
+                          ? "该来源暂无可用下载链接"
                           : "该资源缺少 TMDB ID，无法获取下载链接"}
                       </p>
                     </div>
@@ -650,31 +655,33 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                         const isTransferring = transferringLinkId === actionId;
                         const isSuccess = transferSuccessId === actionId;
                         const disabled = isTransferDisabled(link);
+                        const unlockAction = `unlock-${link.slug}-${idx}`;
+                        const isUnlocking = unlockingSlug === unlockAction;
 
                         return (
-                          <div key={idx} className="bg-white/50 backdrop-blur-xs rounded-xl p-3 border border-white/60 flex flex-col gap-2 hover:bg-white/75 transition-all">
+                          <div key={idx} className="glass rounded-xl p-3 flex flex-col gap-2 glass-hover">
                             <div className="flex items-start justify-between gap-2">
-                              <span className="text-xs font-semibold text-txt-dark break-all leading-snug line-clamp-2">
+                              <span className="text-xs font-semibold break-all leading-snug line-clamp-2" style={{ color: "var(--txt)" }}>
                                 {link.name}
                               </span>
                             </div>
 
                             {/* 来源/分辨率/HDHive 状态标记 */}
-                            {(link.sourceService || link.resolution || link.slug) && (
+                            {(link.sourceService || link.resolution || link.slug || (link.magnetUrl && !link.shareUrl)) && (
                               <div className="flex flex-wrap gap-1">
                                 {link.sourceService && (
-                                  <span className="text-[8px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded">{link.sourceService}</span>
+                                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{link.sourceService}</span>
                                 )}
                                 {link.resolution && (
-                                  <span className="text-[8px] bg-indigo-50 text-indigo-600 font-bold px-1.5 py-0.5 rounded">{link.resolution}</span>
+                                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(99,102,241,0.14)", color: "var(--accent-info)" }}>{link.resolution}</span>
                                 )}
                                 {link.slug && (
-                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${link.unlocked ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={link.unlocked ? { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" } : { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" }}>
                                     {link.unlocked ? "HDHive已解锁" : "HDHive待解锁"}
                                   </span>
                                 )}
                                 {link.magnetUrl && !link.shareUrl && (
-                                  <span className="text-[8px] bg-purple-50 text-purple-600 font-bold px-1.5 py-0.5 rounded">磁力链</span>
+                                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(168,85,247,0.16)", color: "#c084fc" }}>磁力链</span>
                                 )}
                               </div>
                             )}
@@ -682,13 +689,14 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                             {/* HDHive 解锁按钮 */}
                             {link.slug && !link.unlocked && (
                               <button
-                                disabled={unlockingSlug === `unlock-${link.slug}-${idx}`}
+                                disabled={isUnlocking}
                                 onClick={() => handleUnlockHdhive(link.slug!, idx)}
-                                className="self-start px-2.5 py-1 rounded-lg text-[10px] font-black bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 flex items-center gap-1"
+                                className="self-start px-2.5 py-1.5 rounded-lg text-[10px] font-black text-white disabled:opacity-50 flex items-center gap-1"
+                                style={{ background: "var(--accent-warn)" }}
                               >
-                                {unlockingSlug === `unlock-${link.slug}-${idx}` ? (
+                                {isUnlocking ? (
                                   <>
-                                    <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    <span className="w-3 h-3 border-2 border-white rounded-full animate-spin" style={{ borderTopColor: "transparent" }} />
                                     <span>解锁中</span>
                                   </>
                                 ) : (
@@ -700,25 +708,24 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                               </button>
                             )}
 
-                            <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mt-1">
+                            <div className="flex items-center justify-between text-[10px] font-bold mt-1" style={{ color: "var(--txt-muted)" }}>
                               <div className="flex gap-3">
-                                <span>大小: <strong className="text-slate-600">{link.size}</strong></span>
-                                {link.seeds != null && <span>健康度: <strong className="text-green-600">{link.seeds}</strong></span>}
+                                <span>大小: <strong style={{ color: "var(--txt-secondary)" }}>{link.size}</strong></span>
+                                {link.seeds != null && <span>健康度: <strong style={{ color: "var(--accent-ok)" }}>{link.seeds}</strong></span>}
                               </div>
 
                               {link.shareUrl && (
                               <button
                                 disabled={isTransferring || disabled}
                                 onClick={() => handleTransfer(selectedResource, link, idx)}
-                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wider transition-all flex items-center gap-1.5 shadow-sm ${
+                                className="px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wider transition-all flex items-center gap-1.5"
+                                style={
                                   isSuccess
-                                    ? "bg-green-100 text-green-700 border border-green-200"
-                                    : disabled
-                                    ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-                                    : isTransferring
-                                    ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-                                    : "bg-brand-primary text-white border border-brand-primary hover:bg-brand-primary-light hover:border-brand-primary-light active:scale-95"
-                                }`}
+                                    ? { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.35)" }
+                                    : disabled || isTransferring
+                                    ? { background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)", cursor: "not-allowed" }
+                                    : { background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }
+                                }
                                 title={disabled ? "该资源无分享链接，无法转存" : "一键转存到115网盘"}
                               >
                                 {isSuccess ? (
@@ -728,7 +735,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                                   </>
                                 ) : isTransferring ? (
                                   <>
-                                    <span className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                    <span className="w-3 h-3 border-2 rounded-full animate-spin" style={{ borderColor: "var(--txt-muted)", borderTopColor: "transparent" }} />
                                     <span>正在转存...</span>
                                   </>
                                 ) : disabled ? (
@@ -753,19 +760,19 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                 </div>
 
                 {/* Cloud security badge */}
-                <div className="bg-brand-primary-light/5 border border-brand-primary-light/10 rounded-2xl p-3 flex gap-2 items-center">
-                  <Shield className="w-4.5 h-4.5 text-brand-primary shrink-0" />
-                  <p className="text-[10px] text-brand-primary font-bold leading-tight">
+                <div className="rounded-2xl p-3 flex gap-2 items-center" style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.18)" }}>
+                  <Shield className="w-4.5 h-4.5 shrink-0" style={{ color: "var(--brand-primary)" }} />
+                  <p className="text-[10px] font-bold leading-tight" style={{ color: "var(--brand-primary)" }}>
                     本秒传通道完全加密！所有磁力经由您的 115 会话密钥直接发送至 115 官方云接口，挂载不耗费您的本地网络。
                   </p>
                 </div>
               </motion.div>
             ) : (
-              <div className="bg-slate-50/50 border border-dashed border-slate-200 rounded-3xl p-12 text-center space-y-3 sticky top-28">
-                <Film className="w-10 h-10 text-slate-300 mx-auto" />
+              <div className="rounded-3xl p-12 text-center space-y-3 sticky top-28" style={{ background: "var(--surface-subtle)", border: "1px dashed var(--border)" }}>
+                <Film className="w-10 h-10 mx-auto" style={{ color: "var(--txt-muted)" }} />
                 <div>
-                  <p className="text-sm text-slate-400 font-bold">请点击左侧影视资源</p>
-                  <p className="text-[11px] text-slate-400 font-medium mt-1">即可查看影片完整详情、磁力解析度，并进行一键转存挂载</p>
+                  <p className="text-sm font-bold" style={{ color: "var(--txt-muted)" }}>请点击左侧影视资源</p>
+                  <p className="text-[11px] font-medium mt-1" style={{ color: "var(--txt-muted)" }}>即可查看影片完整详情、磁力解析度，并进行一键转存挂载</p>
                 </div>
               </div>
             )}
