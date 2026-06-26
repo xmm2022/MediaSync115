@@ -7,8 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 MediaSync115 是一个面向个人媒体库管理的全栈应用，围绕"找片、找资源、转存、订阅、入库同步"构建。
 
 - **后端**: Python FastAPI + SQLAlchemy async (SQLite)
-- **前端**: Vue 3 + Element Plus + Pinia + Vue Router
-- **测试**: pytest (backend), Playwright (frontend smoke tests)
+- **前端**: React 19 + Tailwind CSS v4 + lucide-react + motion + Vite，axios 调真实后端，路由用 PageName state（无 vue-router）
+- **前端旧版（参考）**: frontend-legacy-vue/ (Vue 3 + Element Plus + Pinia + Vue Router)
+- **测试**: pytest (backend)；Playwright 前端冒烟测试暂缺（新前端尚未装 Playwright）
 
 ### 核心功能
 
@@ -45,7 +46,7 @@ pytest tests/test_health.py::TestHealth::test_root_endpoint
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 前端 (Vue.js)
+### 前端 (React)
 
 ```bash
 cd frontend
@@ -53,14 +54,14 @@ cd frontend
 # 安装依赖
 npm install
 
-# 开发服务器 (端口 5173, 代理 /api 到后端)
+# 开发服务器 (端口 5173, Vite proxy /api → localhost:8000)
 npm run dev
 
-# 生产构建
-npm run build
+# TypeScript 检查
+npm run lint
 
-# Playwright 冒烟测试
-npm run test:smoke
+# 生产构建 (tsc --noEmit + vite build → dist/)
+npm run build
 ```
 
 ### Docker
@@ -108,12 +109,20 @@ MediaSync115/
 │   │   └── scheduler.py      # APScheduler 定时任务
 │   ├── tests/                # pytest 测试
 │   └── main.py               # FastAPI 入口
-├── frontend/
+├── frontend/                  # React 19 新前端（当前主力）
 │   ├── src/
-│   │   ├── api/              # Axios API 客户端封装
-│   │   ├── components/       # Vue 组件
-│   │   ├── views/            # 页面组件
-│   │   └── utils/            # 工具函数
+│   │   ├── api/              # Axios API 客户端封装 + types.ts
+│   │   ├── components/       # React 组件 (各 Tab)
+│   │   ├── types.ts          # 顶层共享类型 (PageName, SyncDirectory, SyncLog, MediaResource)
+│   │   └── utils/            # 工具函数 (health check)
+│   ├── vite.config.ts
+│   └── nginx.conf
+├── frontend-legacy-vue/      # Vue 3 旧前端（保留参考）
+│   ├── src/
+│   │   ├── api/
+│   │   ├── components/
+│   │   ├── views/
+│   │   └── utils/
 │   └── vite.config.js
 ├── docker/                   # Docker 配置
 ├── data/                     # 数据库、运行时设置（持久化）
@@ -131,10 +140,11 @@ MediaSync115/
 
 ### 前端架构关键点
 
-- **路由**: Vue Router，详情页支持 `?from=` 参数返回来源页
-- **状态管理**: Pinia
-- **UI 组件**: Element Plus，自动导入
-- **API 调用**: 统一使用 `@/api` 封装
+- **路由**: 无 vue-router，用 `PageName` enum + React state (`activePage`) 切换视图
+- **状态管理**: 无全局 store，组件间通过 props 传递（directories/logs/workflows 等 state 由 App.tsx 托管）
+- **UI 组件**: 纯 Tailwind CSS v4 + lucide-react 图标 + motion 动画，无第三方组件库
+- **API 调用**: `src/api/` 目录下 axios 封装，每个 API 模块独立文件，通过 `index.ts` 统一导出
+- **构建**: Vite 6 + @vitejs/plugin-react + @tailwindcss/vite 插件
 
 ## 重要说明
 

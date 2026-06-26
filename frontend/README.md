@@ -30,6 +30,8 @@ npm run preview    # 预览构建产物
 
 生产部署使用 `vite build` 产出 `dist/` 静态文件，由 Nginx 托管并提供 `/api` 反向代理。
 
+所有 `/api` 请求经由 Vite dev proxy 或 Nginx 反代转发至 FastAPI 后端（见根目录 `backend/`）。
+
 ## 项目结构
 
 ```
@@ -54,9 +56,8 @@ frontend/
 │   │   ├── pansou.ts     # Pansou API
 │   │   └── index.ts      # 统一导出
 │   ├── components/   # React 组件
-│   ├── utils/        # 工具函数
+│   ├── utils/        # 工具函数（health check 等）
 │   ├── types.ts      # 类型定义
-│   ├── data.ts       # Mock 数据 (阶段 3/4 迁移)
 │   ├── App.tsx       # 根组件
 │   └── main.tsx      # 入口
 ├── nginx.conf        # Nginx 配置参考

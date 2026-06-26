@@ -5,9 +5,6 @@
 
 import React, { useState, useEffect } from "react";
 import { PageName, SyncDirectory, SyncLog } from "./types";
-import {
-  initialDirectories,
-} from "./data";
 import { logsApi, archiveApi, workflowApi } from "./api";
 import type { WorkflowItem } from "./api/types";
 import { waitForBackendReady } from "./utils/health";

@@ -40,19 +40,6 @@ export interface MediaResourceLink {
   receiveCode?: string;
 }
 
-export interface SubscriptionItem {
-  id: string;
-  title: string;
-  poster: string;
-  category: "Movie" | "TV" | "Anime";
-  status: "subscribing" | "paused" | "completed";
-  progress: string; // e.g., "第 12 集 / 共 24 集" or "全 1 集"
-  lastUpdated: string;
-  rssSource: string;
-  autoTransfer: boolean;
-  targetDirId: string;
-}
-
 /**
  * 同步目录卡片 — 从后端 archive API 组合派生。
  *
@@ -83,18 +70,6 @@ export interface SyncDirectory {
   itemCount: number; // e.g. 5400 — 后端 ArchiveFolder 不返回项数，显示 0
 }
 
-export interface AutomationRule {
-  id: string;
-  name: string;
-  icon: string; // Lucide icon alias
-  description: string;
-  influence: string;
-  savings: string;
-  status: "active" | "idle" | "error";
-  enabled: boolean;
-  colorType: "primary" | "secondary" | "neutral";
-}
-
 export interface SyncLog {
   id: string;
   timestamp: string;
@@ -102,8 +77,3 @@ export interface SyncLog {
   message: string;
 }
 
-export interface ChartDataPoint {
-  name: string; // Day of week, e.g. "MON"
-  generatedSTRM: number;
-  apiRequests: number;
-}
