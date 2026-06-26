@@ -4,11 +4,12 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { PageName, SyncDirectory, AutomationRule, SyncLog } from "./types";
+import { PageName, SyncDirectory, SyncLog } from "./types";
 import {
-  initialRules,
+  initialDirectories,
 } from "./data";
-import { logsApi, archiveApi } from "./api";
+import { logsApi, archiveApi, workflowApi } from "./api";
+import type { WorkflowItem } from "./api/types";
 import { waitForBackendReady } from "./utils/health";
 import DashboardTab from "./components/DashboardTab";
 import SearchTab from "./components/SearchTab";
@@ -38,9 +39,9 @@ import { motion, AnimatePresence } from "motion/react";
 export default function App() {
   const [activePage, setActivePage] = useState<PageName>(PageName.DASHBOARD);
 
-  // State: directories from archive API, rules from mock (stage 3), logs from logs API
+  // State: directories from archive API, workflows from workflow API, logs from logs API
   const [directories, setDirectories] = useState<SyncDirectory[]>([]);
-  const [rules, setRules] = useState<AutomationRule[]>(initialRules);
+  const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [logs, setLogs] = useState<SyncLog[]>([]);
 
   // Backend ready state
@@ -117,6 +118,16 @@ export default function App() {
       } catch (err) {
         console.error("Failed to load logs from backend:", err);
       }
+
+      // 4. Load workflows from workflow API
+      try {
+        const wfRes = await workflowApi.list();
+        if (!cancelled && Array.isArray(wfRes.data)) {
+          setWorkflows(wfRes.data as WorkflowItem[]);
+        }
+      } catch (err) {
+        console.error("Failed to load workflows from backend:", err);
+      }
     };
 
     init();
@@ -127,8 +138,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // TODO (stage 3): rules save effect — current backend has /api/workflow, not /api/rules.
-  // Keeping mock-only behavior for now.
+  // Workflow save: handled inside AutomationsTab via workflowApi (start/pause/run/delete/create/update).
 
   // Logging utility: local-only (backend has no client-write log endpoint per API mapping)
   const addLog = async (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => {
@@ -178,7 +188,7 @@ export default function App() {
       title: "维护诊断",
       items: [
         { name: PageName.USAGE, label: "传输统计", icon: BarChart3 },
-        { name: PageName.AUTOMATIONS, label: "自愈规则", icon: Workflow },
+        { name: PageName.AUTOMATIONS, label: "工作流", icon: Workflow },
         { name: PageName.SETTINGS, label: "配置与终端", icon: Settings },
       ],
     },
@@ -497,8 +507,8 @@ export default function App() {
                 transition={{ duration: 0.2 }}
               >
                 <AutomationsTab
-                  rules={rules}
-                  setRules={setRules}
+                  workflows={workflows}
+                  setWorkflows={setWorkflows}
                   addLog={addLog}
                 />
               </motion.div>

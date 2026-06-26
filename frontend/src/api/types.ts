@@ -150,18 +150,23 @@ export interface SchedulerTask {
 
 // ---- Workflow ----
 export interface WorkflowItem {
-  id: string;
-  name?: string;
-  description?: string;
-  timer?: string;
-  trigger_type?: string;
-  event_type?: string;
-  event_conditions?: Record<string, unknown>;
-  actions?: unknown[];
-  flows?: unknown[];
-  context?: Record<string, unknown>;
-  state?: string;
-  [key: string]: unknown;
+  id: number;
+  name: string;
+  description: string | null;
+  timer: string | null;
+  trigger_type: string; // "timer" | "event"
+  event_type: string | null;
+  event_conditions: string | null; // JSON string
+  actions: string | null; // JSON string
+  flows: string | null; // JSON string
+  context: string | null; // JSON string
+  state: string; // "W"=运行中, "P"=已暂停
+  run_count: number;
+  current_action: string | null;
+  last_result: string | null;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // ---- Search ----

@@ -3,260 +3,507 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
-import { AutomationRule } from "../types";
-import { 
-  Moon, 
-  Trash2, 
-  BellRing, 
-  ShieldAlert, 
-  Filter, 
-  Plus, 
-  Workflow, 
-  BadgeCheck, 
-  ToggleLeft, 
-  ToggleRight, 
-  HelpCircle,
+import React, { useState, useEffect } from "react";
+import type { WorkflowItem } from "../api/types";
+import { workflowApi } from "../api";
+import {
+  Play,
+  Trash2,
+  Plus,
+  Workflow,
+  ToggleLeft,
+  ToggleRight,
   X,
-  Play
+  Timer,
+  Bell,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface AutomationsTabProps {
-  rules: AutomationRule[];
-  setRules: React.Dispatch<React.SetStateAction<AutomationRule[]>>;
+  workflows: WorkflowItem[];
+  setWorkflows: React.Dispatch<React.SetStateAction<WorkflowItem[]>>;
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => void;
 }
 
-// Dynamic Lucide selection helper
-const RenderRuleIcon = ({ iconName, className }: { iconName: string, className?: string }) => {
-  const props = { className: className || "w-6 h-6" };
-  switch (iconName) {
-    case "Moon": return <Moon {...props} />;
-    case "Trash2": return <Trash2 {...props} />;
-    case "BellRing": return <BellRing {...props} />;
-    case "ShieldAlert": return <ShieldAlert {...props} />;
-    default: return <Workflow {...props} />;
+interface EventTypeOption {
+  value: string;
+  title: string;
+}
+
+/** Map backend state code to human-readable label and style */
+function stateInfo(state: string): { label: string; cls: string } {
+  switch (state) {
+    case "W":
+      return { label: "运行中", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+    case "P":
+      return { label: "已暂停", cls: "bg-slate-100 text-slate-500 border-slate-200" };
+    default:
+      return { label: state, cls: "bg-amber-50 text-amber-700 border-amber-200" };
   }
-};
+}
 
-export default function AutomationsTab({ rules, setRules, addLog }: AutomationsTabProps) {
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all");
-  
-  // Form rule state
-  const [ruleName, setRuleName] = useState("");
-  const [ruleDesc, setRuleDesc] = useState("");
-  const [ruleIcon, setRuleIcon] = useState("Workflow");
-  const [ruleColorType, setRuleColorType] = useState<"primary" | "secondary" | "neutral">("primary");
+function triggerTypeLabel(tt: string): string {
+  return tt === "event" ? "事件驱动" : "定时器";
+}
 
-  // Toggle single rule
-  const handleToggleRule = (id: string, name: string) => {
-    setRules(prev => prev.map(r => {
-      if (r.id === id) {
-        const nextEnabled = !r.enabled;
-        addLog(
-          nextEnabled ? "SUCCESS" : "WARN",
-          `自动化编排系统：规则【${name}】状态已变更为【${nextEnabled ? "启用运行中" : "休眠停用"}】`
-        );
-        return {
-          ...r,
-          enabled: nextEnabled,
-          status: nextEnabled ? "active" : "idle"
-        };
+function formatTime(iso: string | null): string {
+  if (!iso) return "从未";
+  try {
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return "无效时间";
+  }
+}
+
+export default function AutomationsTab({ workflows, setWorkflows, addLog }: AutomationsTabProps) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Filter
+  const [filterState, setFilterState] = useState<"all" | "W" | "P">("all");
+
+  // Create / Edit modal
+  const [showModal, setShowModal] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState<WorkflowItem | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Form fields
+  const [formName, setFormName] = useState("");
+  const [formDesc, setFormDesc] = useState("");
+  const [formTriggerType, setFormTriggerType] = useState<"timer" | "event">("timer");
+  const [formEventType, setFormEventType] = useState("");
+  const [formTimer, setFormTimer] = useState("");
+  const [formState, setFormState] = useState("P");
+
+  // Event types for dropdown
+  const [eventTypes, setEventTypes] = useState<EventTypeOption[]>([]);
+
+  // Per-item action loading
+  const [actionLoading, setActionLoading] = useState<Record<number, string>>({});
+
+  // Load event types on mount
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await workflowApi.listEventTypes();
+        if (!cancelled) {
+          const data = (res.data as { items?: EventTypeOption[] }) || {};
+          setEventTypes(Array.isArray(data.items) ? data.items : []);
+        }
+      } catch {
+        // event types are non-critical; leave dropdown empty
       }
-      return r;
-    }));
-  };
-
-  // Create customized rule
-  const handleCreateRule = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ruleName || !ruleDesc) return;
-
-    const newRule: AutomationRule = {
-      id: `rule-${Date.now()}`,
-      name: ruleName,
-      icon: ruleIcon,
-      description: ruleDesc,
-      influence: "影响全部主同步通道",
-      savings: "自动化守护",
-      status: "active",
-      enabled: true,
-      colorType: ruleColorType
     };
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
-    setRules(prev => [...prev, newRule]);
-    addLog("SUCCESS", `💡 成功注册新的自动流：${ruleName}`);
-
-    // Reset Form
-    setRuleName("");
-    setRuleDesc("");
-    setRuleIcon("Workflow");
-    setRuleColorType("primary");
-    setShowAddModal(false);
+  // Reload workflows from backend
+  const reloadWorkflows = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await workflowApi.list();
+      if (Array.isArray(res.data)) {
+        setWorkflows(res.data as WorkflowItem[]);
+      }
+    } catch (e: unknown) {
+      setError((e as Error)?.message || "加载失败");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Filter rules list
-  const filteredRules = rules.filter(r => {
-    if (filterActive === "active") return r.enabled;
-    if (filterActive === "inactive") return !r.enabled;
+  // Toggle start / pause
+  const handleToggle = async (wf: WorkflowItem) => {
+    const id = wf.id;
+    const isActive = wf.state === "W";
+    setActionLoading((prev) => ({ ...prev, [id]: "toggle" }));
+    try {
+      if (isActive) {
+        await workflowApi.pause(String(id));
+        setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, state: "P" } : w)));
+        addLog("WARN", `工作流【${wf.name}】已暂停`);
+      } else {
+        await workflowApi.start(String(id));
+        setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, state: "W" } : w)));
+        addLog("SUCCESS", `工作流【${wf.name}】已启动`);
+      }
+    } catch (e: unknown) {
+      addLog("ERROR", `操作失败: ${(e as Error)?.message || "未知错误"}`);
+    } finally {
+      setActionLoading((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    }
+  };
+
+  // Manual run
+  const handleRun = async (wf: WorkflowItem) => {
+    const id = wf.id;
+    setActionLoading((prev) => ({ ...prev, [id]: "run" }));
+    try {
+      await workflowApi.run(String(id));
+      addLog("SUCCESS", `工作流【${wf.name}】手动执行成功`);
+      // Refresh to get updated run_count / last_run_at
+      const res = await workflowApi.get(String(id));
+      setWorkflows((prev) => prev.map((w) => (w.id === id ? (res.data as WorkflowItem) : w)));
+    } catch (e: unknown) {
+      addLog("ERROR", `执行失败: ${(e as Error)?.message || "未知错误"}`);
+    } finally {
+      setActionLoading((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    }
+  };
+
+  // Delete
+  const handleDelete = async (wf: WorkflowItem) => {
+    if (!window.confirm(`确定删除工作流【${wf.name}】？此操作不可撤销。`)) return;
+    const id = wf.id;
+    setActionLoading((prev) => ({ ...prev, [id]: "delete" }));
+    try {
+      await workflowApi.delete(String(id));
+      setWorkflows((prev) => prev.filter((w) => w.id !== id));
+      addLog("WARN", `工作流【${wf.name}】已删除`);
+    } catch (e: unknown) {
+      addLog("ERROR", `删除失败: ${(e as Error)?.message || "未知错误"}`);
+    } finally {
+      setActionLoading((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    }
+  };
+
+  // Open create modal
+  const openCreate = () => {
+    setEditingWorkflow(null);
+    setFormName("");
+    setFormDesc("");
+    setFormTriggerType("timer");
+    setFormEventType("");
+    setFormTimer("");
+    setFormState("P");
+    setShowModal(true);
+  };
+
+  // Open edit modal
+  const openEdit = (wf: WorkflowItem) => {
+    setEditingWorkflow(wf);
+    setFormName(wf.name);
+    setFormDesc(wf.description || "");
+    setFormTriggerType((wf.trigger_type === "event" ? "event" : "timer") as "timer" | "event");
+    setFormEventType(wf.event_type || "");
+    setFormTimer(wf.timer || "");
+    setFormState(wf.state);
+    setShowModal(true);
+  };
+
+  // Submit create or update
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formName.trim()) return;
+
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: formName.trim(),
+        description: formDesc.trim() || null,
+        trigger_type: formTriggerType,
+        state: formState,
+      };
+      if (formTriggerType === "timer") {
+        payload.timer = formTimer.trim() || null;
+      } else {
+        payload.event_type = formEventType || null;
+      }
+
+      if (editingWorkflow) {
+        // Update
+        const res = await workflowApi.update(String(editingWorkflow.id), payload as Partial<WorkflowItem>);
+        setWorkflows((prev) => prev.map((w) => (w.id === editingWorkflow.id ? (res.data as WorkflowItem) : w)));
+        addLog("SUCCESS", `工作流【${formName.trim()}】已更新`);
+      } else {
+        // Create
+        const res = await workflowApi.create(payload as Partial<WorkflowItem>);
+        setWorkflows((prev) => [...prev, res.data as WorkflowItem]);
+        addLog("SUCCESS", `工作流【${formName.trim()}】已创建`);
+      }
+      setShowModal(false);
+    } catch (e: unknown) {
+      addLog("ERROR", `${editingWorkflow ? "更新" : "创建"}失败: ${(e as Error)?.message || "未知错误"}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Filtered list
+  const filtered = workflows.filter((w) => {
+    if (filterState === "W") return w.state === "W";
+    if (filterState === "P") return w.state === "P";
     return true;
   });
 
+  // Stats
+  const runningCount = workflows.filter((w) => w.state === "W").length;
+  const pausedCount = workflows.filter((w) => w.state === "P").length;
+  const totalRuns = workflows.reduce((sum, w) => sum + (w.run_count || 0), 0);
+
   return (
     <div className="space-y-12">
-      {/* Editorial Header Section */}
+      {/* Header */}
       <section className="mb-4">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div className="max-w-xl space-y-4">
             <span className="inline-block px-3 py-1 rounded-full bg-brand-primary-light/15 text-brand-primary font-label text-xs font-bold">
-              LUMINOUS SYNC AUTOMATIONS
+              WORKFLOW ENGINE
             </span>
             <h2 className="font-headline text-5xl md:text-6xl font-black tracking-tight leading-none text-txt-dark mb-4">
-              自动化编排
+              工作流与触发器
             </h2>
             <p className="text-gray-500 text-lg leading-relaxed font-light">
-              MediaSync 后台轮询引擎当前托管着 <span className="font-bold text-brand-primary italic">{rules.filter(r => r.enabled).length} 条活跃流规则</span>，以最高吞吐量维护云盘电影瞬时映射。
+              已配置 <span className="font-bold text-brand-primary italic">{workflows.length} 个工作流</span>，
+              管理定时任务与事件驱动的自动化操作。
             </p>
           </div>
 
           <div className="flex gap-2">
-            {/* Filter Toggle controls */}
+            {/* Filter */}
             <div className="bg-white p-1 rounded-lg border border-brand-surface-high flex gap-1 text-xs">
-              <button 
-                onClick={() => setFilterActive("all")}
-                className={`px-4 py-2 rounded-md font-bold transition-all ${filterActive === "all" ? "bg-brand-primary text-white" : "text-gray-500 hover:bg-gray-100"}`}
+              <button
+                onClick={() => setFilterState("all")}
+                className={`px-4 py-2 rounded-md font-bold transition-all ${filterState === "all" ? "bg-brand-primary text-white" : "text-gray-500 hover:bg-gray-100"}`}
               >
                 全部
               </button>
-              <button 
-                onClick={() => setFilterActive("active")}
-                className={`px-4 py-2 rounded-md font-bold transition-all ${filterActive === "active" ? "bg-brand-primary text-white" : "text-gray-500 hover:bg-gray-100"}`}
+              <button
+                onClick={() => setFilterState("W")}
+                className={`px-4 py-2 rounded-md font-bold transition-all ${filterState === "W" ? "bg-brand-primary text-white" : "text-gray-500 hover:bg-gray-100"}`}
               >
-                活跃 ({rules.filter(r => r.enabled).length})
+                运行中 ({runningCount})
+              </button>
+              <button
+                onClick={() => setFilterState("P")}
+                className={`px-4 py-2 rounded-md font-bold transition-all ${filterState === "P" ? "bg-brand-primary text-white" : "text-gray-500 hover:bg-gray-100"}`}
+              >
+                已暂停 ({pausedCount})
               </button>
             </div>
 
-            <button 
-              onClick={() => setShowAddModal(true)}
+            <button
+              onClick={openCreate}
               className="px-6 py-3 bg-brand-primary text-white rounded-lg font-bold flex items-center gap-2 transition-all hover:bg-opacity-90 active:scale-95 shadow-md shadow-brand-primary/10"
             >
               <Plus className="w-4.5 h-4.5" />
-              <span>新增同步流</span>
+              <span>创建工作流</span>
             </button>
           </div>
         </div>
       </section>
 
-      {/* Asymmetric Bento Grid for Automations */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pb-12">
-        {filteredRules.map((rule, idx) => {
-          // Asymmetrical card span sizes: Make first one wide (8 columns) and second narrow (4 columns) to copy Screenshot 3!
-          const isWideCard = idx % 3 === 0;
-          const colSpanClass = isWideCard ? "md:col-span-8" : "md:col-span-4";
-          
-          return (
-            <div 
-              key={rule.id}
-              className={`${colSpanClass} bg-white/70 backdrop-blur-md rounded-xl p-8 border shadow-sm flex flex-col justify-between min-h-[280px] relative overflow-hidden group hover:shadow-md hover:bg-white/85 transition-all ${
-                rule.enabled ? "border-white/60" : "border-slate-100/40 bg-slate-50/40 opacity-80"
-              }`}
-            >
-              {/* Top Row with Icon badge and Toggle */}
-              <div className="relative z-10 flex justify-between items-start">
-                <div className="flex flex-col gap-1">
-                  <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 border ${
-                    !rule.enabled 
-                      ? "bg-slate-100 text-slate-400 border-slate-200"
-                      : rule.colorType === "primary" 
-                      ? "bg-violet-50 text-brand-primary border-brand-primary/10" 
-                      : rule.colorType === "secondary" 
-                      ? "bg-blue-50 text-brand-secondary border-brand-secondary/10" 
-                      : "bg-slate-100 text-slate-500 border-slate-200"
-                  }`}>
-                    <RenderRuleIcon iconName={rule.icon} />
+      {/* Loading / Error / Empty states */}
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 animate-spin text-brand-primary" />
+          <span className="ml-3 text-gray-500 font-semibold">加载中...</span>
+        </div>
+      )}
+      {error && !loading && (
+        <div className="flex flex-col items-center gap-3 py-20">
+          <p className="text-red-500 font-semibold">{error}</p>
+          <button onClick={reloadWorkflows} className="px-4 py-2 bg-brand-primary text-white rounded-lg text-sm font-bold">
+            重试
+          </button>
+        </div>
+      )}
+      {!loading && !error && workflows.length === 0 && (
+        <div className="flex flex-col items-center gap-4 py-20 text-gray-400">
+          <Workflow className="w-12 h-12" />
+          <p className="font-semibold">暂无工作流</p>
+          <p className="text-sm">点击"创建工作流"配置第一个自动化任务</p>
+        </div>
+      )}
+
+      {/* Cards Grid */}
+      {!loading && !error && workflows.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pb-12">
+          {filtered.map((wf, idx) => {
+            const isWideCard = idx % 3 === 0;
+            const colSpanClass = isWideCard ? "md:col-span-8" : "md:col-span-4";
+            const si = stateInfo(wf.state);
+            const isActive = wf.state === "W";
+            const isLoading = !!actionLoading[wf.id];
+
+            return (
+              <div
+                key={wf.id}
+                className={`${colSpanClass} bg-white/70 backdrop-blur-md rounded-xl p-8 border shadow-sm flex flex-col justify-between min-h-[280px] relative overflow-hidden group hover:shadow-md hover:bg-white/85 transition-all ${
+                  isActive ? "border-white/60" : "border-slate-100/40 bg-slate-50/40 opacity-80"
+                }`}
+              >
+                {/* Background glow */}
+                {isActive && (
+                  <div className="absolute top-0 right-0 w-48 h-48 bg-brand-primary/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none group-hover:scale-125 transition-transform duration-700" />
+                )}
+
+                <div className="relative z-10">
+                  {/* Top row: icon + state badge + toggle */}
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center border ${
+                        isActive
+                          ? "bg-violet-50 text-brand-primary border-brand-primary/10"
+                          : "bg-slate-100 text-slate-400 border-slate-200"
+                      }`}>
+                        {wf.trigger_type === "event" ? (
+                          <Bell className="w-5 h-5" />
+                        ) : (
+                          <Timer className="w-5 h-5" />
+                        )}
+                      </div>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${si.cls}`}>
+                        {si.label}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      {/* Manual run */}
+                      <button
+                        onClick={() => handleRun(wf)}
+                        disabled={isLoading}
+                        title="手动执行一次"
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-brand-primary transition-colors disabled:opacity-50"
+                      >
+                        {isLoading && actionLoading[wf.id] === "run" ? (
+                          <Loader2 className="w-4.5 h-4.5 animate-spin" />
+                        ) : (
+                          <Play className="w-4.5 h-4.5" />
+                        )}
+                      </button>
+
+                      {/* Toggle */}
+                      <button
+                        onClick={() => handleToggle(wf)}
+                        disabled={isLoading}
+                        className="focus:outline-none transition-transform active:scale-95 disabled:opacity-50"
+                        title={isActive ? "暂停" : "启动"}
+                      >
+                        {isActive ? (
+                          <ToggleRight className="w-12 h-12 text-brand-primary" />
+                        ) : (
+                          <ToggleLeft className="w-12 h-12 text-slate-300" />
+                        )}
+                      </button>
+                    </div>
                   </div>
-                  
-                  <h3 className="font-headline text-2xl font-bold tracking-tight text-txt-dark leading-tight">
-                    {rule.name}
+
+                  {/* Name + description */}
+                  <h3
+                    className="font-headline text-xl font-bold tracking-tight text-txt-dark leading-tight cursor-pointer hover:text-brand-primary transition-colors"
+                    onClick={() => openEdit(wf)}
+                    title="点击编辑"
+                  >
+                    {wf.name}
                   </h3>
-                  <p className="text-gray-500 text-sm mt-3 leading-relaxed max-w-md">
-                    {rule.description}
-                  </p>
+                  {wf.description && (
+                    <p className="text-gray-500 text-sm mt-2 leading-relaxed max-w-md">
+                      {wf.description}
+                    </p>
+                  )}
+
+                  {/* Meta badges */}
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                      {wf.trigger_type === "event" ? <Bell className="w-3 h-3" /> : <Timer className="w-3 h-3" />}
+                      {triggerTypeLabel(wf.trigger_type)}
+                    </span>
+                    {wf.event_type && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">
+                        {wf.event_type}
+                      </span>
+                    )}
+                    {wf.timer && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                        {wf.timer}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                {/* Custom active toggle button */}
-                <button
-                  onClick={() => handleToggleRule(rule.id, rule.name)}
-                  className="focus:outline-none transition-transform active:scale-95"
-                >
-                  {rule.enabled ? (
-                    <ToggleRight className="w-14 h-14 text-brand-primary" />
-                  ) : (
-                    <ToggleLeft className="w-14 h-14 text-slate-300" />
-                  )}
-                </button>
+                {/* Bottom info row */}
+                <div className="relative z-10 mt-6 pt-5 border-t border-slate-200/40 flex items-center justify-between text-xs font-semibold text-gray-500">
+                  <div className="flex items-center gap-3">
+                    <span title="执行次数">
+                      <RefreshCw className="w-3.5 h-3.5 inline mr-1" />
+                      {wf.run_count || 0} 次
+                    </span>
+                    <span title="最后运行" className="hidden sm:inline">
+                      {formatTime(wf.last_run_at)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 hidden sm:inline">
+                      创建 {formatTime(wf.created_at)}
+                    </span>
+                    <button
+                      onClick={() => handleDelete(wf)}
+                      disabled={isLoading}
+                      title="删除"
+                      className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                    >
+                      {isLoading && actionLoading[wf.id] === "delete" ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
-
-              {/* Bottom Info Row */}
-              <div className="relative z-10 mt-6 pt-5 border-t border-slate-200/40 flex items-center justify-between text-xs font-semibold text-gray-500">
-                <span className="flex items-center gap-1.5 font-medium">
-                  <BadgeCheck className={`w-4 h-4 ${rule.enabled ? "text-brand-primary" : "text-slate-300"}`} />
-                  {rule.influence}
-                </span>
-
-                <span className={`text-sm font-extrabold font-headline ${
-                  !rule.enabled ? "text-slate-400" : "text-brand-primary"
-                }`}>
-                  {rule.savings}
-                </span>
-              </div>
-
-              {/* Hover Radial Background light effect */}
-              {rule.enabled && (
-                <div className="absolute top-0 right-0 w-48 h-48 bg-brand-primary/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none group-hover:scale-125 transition-transform duration-700" />
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Rules Stats Grid (Daily count details from screenshot 3) */}
-      <section className="bg-white/50 backdrop-blur-md rounded-2xl p-6 md:p-8 border border-white/40">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">每日守护节省时间</span>
-            <p className="font-headline text-3xl font-extrabold text-txt-dark">4.2 小时</p>
-          </div>
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">剔除残影视频链接</span>
-            <p className="font-headline text-3xl font-extrabold text-txt-dark">12.4 万个</p>
-          </div>
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">云多媒体流刷新率</span>
-            <p className="font-headline text-3xl font-extrabold text-brand-primary">94 / 100</p>
-          </div>
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">网盘连接协议健康</span>
-            <p className="font-headline text-3xl font-extrabold text-brand-secondary">持续稳定</p>
-          </div>
+            );
+          })}
         </div>
-      </section>
+      )}
 
-      {/* Interactive Modal to Create Sync Automations Flow */}
+      {/* Stats section */}
+      {!loading && !error && workflows.length > 0 && (
+        <section className="bg-white/50 backdrop-blur-md rounded-2xl p-6 md:p-8 border border-white/40">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">工作流总数</span>
+              <p className="font-headline text-3xl font-extrabold text-txt-dark">{workflows.length}</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">运行中</span>
+              <p className="font-headline text-3xl font-extrabold text-emerald-600">{runningCount}</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">累计执行次数</span>
+              <p className="font-headline text-3xl font-extrabold text-brand-primary">{totalRuns}</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">定时器 / 事件</span>
+              <p className="font-headline text-3xl font-extrabold text-brand-secondary">
+                {workflows.filter((w) => w.trigger_type === "timer").length} / {workflows.filter((w) => w.trigger_type === "event").length}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Create / Edit Modal */}
       <AnimatePresence>
-        {showAddModal && (
+        {showModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowAddModal(false)}
+              onClick={() => setShowModal(false)}
               className="absolute inset-0 bg-black"
             />
-            
-            <motion.div 
+
+            <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
@@ -264,86 +511,129 @@ export default function AutomationsTab({ rules, setRules, addLog }: AutomationsT
             >
               <div className="flex justify-between items-start">
                 <div>
-                  <h3 className="font-headline text-xl font-bold text-txt-dark">注册自定义同步自动化工作流</h3>
-                  <p className="text-xs text-gray-400 mt-1">编排 115 媒体挂载网关的高级定时，规避及库刷新联动规则</p>
+                  <h3 className="font-headline text-xl font-bold text-txt-dark">
+                    {editingWorkflow ? "编辑工作流" : "创建工作流"}
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    配置定时器或事件驱动的自动化任务
+                  </p>
                 </div>
-                <button 
-                  onClick={() => setShowAddModal(false)}
+                <button
+                  onClick={() => setShowModal(false)}
                   className="p-1 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleCreateRule} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Name */}
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-gray-500">规则编排名称 *</label>
-                  <input 
-                    type="text" 
+                  <label className="text-xs font-bold text-gray-500">工作流名称 *</label>
+                  <input
+                    type="text"
                     required
-                    placeholder="e.g. 视频变更多媒体即时推送微信"
-                    value={ruleName}
-                    onChange={(e) => setRuleName(e.target.value)}
+                    placeholder="例如: 每日归档扫描"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
                     className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary"
                   />
                 </div>
 
+                {/* Description */}
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-gray-500">细则行为描述（如何规避/协作）*</label>
-                  <textarea 
-                    required
-                    rows={3}
-                    placeholder="e.g. 当侦测到 115 端在对应电影目录下新建视频，生成 strm 完毕后，自动拼装 metadata 推送到 WeChat 助手..."
-                    value={ruleDesc}
-                    onChange={(e) => setRuleDesc(e.target.value)}
+                  <label className="text-xs font-bold text-gray-500">描述（可选）</label>
+                  <textarea
+                    rows={2}
+                    placeholder="简要说明此工作流的用途"
+                    value={formDesc}
+                    onChange={(e) => setFormDesc(e.target.value)}
                     className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary bg-white resize-none"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-500">图标样式</label>
-                    <select 
-                      value={ruleIcon} 
-                      onChange={(e) => setRuleIcon(e.target.value)}
-                      className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary bg-white"
-                    >
-                      <option value="Workflow">常规流线 (Workflow)</option>
-                      <option value="Moon">极速月亮 (Moon)</option>
-                      <option value="Trash2">智能清理 (Trash2)</option>
-                      <option value="BellRing">通知预警 (BellRing)</option>
-                      <option value="ShieldAlert">安全高盾 (ShieldAlert)</option>
-                    </select>
-                  </div>
+                {/* Trigger type */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500">触发器类型</label>
+                  <select
+                    value={formTriggerType}
+                    onChange={(e) => {
+                      setFormTriggerType(e.target.value as "timer" | "event");
+                      if (e.target.value === "timer") setFormEventType("");
+                      else setFormTimer("");
+                    }}
+                    className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary bg-white"
+                  >
+                    <option value="timer">定时器 (Timer)</option>
+                    <option value="event">事件驱动 (Event)</option>
+                  </select>
+                </div>
 
-                  <div className="space-y-1 font-semibold">
-                    <label className="text-xs font-bold text-gray-500">规则颜色色调</label>
-                    <select 
-                      value={ruleColorType} 
-                      onChange={(e) => setRuleColorType(e.target.value as any)}
+                {/* Timer field (when timer selected) */}
+                {formTriggerType === "timer" && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500">定时表达式（可选）</label>
+                    <input
+                      type="text"
+                      placeholder="例如: */30 * * * * (cron) 或 3600 (秒)"
+                      value={formTimer}
+                      onChange={(e) => setFormTimer(e.target.value)}
+                      className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary"
+                    />
+                  </div>
+                )}
+
+                {/* Event type field (when event selected) */}
+                {formTriggerType === "event" && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500">事件类型</label>
+                    <select
+                      value={formEventType}
+                      onChange={(e) => setFormEventType(e.target.value)}
                       className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary bg-white"
                     >
-                      <option value="primary">Forest 森林绿 (Primary)</option>
-                      <option value="secondary">Ocean 深海蓝 (Secondary)</option>
-                      <option value="neutral">Slate 原材灰 (Neutral)</option>
+                      <option value="">-- 选择事件类型 --</option>
+                      {eventTypes.map((et) => (
+                        <option key={et.value} value={et.value}>
+                          {et.title} ({et.value})
+                        </option>
+                      ))}
                     </select>
                   </div>
+                )}
+
+                {/* Initial state */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500">初始状态</label>
+                  <select
+                    value={formState}
+                    onChange={(e) => setFormState(e.target.value)}
+                    className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary bg-white"
+                  >
+                    <option value="P">已暂停 (P)</option>
+                    <option value="W">运行中 (W)</option>
+                  </select>
                 </div>
 
                 <div className="flex gap-3 pt-4 justify-end">
-                  <button 
-                    type="button" 
-                    onClick={() => setShowAddModal(false)}
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
                     className="px-5 py-2.5 text-xs text-gray-500 font-semibold hover:bg-gray-100 rounded-lg transition-all"
                   >
                     取消
                   </button>
-                  <button 
-                    type="submit" 
-                    className="px-5 py-2.5 text-xs text-white bg-brand-primary font-bold rounded-lg hover:bg-opacity-90 transition-all shadow-md flex items-center gap-1.5"
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="px-5 py-2.5 text-xs text-white bg-brand-primary font-bold rounded-lg hover:bg-opacity-90 transition-all shadow-md flex items-center gap-1.5 disabled:opacity-50"
                   >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>跑起本条自动化规章</span>
+                    {saving ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                    )}
+                    <span>{editingWorkflow ? "保存修改" : "创建工作流"}</span>
                   </button>
                 </div>
               </form>
