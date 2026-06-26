@@ -3,6 +3,7 @@ import { Sparkles, Trophy, Star, Search, Plus, Calendar, BookmarkCheck, ArrowRig
 import { motion } from "motion/react";
 import { searchApi } from "../api/search";
 import type { ExploreItem } from "../api/types";
+import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 
 interface ExploreTabProps {
   onSearchQuery: (query: string) => void;
@@ -51,6 +52,7 @@ const FALLBACK_POSTER =
 export default function ExploreTab({ onSearchQuery, onAddSubscription }: ExploreTabProps) {
   const [activeBoard, setActiveBoard] = useState<BoardKey>("tmdb");
   const [items, setItems] = useState<ExploreItem[]>([]);
+  const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sectionTitle, setSectionTitle] = useState("");
@@ -59,8 +61,10 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
     setLoading(true);
     setError(null);
     setItems([]);
+    setStatusMap({});
 
     try {
+      const agg: Record<string, BadgeStatus> = {};
       if (board === "tmdb") {
         // TMDB 流行趋势：展平全部 TMDB section
         const { data } = await searchApi.getExploreSections("tmdb", 24, false);
@@ -75,6 +79,8 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
         }
         setItems(allItems);
         setSectionTitle("TMDB 流行趋势");
+        mergeStatusMap(agg, data?.emby_status_map as Record<string, unknown> | undefined, "emby");
+        mergeStatusMap(agg, data?.feiniu_status_map as Record<string, unknown> | undefined, "feiniu");
       } else if (board === "douban") {
         // 豆瓣电影榜单：仅电影类 section
         const { data } = await searchApi.getExploreSections("douban", 24, false);
@@ -90,6 +96,8 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
         }
         setItems(allItems);
         setSectionTitle("豆瓣电影榜单");
+        mergeStatusMap(agg, data?.emby_status_map as Record<string, unknown> | undefined, "emby");
+        mergeStatusMap(agg, data?.feiniu_status_map as Record<string, unknown> | undefined, "feiniu");
       } else {
         // 豆瓣动画：仅 tv_animation section
         const { data } = await searchApi.getExploreDoubanSection(
@@ -102,11 +110,16 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
           key?: string;
           title?: string;
           items?: ExploreItem[];
+          emby_status_map?: Record<string, unknown>;
+          feiniu_status_map?: Record<string, unknown>;
         };
         const secItems = section?.items ?? [];
         setItems(Array.isArray(secItems) ? secItems : []);
         setSectionTitle(section?.title || "豆瓣动画");
+        mergeStatusMap(agg, section?.emby_status_map, "emby");
+        mergeStatusMap(agg, section?.feiniu_status_map, "feiniu");
       }
+      setStatusMap(agg);
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : "探索数据加载失败，请稍后重试";
@@ -219,6 +232,8 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
             const rating =
               item.rating != null ? (typeof item.rating === "number" ? item.rating.toFixed(1) : String(item.rating)) : null;
             const rankLabel = item.rank ?? idx + 1;
+            const bKey = buildBadgeKey(item.media_type, item.tmdb_id);
+            const badge = bKey ? <LibraryBadge status={statusMap[bKey]} /> : null;
 
             return (
               <div
@@ -283,6 +298,8 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
                         </>
                       )}
                     </div>
+
+                    {badge && <div className="pl-4 mt-1.5">{badge}</div>}
 
                     <p className="text-xs text-slate-500 line-clamp-2 mt-2 leading-relaxed pl-4">
                       {desc}

@@ -4,6 +4,7 @@ import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, Ext
 import { motion, AnimatePresence } from "motion/react";
 import { searchApi } from "../api/search";
 import { pan115Api } from "../api/pan115";
+import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 
 interface SearchTabProps {
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
@@ -57,6 +58,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   const [isLoading, setIsLoading] = useState(true);
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
 
   // ---- Helper: map explore item → MediaResource ----
   const mapExploreItem = (item: ExploreItem, sectionTag?: string): MediaResource => {
@@ -96,13 +98,19 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   // GET /api/search/explore/sections (douban rankings), which returns curated
   // sections of media items. This matches the existing card-grid UX.
   const loadResources = useCallback(async () => {
+    const setIsLoadingReset = () => {
+      setStatusMap({});
+    };
     setIsLoading(true);
     setLoadError(null);
+    setIsLoadingReset();
     try {
       const response = await searchApi.getExploreSections("douban", 24, false);
       const data = response.data as {
         source: string;
         sections?: { key: string; title: string; tag?: string; items?: ExploreItem[] }[];
+        emby_status_map?: Record<string, unknown>;
+        feiniu_status_map?: Record<string, unknown>;
       };
 
       const sections = data.sections || [];
@@ -114,6 +122,12 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
           allItems.push(mapExploreItem(item, section.tag || section.title));
         }
       }
+
+      // 合并后端内嵌的 Emby/飞牛入库状态
+      const agg: Record<string, BadgeStatus> = {};
+      mergeStatusMap(agg, data.emby_status_map, "emby");
+      mergeStatusMap(agg, data.feiniu_status_map, "feiniu");
+      setStatusMap(agg);
 
       // Deduplicate by id
       const seen = new Set<string>();
@@ -391,12 +405,16 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap gap-1 mt-2">
+                    <div className="flex flex-wrap gap-1 mt-2 items-center">
                       {res.tags.map((tag, i) => (
                         <span key={i} className="text-[9px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full">
                           {tag}
                         </span>
                       ))}
+                      {(() => {
+                        const bKey = buildBadgeKey(res.media_type, res.tmdb_id);
+                        return bKey ? <LibraryBadge status={statusMap[bKey]} /> : null;
+                      })()}
                     </div>
                   </div>
                 </div>
