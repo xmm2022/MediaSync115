@@ -3,22 +3,11 @@ import type { SubscriptionItem } from "../api/types";
 import { subscriptionApi } from "../api";
 import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import type { SyncDirectory } from "../types";
 
-// Mock SyncDirectory still used as prop from parent; real backend has no
-// per-subscription "target directory" concept (handled via archive config).
-interface SyncDirectory {
-  id: string;
-  name: string;
-  localPath: string;
-  folderId115: string;
-  targetClient: "emby" | "plex" | "jellyfin";
-  status: "syncing" | "idle" | "scanning" | "error";
-  speed: string;
-  progress: number;
-  enabled: boolean;
-  totalSize: string;
-  itemCount: number;
-}
+// directories prop: provided by App, built from archive API (folders+config+tasks).
+// Currently unused in this component — subscription targets are controlled via archive config.
+// Interface imported from types.ts for consistency across tabs.
 
 interface SubscriptionTabProps {
   directories: SyncDirectory[];

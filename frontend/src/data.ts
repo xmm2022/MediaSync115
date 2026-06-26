@@ -5,6 +5,8 @@
 
 import { SyncDirectory, AutomationRule, SyncLog, ChartDataPoint } from "./types";
 
+// Legacy mock data — not used by any active component (directories come from archive API).
+// Kept for reference only.
 export const initialDirectories: SyncDirectory[] = [
   {
     id: "dir-1",
@@ -13,37 +15,37 @@ export const initialDirectories: SyncDirectory[] = [
     folderId115: "115203948512",
     targetClient: "emby",
     status: "syncing",
-    speed: "4.2 MB/s",
+    speed: "-",
     progress: 75,
     enabled: true,
-    totalSize: "84.2 TB",
-    itemCount: 1420,
+    totalSize: "-",
+    itemCount: 0,
   },
   {
     id: "dir-2",
     name: "精品美剧&国剧 (TV Shows)",
     localPath: "/volume1/Media/TV",
     folderId115: "115204481085",
-    targetClient: "plex",
+    targetClient: "feiniu",
     status: "idle",
-    speed: "0 KB/s",
-    progress: 100,
+    speed: "-",
+    progress: 0,
     enabled: true,
-    totalSize: "156.4 TB",
-    itemCount: 4205,
+    totalSize: "-",
+    itemCount: 0,
   },
   {
     id: "dir-3",
     name: "热门动漫同步 (Animes)",
     localPath: "/volume1/Media/Animes",
     folderId115: "115205593190",
-    targetClient: "jellyfin",
+    targetClient: "emby",
     status: "scanning",
-    speed: "2.8 MB/s",
+    speed: "-",
     progress: 34,
     enabled: true,
-    totalSize: "52.0 TB",
-    itemCount: 2280,
+    totalSize: "-",
+    itemCount: 0,
   },
   {
     id: "dir-4",
@@ -52,11 +54,11 @@ export const initialDirectories: SyncDirectory[] = [
     folderId115: "115209930491",
     targetClient: "emby",
     status: "idle",
-    speed: "0 KB/s",
-    progress: 100,
+    speed: "-",
+    progress: 0,
     enabled: false,
-    totalSize: "12.8 TB",
-    itemCount: 412,
+    totalSize: "-",
+    itemCount: 0,
   }
 ];
 

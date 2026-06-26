@@ -62,18 +62,22 @@ export default function App() {
         return;
       }
 
-      // 2. Load directories from archive API
+      // 2. Load directories from archive API (folders + config + tasks)
       try {
-        // TODO (stage 3): combine archiveConfig (watch/output cids) with folders
-        // to build the SyncDirectory list. For now, load folders from root cid.
-        const [foldersRes, configRes] = await Promise.all([
+        const [foldersRes, configRes, tasksRes] = await Promise.all([
           archiveApi.listFolders("0"),
           archiveApi.getConfig(),
+          archiveApi.listTasks({ status: "archiving", limit: 50 }).catch(() => ({ data: [] })),
         ]);
         const folderData = foldersRes.data;
         const configData = configRes.data;
+        const tasksData = (tasksRes as { data: unknown }).data;
+        const tasksArr: Record<string, unknown>[] = Array.isArray(tasksData) ? tasksData as Record<string, unknown>[] : [];
+        const hasActiveTask = tasksArr.length > 0;
 
-        // Build minimal SyncDirectory list from archive config + folders
+        // Build SyncDirectory list from archive config + folders
+        // Fields without backend data: speed→"-", totalSize→"-", itemCount→0
+        // status derived from ArchiveTask (archiving→syncing), targetClient from config
         const dirs: SyncDirectory[] = [];
         if (Array.isArray(folderData)) {
           for (const f of folderData.slice(0, 20)) {
@@ -83,10 +87,10 @@ export default function App() {
               localPath: String((configData as Record<string, string>).archive_watch_cid || ""),
               folderId115: f.cid || "",
               targetClient: "emby",
-              status: "idle",
-              speed: "0 KB/s",
-              progress: 100,
-              enabled: true,
+              status: hasActiveTask ? "syncing" : "idle",
+              speed: "-",
+              progress: 0,
+              enabled: Boolean((configData as Record<string, unknown>).archive_enabled),
               totalSize: "-",
               itemCount: 0,
             });

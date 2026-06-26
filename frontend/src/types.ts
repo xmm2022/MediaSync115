@@ -53,18 +53,34 @@ export interface SubscriptionItem {
   targetDirId: string;
 }
 
+/**
+ * 同步目录卡片 — 从后端 archive API 组合派生。
+ *
+ * 字段来源对照（诚实标注，无对应字段不编造）：
+ *   id          ← ArchiveFolder.cid
+ *   name        ← ArchiveFolder.name
+ *   localPath   ← ArchiveConfig.archive_watch_cid（后端无"本地路径"概念，此处存监听 CID）
+ *   folderId115 ← ArchiveFolder.cid
+ *   targetClient ← 后端仅支持 emby/feiniu（全局 runtime settings），plex/jellyfin 无后端对应
+ *   status      ← ArchiveTask.status 派生（archiving→syncing, 无任务→idle, failed→error）
+ *   speed       ← 后端无实时速度字段，显示 "-"
+ *   progress    ← 如有活跃 ArchiveTask 可派生进度，否则 0
+ *   enabled     ← ArchiveConfig.archive_enabled（全局开关，非按目录）
+ *   totalSize   ← 后端无此字段，显示 "-"
+ *   itemCount   ← ArchiveFolder 接口当前不返回项数，显示 0
+ */
 export interface SyncDirectory {
   id: string;
   name: string;
   localPath: string;
   folderId115: string;
-  targetClient: "emby" | "plex" | "jellyfin";
+  targetClient: "emby" | "plex" | "jellyfin" | "feiniu";
   status: "syncing" | "idle" | "scanning" | "error";
-  speed: string; // e.g. "4.2 MB/s" or "0 KB/s"
-  progress: number; // 0 to 100
+  speed: string; // e.g. "4.2 MB/s" or "0 KB/s" — 后端无此字段，显示 "-"
+  progress: number; // 0 to 100 — 从 ArchiveTask 派生，无任务时 0
   enabled: boolean;
-  totalSize: string; // e.g. "84.2 TB"
-  itemCount: number; // e.g. 5400
+  totalSize: string; // e.g. "84.2 TB" — 后端无此字段，显示 "-"
+  itemCount: number; // e.g. 5400 — 后端 ArchiveFolder 不返回项数，显示 0
 }
 
 export interface AutomationRule {
