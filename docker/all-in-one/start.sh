@@ -60,11 +60,20 @@ fi
 echo "[$(date '+%H:%M:%S')] 前端启动中..."
 
 # 注入 Emby 代理地址到 nginx 配置
+# 先解析为 IP，避免 nginx -t 时因 DNS 不可用而失败
 EMBY_PROXY_HOST="${EMBY_PROXY_HOST:-host.docker.internal}"
 EMBY_PROXY_PORT="${EMBY_PROXY_PORT:-8096}"
-sed -i "s/__EMBY_HOST__/${EMBY_PROXY_HOST}/g" /etc/nginx/nginx.conf
+EMBY_PROXY_IP=$(getent hosts "${EMBY_PROXY_HOST}" 2>/dev/null | awk '{print $1; exit}')
+if [ -n "${EMBY_PROXY_IP}" ]; then
+  EMBY_HOST_VALUE="${EMBY_PROXY_IP}"
+  echo "[$(date '+%H:%M:%S')] 解析 ${EMBY_PROXY_HOST} → ${EMBY_PROXY_IP}"
+else
+  echo "[$(date '+%H:%M:%S')] ⚠ 无法解析 ${EMBY_PROXY_HOST}，Emby 代理将不可用"
+  EMBY_HOST_VALUE="127.0.0.1"
+fi
+sed -i "s/__EMBY_HOST__/${EMBY_HOST_VALUE}/g" /etc/nginx/nginx.conf
 sed -i "s/__EMBY_PORT__/${EMBY_PROXY_PORT}/g" /etc/nginx/nginx.conf
-echo "[$(date '+%H:%M:%S')] Emby 代理目标: ${EMBY_PROXY_HOST}:${EMBY_PROXY_PORT}"
+echo "[$(date '+%H:%M:%S')] Emby 代理目标: ${EMBY_PROXY_HOST}:${EMBY_PROXY_PORT} → ${EMBY_HOST_VALUE}:${EMBY_PROXY_PORT}"
 
 # 配置检查
 if ! nginx -t 2>&1; then
