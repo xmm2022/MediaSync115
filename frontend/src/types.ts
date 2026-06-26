@@ -8,6 +8,7 @@ export enum PageName {
   SEARCH = "search",
   EXPLORE = "explore",
   SUBSCRIPTION = "subscription",
+  LIBRARY = "library",
   USAGE = "usage",
   AUTOMATIONS = "automations",
   SCHEDULER = "scheduler",

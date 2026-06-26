@@ -28,6 +28,7 @@ import {
   StopCircle,
   Play,
   Search,
+  BarChart3,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { settingsApi } from "../api/settings";
@@ -662,6 +663,42 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             </button>
           </div>
           {proxyInfo != null && <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-32 font-mono">{JSON.stringify(proxyInfo, null, 2)}</pre>}
+        </div>
+
+        {/* 榜单订阅 / 影人同步 */}
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
+          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-amber-500" />
+            榜单订阅 / 影人关注任务
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            <button
+              disabled={isBusy("chartsRun")}
+              onClick={() => runAction("chartsRun", "榜单订阅运行", () => settingsApi.runChartSubscription())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+            >
+              <Play className="w-3 h-3" /> {isBusy("chartsRun") ? "运行中" : "运行榜单订阅"}
+            </button>
+            <button
+              disabled={isBusy("pfRun")}
+              onClick={() => runAction("pfRun", "影人关注同步", () => settingsApi.runPersonFollow())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+            >
+              <Play className="w-3 h-3" /> {isBusy("pfRun") ? "运行中" : "影人关注同步"}
+            </button>
+            <button
+              disabled={isBusy("chartsList")}
+              onClick={() => runAction("chartsList", "加载可用榜单", () => settingsApi.getAvailableCharts())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" /> 查看可用榜单
+            </button>
+          </div>
+          {(resultOf("chartsRun") || resultOf("pfRun") || resultOf("chartsList")) && (
+            <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-32 font-mono">
+              {JSON.stringify((resultOf("chartsRun") || resultOf("pfRun") || resultOf("chartsList"))!.msg, null, 2)}
+            </pre>
+          )}
         </div>
       </div>
       {/* ===== 服务集成面板结束 ===== */}

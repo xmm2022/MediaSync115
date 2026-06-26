@@ -17,6 +17,7 @@ import AutomationsTab from "./components/AutomationsTab";
 import SettingsTab from "./components/SettingsTab";
 import StrmTab from "./components/StrmTab";
 import SchedulerTab from "./components/SchedulerTab";
+import LibraryPlusTab from "./components/LibraryPlusTab";
 import {
   LayoutDashboard,
   Search,
@@ -34,6 +35,7 @@ import {
   Activity,
   FileVideo,
   Clock,
+  Bookmark,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -183,6 +185,7 @@ export default function App() {
         { name: PageName.SEARCH, label: "磁力秒传检索", icon: Search },
         { name: PageName.EXPLORE, label: "榜单探索", icon: Trophy },
         { name: PageName.SUBSCRIPTION, label: "RSS智能追更", icon: Rss },
+        { name: PageName.LIBRARY, label: "片单 / 影人", icon: Bookmark },
       ],
     },
     {
@@ -486,6 +489,18 @@ export default function App() {
                   directories={directories}
                   addLog={addLog}
                 />
+              </motion.div>
+            )}
+
+            {activePage === PageName.LIBRARY && (
+              <motion.div
+                key="library"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+              >
+                <LibraryPlusTab addLog={addLog} />
               </motion.div>
             )}
 
