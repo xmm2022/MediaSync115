@@ -165,17 +165,58 @@ export interface WorkflowItem {
 }
 
 // ---- Search ----
+export interface ExploreItem {
+  rank: number;
+  id: number | string;
+  douban_id?: string;
+  tmdb_id?: number;
+  imdb_id?: string;
+  media_type: string;
+  title: string;
+  year?: string;
+  poster_url?: string;
+  intro?: string;
+  rating?: number;
+  mapping_status?: string;
+  source_url?: string;
+  genres?: string[];
+}
+
 export interface ExploreSection {
   key: string;
   title: string;
   tag?: string;
-  items?: unknown[];
+  items?: ExploreItem[];
+  source_url?: string;
+  fetched_at?: string;
+  total?: number;
 }
 
 export interface ExploreMeta {
   source: string;
   fetched_at?: string;
   sections: ExploreSection[];
+}
+
+export interface ExploreHomeResponse {
+  source: string;
+  fetched_at?: string;
+  sections: ExploreSection[];
+  emby_status_map?: Record<string, unknown>;
+  feiniu_status_map?: Record<string, unknown>;
+  errors?: unknown[];
+}
+
+export interface ExploreSectionDetailResponse {
+  source: string;
+  fetched_at?: string;
+  key: string;
+  title: string;
+  tag?: string;
+  total?: number;
+  items?: ExploreItem[];
+  emby_status_map?: Record<string, unknown>;
+  feiniu_status_map?: Record<string, unknown>;
 }
 
 export interface EmbyStatusMapRequest {
