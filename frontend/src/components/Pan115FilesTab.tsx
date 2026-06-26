@@ -15,7 +15,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   FolderOpen, File, Search, Plus, Trash2, RefreshCw, RotateCcw, HardDrive,
   Shield, User, AlertTriangle, CheckCircle2, Upload, FolderPlus, Download,
-  Layers, X, ChevronRight, Home, Database, Zap, Info, FileText, Share2,
+  Layers, X, ChevronRight, Home, Database, Zap, Info, FileText, Share2, QrCode, Copy, ArrowRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { pan115Api } from "../api/pan115";
@@ -502,6 +502,89 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
     } catch (err: unknown) { await addLog("ERROR", `转存失败: ${String(err)}`); }
   };
 
+  // ---- 115 扫码登录 ----
+  const [qrToken, setQrToken] = useState<string | null>(null);
+  const [qrImage, setQrImage] = useState<string | null>(null);
+  const [qrPolling, setQrPolling] = useState(false);
+  const [qrStatus, setQrStatus] = useState<string | null>(null);
+
+  const start115QrLogin = async () => {
+    setQrPolling(true); setQrStatus("启动中…");
+    try {
+      const startResp = await pan115Api.startQrLogin();
+      const d = startResp.data as { token?: string; qr_url?: string };
+      if (d.token) {
+        setQrToken(d.token);
+        try {
+          const imgResp = await pan115Api.getQrImage(d.token);
+          setQrImage(URL.createObjectURL(imgResp.data as Blob));
+        } catch { setQrImage(null); }
+        setQrStatus("请用 115 客户端扫描二维码");
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const sResp = await pan115Api.checkQrLogin(d.token);
+            const sData = sResp.data as { status?: string };
+            if (sData.status === "success" || sData.status === "authorized") { setQrStatus("登录成功!"); setQrImage(null); setQrToken(null); break; }
+            if (sData.status === "cancelled" || sData.status === "expired") { setQrStatus(`二维码${sData.status === "expired" ? "过期" : "已取消"}`); break; }
+          } catch { /* poll */ }
+        }
+      } else { setQrStatus("未获取到 token"); }
+    } catch (err: unknown) { setQrStatus(`失败: ${String(err)}`); } finally { setQrPolling(false); }
+  };
+
+  const cancelQrLogin = async () => {
+    if (qrToken) { try { await pan115Api.cancelQrLogin(qrToken); } catch {} }
+    setQrToken(null); setQrImage(null); setQrPolling(false); setQrStatus(null);
+  };
+
+  // ---- 文件复制/移动 ----
+  const [targetCid, setTargetCid] = useState("");
+  const [copyingFile, setCopyingFile] = useState<string | null>(null);
+
+  const handleCopyFile = async (fid: string, name: string) => {
+    if (!targetCid.trim()) { await addLog("WARN", "请输入目标目录 CID"); return; }
+    setCopyingFile(fid);
+    try { await pan115Api.copyFile(fid, targetCid.trim()); await addLog("SUCCESS", `已复制: ${name}`); setCopyingFile(null); }
+    catch (err: unknown) { await addLog("ERROR", `复制失败: ${String(err)}`); setCopyingFile(null); }
+  };
+
+  const handleMoveFile = async (fid: string, name: string) => {
+    if (!targetCid.trim()) { await addLog("WARN", "请输入目标目录 CID"); return; }
+    setCopyingFile(fid);
+    try { await pan115Api.moveFile(fid, targetCid.trim()); await addLog("SUCCESS", `已移动: ${name}`); setCopyingFile(null); await loadFiles(currentCid); }
+    catch (err: unknown) { await addLog("ERROR", `移动失败: ${String(err)}`); setCopyingFile(null); }
+  };
+
+  // ---- 转移默认文件夹 ----
+  const [transferDefaultFolder, setTransferDefaultFolder] = useState("");
+  const [transferDefaultName, setTransferDefaultName] = useState("");
+  useEffect(() => {
+    pan115Api.getDefaultFolder().then(r => {
+      const d = r.data as Record<string, unknown>;
+      setTransferDefaultFolder(String(d.folder_id || d.cid || ""));
+      setTransferDefaultName(String(d.folder_name || d.name || ""));
+    }).catch(() => {});
+  }, []);
+
+  const handleSetTransferDefault = async () => {
+    if (!transferDefaultFolder.trim()) return;
+    try { await pan115Api.setDefaultFolder(transferDefaultFolder.trim(), transferDefaultName.trim()); await addLog("SUCCESS", `已设置转移默认文件夹`); }
+    catch (err: unknown) { await addLog("ERROR", `设置失败: ${String(err)}`); }
+  };
+
+  // ---- 批量分享: saveShareFiles / extractShareFiles / saveShareFilesToFolder ----
+  const [batchShareSaving, setBatchShareSaving] = useState(false);
+  const handleSaveShareFiles = async () => {
+    if (!share.shareCode || share.files.length === 0) return;
+    setBatchShareSaving(true);
+    try {
+      await pan115Api.saveShareFiles(share.shareCode, share.files.map(f => f.file_id).filter(Boolean), "0", share.receiveCode);
+      await addLog("SUCCESS", `已批量保存 ${share.files.length} 个文件`);
+    } catch (err: unknown) { await addLog("ERROR", `批量保存失败: ${String(err)}`); }
+    finally { setBatchShareSaving(false); }
+  };
+
   // ---- 初始化 ----
   useEffect(() => {
     loadStatus();
@@ -543,7 +626,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
 
       {/* ====== 状态概览卡片 ====== */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Cookie 状态 */}
+        {/* Cookie 状态 + QR 登录 */}
         <div className="glass rounded-2xl p-4 space-y-2">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4" style={{ color: cookieStatus?.valid ? "var(--accent-ok)" : "var(--accent-danger)" }} />
@@ -552,23 +635,42 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
           {statusLoading ? (
             <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" }}>加载中…</p>
           ) : cookieStatus?.valid ? (
-            <div className="flex items-center gap-2">
-              {cookieStatus.avatar && (
-                <img src={cookieStatus.avatar} alt="" className="w-7 h-7 rounded-full" referrerPolicy="no-referrer" />
-              )}
-              <div>
-                <p className="text-xs font-bold" style={{ color: "var(--accent-ok)" }}>已登录</p>
-                {cookieStatus.username ? (
-                  <p className="text-[10px] font-semibold truncate" style={{ color: "var(--txt-muted)" }}>
-                    {cookieStatus.username}
-                  </p>
-                ) : null}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                {cookieStatus.avatar && <img src={cookieStatus.avatar} alt="" className="w-7 h-7 rounded-full" referrerPolicy="no-referrer" />}
+                <div>
+                  <p className="text-xs font-bold" style={{ color: "var(--accent-ok)" }}>已登录</p>
+                  {cookieStatus.username ? <p className="text-[10px] font-semibold truncate" style={{ color: "var(--txt-muted)" }}>{cookieStatus.username}</p> : null}
+                </div>
+              </div>
+              {/* QR 登录按钮 */}
+              <div className="pt-1.5" style={{ borderTop: "1px solid var(--border)" }}>
+                {!qrToken ? (
+                  <button onClick={start115QrLogin} disabled={qrPolling}
+                    className="w-full py-1.5 rounded-lg text-[10px] font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+                    <QrCode className="w-3 h-3" /> {qrPolling ? "启动中…" : "扫码登录"}
+                  </button>
+                ) : (
+                  <div className="text-center">
+                    {qrImage && <img src={qrImage} alt="115 QR" className="w-28 h-28 mx-auto rounded-lg border mb-1" />}
+                    <p className="text-[9px] font-semibold" style={{ color: "var(--txt-muted)" }}>{qrStatus || "请扫码"}</p>
+                    <button onClick={cancelQrLogin} className="text-[9px] font-bold mt-1" style={{ color: "var(--accent-danger)" }}>取消</button>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
-            <p className="text-xs font-bold" style={{ color: "var(--accent-danger)" }}>
-              {cookieStatus?.message || "未登录或已过期"}
-            </p>
+            <div className="space-y-1.5">
+              <p className="text-xs font-bold" style={{ color: "var(--accent-danger)" }}>{cookieStatus?.message || "未登录或已过期"}</p>
+              <button onClick={start115QrLogin} disabled={qrPolling}
+                className="w-full py-1.5 rounded-lg text-[10px] font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
+                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+                <QrCode className="w-3 h-3" /> {qrPolling ? "启动中…" : "扫码登录"}
+              </button>
+              {qrImage && <img src={qrImage} alt="115 QR" className="w-28 h-28 mx-auto rounded-lg border" />}
+              {qrStatus && <p className="text-[9px] font-semibold" style={{ color: "var(--txt-muted)" }}>{qrStatus}</p>}
+            </div>
           )}
         </div>
 
@@ -741,6 +843,17 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
               )}
             </AnimatePresence>
 
+            {/* 复制/移动目标 CID */}
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-bold shrink-0" style={{ color: "var(--txt-muted)" }}>目标CID:</span>
+              <input
+                type="text" placeholder="用于复制/移动的目标目录 CID"
+                value={targetCid} onChange={e => setTargetCid(e.target.value)}
+                className="flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold outline-none"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
+              />
+            </div>
+
             {/* Breadcrumb 导航 */}
             <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
               {breadcrumb.map((item, i) => (
@@ -851,6 +964,22 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                                 style={{ color: "var(--accent-danger)" }}>
                                 <Trash2 className="w-3 h-3" />
                               </button>
+                              {targetCid.trim() && (
+                                <>
+                                  <button onClick={(e) => { e.stopPropagation(); handleCopyFile(file.fid, file.name); }}
+                                    disabled={copyingFile === file.fid}
+                                    className="p-1 rounded hover:bg-[var(--surface-hover)]" title="复制到目标"
+                                    style={{ color: "var(--txt-muted)" }}>
+                                    <Copy className="w-3 h-3" />
+                                  </button>
+                                  <button onClick={(e) => { e.stopPropagation(); handleMoveFile(file.fid, file.name); }}
+                                    disabled={copyingFile === file.fid}
+                                    className="p-1 rounded hover:bg-[var(--surface-hover)]" title="移动到目标"
+                                    style={{ color: "var(--txt-muted)" }}>
+                                    <ArrowRight className="w-3 h-3" />
+                                  </button>
+                                </>
+                              )}
                             </>
                           )}
                         </>
@@ -1008,7 +1137,28 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
             )}
           </div>
 
-          {/* 默认文件夹设置 */}
+          {/* 转移默认文件夹 */}
+          <div className="glass rounded-2xl p-4 space-y-3">
+            <h4 className="text-xs font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+              <FolderOpen className="w-3.5 h-3.5" style={{ color: "var(--txt-secondary)" }} />
+              <span>转存默认文件夹</span>
+            </h4>
+            {transferDefaultName ? (
+              <p className="text-[11px] font-bold" style={{ color: "var(--txt-secondary)" }}>当前: {transferDefaultName}</p>
+            ) : null}
+            <div className="flex gap-2">
+              <input type="text" placeholder="文件夹 ID" value={transferDefaultFolder} onChange={e => setTransferDefaultFolder(e.target.value)}
+                className="flex-1 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }} />
+              <input type="text" placeholder="名称" value={transferDefaultName} onChange={e => setTransferDefaultName(e.target.value)}
+                className="w-24 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }} />
+              <button onClick={handleSetTransferDefault} disabled={!transferDefaultFolder.trim()}
+                className="px-3 py-1.5 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50">设置</button>
+            </div>
+          </div>
+
+          {/* 默认离线文件夹 */}
           <div className="glass rounded-2xl p-4 space-y-3">
             <h4 className="text-xs font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <Database className="w-3.5 h-3.5" style={{ color: "var(--txt-secondary)" }} />
@@ -1110,11 +1260,18 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                       </div>
                     ))}
                     {share.files.length > 1 && (
-                      <button onClick={handleSaveAllShare}
-                        className="w-full py-1.5 rounded-lg text-[10px] font-black text-white mt-1"
-                        style={{ background: "var(--brand-primary)" }}>
-                        全部转存 ({share.files.length} 个文件)
-                      </button>
+                      <div className="space-y-1">
+                        <button onClick={handleSaveAllShare}
+                          className="w-full py-1.5 rounded-lg text-[10px] font-black text-white mt-1"
+                          style={{ background: "var(--brand-primary)" }}>
+                          全部转存 ({share.files.length} 个文件)
+                        </button>
+                        <button onClick={handleSaveShareFiles} disabled={batchShareSaving}
+                          className="w-full py-1.5 rounded-lg text-[10px] font-black text-white disabled:opacity-50"
+                          style={{ background: "var(--accent-info)" }}>
+                          {batchShareSaving ? "批量保存中…" : `批量保存 (${share.files.length} 个)`}
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}

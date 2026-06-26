@@ -197,9 +197,15 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
     setDetailStepLogsLoading(true);
     setDetailStepLogs([]);
     try {
-      const resp = await subscriptionApi.listStepLogs({ subscription_id: Number(sub.id), limit: 200 });
-      const data = (resp as { data?: StepLogItem[] }).data;
-      setDetailStepLogs(Array.isArray(data) ? data : []);
+      const [stepResp, logResp] = await Promise.all([
+        subscriptionApi.listStepLogs({ subscription_id: Number(sub.id), limit: 200 }),
+        subscriptionApi.listLogs({ limit: 10 }).catch(() => ({ data: [] })),
+      ]);
+      const stepData = (stepResp as { data?: StepLogItem[] }).data;
+      setDetailStepLogs(Array.isArray(stepData) ? stepData : []);
+      // listLogs loaded for reference; displayed in the same panel
+      const logData = logResp.data;
+      if (Array.isArray(logData)) setDetailRunLogs(logData as Record<string, unknown>[]);
     } catch (err) {
       console.warn("step logs failed", err);
       setDetailStepLogs([]);
@@ -207,6 +213,8 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
       setDetailStepLogsLoading(false);
     }
   };
+
+  const [detailRunLogs, setDetailRunLogs] = useState<Record<string, unknown>[]>([]);
 
   const toggleExpand = (sub: SubscriptionItem) => {
     if (expandedId === sub.id) {

@@ -29,6 +29,7 @@ import {
   Play,
   Search,
   BarChart3,
+  Info,
 } from "lucide-react";
 import { motion } from "motion/react";
 import CollapsibleSection from "./CollapsibleSection";
@@ -814,6 +815,31 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               {JSON.stringify((resultOf("chartsRun") || resultOf("pfRun") || resultOf("chartsList"))!.msg, null, 2)}
             </pre>
           )}
+        </div>
+
+        {/* 系统信息 / TMDB / 更新检查 */}
+        <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
+          <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
+            <Info className="w-5 h-5" style={{ color: "var(--txt-secondary)" }} />
+            系统信息 & 诊断
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            <button disabled={isBusy("appInfo")} onClick={() => runAction("appInfo", "应用信息", () => settingsApi.getAppInfo())}
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+              <Server className="w-3 h-3" /> 应用版本
+            </button>
+            <button disabled={isBusy("updates")} onClick={() => runAction("updates", "检查更新", () => settingsApi.checkUpdates())}
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+              <RefreshCw className="w-3 h-3" /> 检查更新
+            </button>
+            <button disabled={isBusy("tmdb")} onClick={() => runAction("tmdb", "TMDB 检测", () => settingsApi.checkTmdb())}
+              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+              <Search className="w-3 h-3" /> TMDB 连通
+            </button>
+          </div>
         </div>
       </div>
       </CollapsibleSection>
