@@ -5,11 +5,12 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { PageName, SyncDirectory, SyncLog, type DetailContext } from "./types";
-import { logsApi, archiveApi, workflowApi, authApi } from "./api";
+import { logsApi, archiveApi, workflowApi, authApi, subscriptionApi } from "./api";
 import type { WorkflowItem } from "./api/types";
 import { AUTH_REQUIRED_EVENT, getApiErrorMessage } from "./api/errors";
 import { waitForBackendReady } from "./utils/health";
 import { ACTIVE_ARCHIVE_TASK_STATUS } from "./utils/runtimeDefaults";
+import { buildExploreSubscriptionPayload } from "./utils/exploreSubscription";
 import DashboardTab from "./components/DashboardTab";
 import SearchTab from "./components/SearchTab";
 import ExploreTab from "./components/ExploreTab";
@@ -536,7 +537,7 @@ export default function App() {
         </header>
 
         {/* Dynamic Inner Router Views */}
-        <main className="px-6 py-8 pb-28 md:pb-8 flex-1 w-full max-w-6xl mx-auto">
+        <main className="px-4 sm:px-6 py-8 pb-36 md:pb-8 flex-1 w-full max-w-6xl mx-auto">
           {/* Backend not ready banner */}
           {backendError && (
             <div className="mb-6 p-4 rounded-xl text-sm font-semibold" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "var(--accent-danger)" }}>
@@ -592,27 +593,29 @@ export default function App() {
                     setSearchQueryShared(query);
                     setActivePage(PageName.SEARCH);
                   }}
-                  onAddSubscription={async (title, category, poster) => {
-                    // TODO (stage 3): wire up to subscriptionApi.create
+                  onAddSubscription={async (item, board) => {
+                    const built = buildExploreSubscriptionPayload(item, board);
+                    if (built.ok === false) {
+                      await addLog("WARN", `榜单订阅失败：${built.message}`);
+                      return { ok: false, message: built.message };
+                    }
+
                     try {
-                      const { subscriptionApi } = await import("./api");
-                      const listRes = await subscriptionApi.list({ is_active: true, media_type: category.toLowerCase() });
-                      const data = listRes.data as unknown as { title: string; [key: string]: unknown }[] | { items: { title: string; [key: string]: unknown }[] };
-                      const list = Array.isArray(data) ? data : (data.items || []);
-                      const exists = list.some((s) => s.title.toLowerCase().includes(title.toLowerCase()));
-                      if (exists) {
-                        await addLog("WARN", `推荐追更：您已经订阅过 [${title}] 相关的规则。`);
-                      } else {
-                        await subscriptionApi.create({
-                          title,
-                          media_type: category === "Movie" ? "movie" : category === "Anime" ? "tv" : "tv",
-                          poster_path: poster,
-                        });
-                        await addLog("SUCCESS", `一键订阅成功！已将 [${title}] 添加到 RSS 监听列表中。`);
-                      }
+                      await subscriptionApi.create(built.payload);
+                      await addLog("SUCCESS", `已订阅 [${built.payload.title}]，可在 RSS智能追更 查看。`);
                       setActivePage(PageName.SUBSCRIPTION);
+                      return { ok: true, message: "已添加到 RSS智能追更" };
                     } catch (err) {
+                      const message = getApiErrorMessage(err, "创建订阅失败");
+                      if (message.includes("already exists") || message.includes("已存在")) {
+                        await addLog("WARN", `[${built.payload.title}] 已在 RSS智能追更 中。`);
+                        setActivePage(PageName.SUBSCRIPTION);
+                        return { ok: true, message: "已在 RSS智能追更 中" };
+                      }
+
                       console.error("Failed to quick subscribe:", err);
+                      await addLog("ERROR", `榜单订阅 [${built.payload.title}] 失败：${message}`);
+                      return { ok: false, message };
                     }
                   }}
                 />
@@ -752,7 +755,7 @@ export default function App() {
       </div>
 
       {/* 4. Mobile Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass px-3 py-2 flex items-center justify-around shadow-[0_-8px_32px_rgba(0,0,0,0.04)] pb-safe-bottom">
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass px-2 py-2 grid grid-cols-5 gap-1 shadow-[0_-8px_32px_rgba(0,0,0,0.04)] pb-safe-bottom">
         {[
           { name: PageName.DASHBOARD, label: "主面板", icon: LayoutDashboard },
           { name: PageName.SEARCH, label: "秒传搜索", icon: Search },
@@ -765,16 +768,16 @@ export default function App() {
             <button
               key={item.name}
               onClick={() => handlePageChange(item.name)}
-              className="flex flex-col items-center gap-1.5 py-1 px-3.5 rounded-xl transition-all relative text-[var(--txt-secondary)] active:scale-95"
+              className="min-w-0 flex flex-col items-center gap-1 py-1 px-1 rounded-xl transition-all relative text-[var(--txt-secondary)] active:scale-95"
             >
               <div className={`p-1.5 rounded-lg transition-all ${
                 isActive
                   ? "bg-brand-primary/10 text-brand-primary"
                   : "text-[var(--txt-muted)] hover:text-[var(--txt)]"
               }`}>
-                <Icon className="w-5 h-5" />
+                <Icon className="w-4.5 h-4.5" />
               </div>
-              <span className={`text-[9px] font-black tracking-wider transition-all ${
+              <span className={`text-[8px] font-black tracking-normal whitespace-nowrap transition-all ${
                 isActive ? "text-brand-primary font-black" : "text-[var(--txt-muted)] font-bold"
               }`}>
                 {item.label}
@@ -791,7 +794,7 @@ export default function App() {
         })}
         <button
           onClick={() => setMobileSidebarOpen(true)}
-          className={`flex flex-col items-center gap-1.5 py-1 px-3.5 rounded-xl transition-all active:scale-95 ${
+          className={`min-w-0 flex flex-col items-center gap-1 py-1 px-1 rounded-xl transition-all active:scale-95 ${
             [PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
               ? "text-brand-primary"
               : "text-[var(--txt-secondary)]"
@@ -802,9 +805,9 @@ export default function App() {
               ? "bg-brand-primary/10 text-brand-primary"
               : "text-[var(--txt-muted)]"
           }`}>
-            <Menu className="w-5 h-5" />
+            <Menu className="w-4.5 h-4.5" />
           </div>
-          <span className={`text-[9px] font-black tracking-wider ${
+          <span className={`text-[8px] font-black tracking-normal whitespace-nowrap ${
             [PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
               ? "text-brand-primary font-black"
               : "text-[var(--txt-muted)] font-bold"

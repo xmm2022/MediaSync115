@@ -247,7 +247,7 @@ export default function DashboardTab({
   };
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-8 md:space-y-12">
       {/* 数据来源提示条：所有数据来自 /api/archive/* 端点 */}
       <div className="glass-heavy rounded-xl px-4 py-2 flex items-center gap-2 text-xs font-medium" style={{ color: "var(--accent-info)" } as React.CSSProperties}>
         <Info className="w-4 h-4 shrink-0" />
@@ -256,7 +256,7 @@ export default function DashboardTab({
 
       {/* Centerpiece: Luminous Engine Dial */}
       <section className="flex flex-col items-center">
-        <div className="relative w-72 h-72 md:w-80 md:h-80 flex items-center justify-center">
+        <div className="relative w-60 h-60 sm:w-72 sm:h-72 md:w-80 md:h-80 flex items-center justify-center">
           {/* Shadow Glow Background */}
           <div className="absolute inset-0 rounded-full bg-brand-primary/5 blur-3xl"></div>
 
@@ -320,25 +320,25 @@ export default function DashboardTab({
               key={currentSpeedMB}
               initial={{ scale: 0.9, opacity: 0.5 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="font-headline text-5xl md:text-6xl font-bold leading-none"
+              className="font-headline text-4xl sm:text-5xl md:text-6xl font-bold leading-none"
               style={{ color: "var(--txt)" } as React.CSSProperties}
             >
               {isSyncingAll ? "扫描中" : "安全挂载"}
             </motion.span>
-            <div className="text-sm font-medium uppercase tracking-widest mt-2 flex items-center justify-center gap-1" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
+            <div className="text-xs sm:text-sm font-medium uppercase tracking-widest mt-2 flex items-center justify-center gap-1" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
               <Database className="w-3.5 h-3.5 text-brand-primary-light" />
               <span>多媒体归档就绪</span>
             </div>
 
-            <div className="mt-4 flex items-center justify-center gap-1.5 text-brand-secondary font-semibold glass px-3 py-1.5 rounded-full" style={{ color: "var(--brand-secondary)" } as React.CSSProperties}>
+            <div className="mt-3 sm:mt-4 flex items-center justify-center gap-1.5 text-brand-secondary font-semibold glass px-3 py-1.5 rounded-full" style={{ color: "var(--brand-secondary)" } as React.CSSProperties}>
               <Sparkles className="w-4 h-4 text-brand-primary-light" />
-              <span className="font-headline text-base">{totalFiles.toLocaleString()} 项 (来自 ArchiveFolder 列表)</span>
+              <span className="font-headline text-sm sm:text-base">{totalFiles.toLocaleString()} 项 (来自 ArchiveFolder 列表)</span>
             </div>
           </div>
         </div>
 
         {/* Stats Metadata Area */}
-        <div className="grid grid-cols-2 gap-8 mt-10 w-full max-w-md">
+        <div className="grid grid-cols-2 gap-4 sm:gap-8 mt-6 sm:mt-10 w-full max-w-md">
           <div className="glass glass-hover p-4 rounded-xl flex flex-col justify-start space-y-1 transition-all">
             <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>归档服务状态</span>
             <div className="flex items-center gap-1.5">
@@ -366,27 +366,27 @@ export default function DashboardTab({
 
       {/* Active Sync Directories Section */}
       <section className="space-y-5">
-        <div className="flex items-center justify-between px-1">
-          <div>
-            <h2 className="font-headline text-2xl font-bold tracking-tight" style={{ color: "var(--txt)" } as React.CSSProperties}>115 目录列表 ({activeCount} 个启用)</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-1">
+          <div className="min-w-0">
+            <h2 className="font-headline text-xl sm:text-2xl font-bold tracking-tight" style={{ color: "var(--txt)" } as React.CSSProperties}>115 目录列表 ({activeCount} 个启用)</h2>
             <p className="text-sm" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>从 /api/archive/folders 获取，状态从 /api/archive/tasks 派生</p>
           </div>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
             <button
               onClick={triggerFullScan}
               disabled={isSyncingAll}
-              className="px-4 py-2 bg-brand-primary text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md disabled:opacity-50 hover:bg-opacity-90 disabled:hover:bg-opacity-100"
+              className="min-w-0 px-3 sm:px-4 py-2 bg-brand-primary text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50 hover:bg-opacity-90 disabled:hover:bg-opacity-100"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingAll ? "animate-spin" : ""}`} />
-              <span>{isSyncingAll ? "正在执行归档扫描..." : "手动归档扫描"}</span>
+              <span className="truncate">{isSyncingAll ? "正在执行归档扫描..." : "手动归档扫描"}</span>
             </button>
             <button
               onClick={onNavigateToSettings}
-              className="px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5"
+              className="min-w-0 px-3 sm:px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5"
               style={{ background: "var(--surface-subtle)", color: "var(--brand-primary)", border: "1px solid var(--border)" } as React.CSSProperties}
             >
               <PlusCircle className="w-3.5 h-3.5" />
-              <span>配置归档目录</span>
+              <span className="truncate">配置归档目录</span>
             </button>
           </div>
         </div>

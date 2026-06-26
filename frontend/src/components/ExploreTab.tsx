@@ -5,11 +5,12 @@ import { searchApi } from "../api/search";
 import { getApiErrorMessage } from "../api/errors";
 import type { ExploreItem } from "../api/types";
 import { DEFAULT_EXPLORE_BOARD, getExplorePosterSrc } from "../utils/runtimeDefaults";
+import type { ExploreBoardKey } from "../utils/exploreSubscription";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 
 interface ExploreTabProps {
   onSearchQuery: (query: string) => void;
-  onAddSubscription: (title: string, category: "Movie" | "TV" | "Anime", poster: string) => void;
+  onAddSubscription: (item: ExploreItem, board: ExploreBoardKey) => Promise<{ ok: boolean; message: string }>;
 }
 
 /*
@@ -39,28 +40,20 @@ const DOUBAN_MOVIE_SECTION_KEYS = new Set([
 // 动画 section key
 const DOUBAN_ANIME_SECTION_KEY = "tv_animation";
 
-type BoardKey = "tmdb" | "douban" | "animation";
-
-// 后端 media_type 到 UI category 的映射
-function mapCategory(mediaType: string, board: BoardKey): "Movie" | "TV" | "Anime" {
-  if (board === "animation") return "Anime";
-  return mediaType === "tv" ? "TV" : "Movie";
-}
-
 // poster_url 占位图：后端可能返回空 poster_url
 const FALLBACK_POSTER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='176' viewBox='0 0 120 176'%3E%3Crect fill='%23e2e8f0' width='120' height='176'/%3E%3Ctext x='60' y='92' text-anchor='middle' fill='%2394a3b8' font-size='12'%3ENo Poster%3C/text%3E%3C/svg%3E";
 
 export default function ExploreTab({ onSearchQuery, onAddSubscription }: ExploreTabProps) {
-  const [activeBoard, setActiveBoard] = useState<BoardKey>(DEFAULT_EXPLORE_BOARD);
+  const [activeBoard, setActiveBoard] = useState<ExploreBoardKey>(DEFAULT_EXPLORE_BOARD);
   const [items, setItems] = useState<ExploreItem[]>([]);
   const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sectionTitle, setSectionTitle] = useState("");
-  const [queuedKey, setQueuedKey] = useState<string | null>(null); // 正在提交到探索队列的 item key
+  const [actionState, setActionState] = useState<Record<string, { status: "submitting" | "success" | "error"; message: string }>>({});
 
-  const fetchBoard = useCallback(async (board: BoardKey) => {
+  const fetchBoard = useCallback(async (board: ExploreBoardKey) => {
     setLoading(true);
     setError(null);
     setItems([]);
@@ -109,13 +102,21 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
           false,
           0,
         );
-        const section = data as unknown as {
+        const responsePayload = data as unknown as {
+          section?: {
+            key?: string;
+            title?: string;
+            items?: ExploreItem[];
+            emby_status_map?: Record<string, unknown>;
+            feiniu_status_map?: Record<string, unknown>;
+          };
           key?: string;
           title?: string;
           items?: ExploreItem[];
           emby_status_map?: Record<string, unknown>;
           feiniu_status_map?: Record<string, unknown>;
         };
+        const section = responsePayload.section ?? responsePayload;
         const secItems = section?.items ?? [];
         setItems(Array.isArray(secItems) ? secItems : []);
         setSectionTitle(section?.title || "豆瓣动画");
@@ -228,7 +229,6 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
           {items.map((item, idx) => {
             const poster = getExplorePosterSrc(item.poster_url || "") || FALLBACK_POSTER;
             const title = item.title || "未知标题";
-            const category = mapCategory(item.media_type, activeBoard);
             const desc = item.intro || item.year || "暂无简介";
             const rating =
               item.rating != null ? (typeof item.rating === "number" ? item.rating.toFixed(1) : String(item.rating)) : null;
@@ -322,33 +322,50 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
                     </button>
 
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         const key = String(item.id ?? idx);
-                        onAddSubscription(title.split(" (")[0], category, poster);
-                        // 同时触发后端探索队列异步订阅（resolve + enqueue）
-                        (async () => {
-                          setQueuedKey(key);
-                          try {
-                            await searchApi.enqueueExploreSubscribeTask({
-                              source: activeBoard === "tmdb" ? "tmdb" : "douban",
-                              douban_id: item.douban_id,
-                              title,
-                              media_type: (item.media_type === "tv" ? "tv" : "movie"),
-                              tmdb_id: item.tmdb_id,
-                            });
-                          } catch (err) {
-                            console.warn("explore queue subscribe failed", err);
-                          } finally {
-                            setTimeout(() => setQueuedKey(null), 2000);
-                          }
-                        })();
+                        setActionState((prev) => ({
+                          ...prev,
+                          [key]: { status: "submitting", message: "正在创建订阅..." },
+                        }));
+                        const result = await onAddSubscription(item, activeBoard);
+                        setActionState((prev) => ({
+                          ...prev,
+                          [key]: {
+                            status: result.ok ? "success" : "error",
+                            message: result.message,
+                          },
+                        }));
                       }}
+                      disabled={actionState[String(item.id ?? idx)]?.status === "submitting"}
                       className="px-2.5 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white hover:bg-brand-primary-light hover:shadow-sm transition-all flex items-center gap-1"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{queuedKey === String(item.id ?? idx) ? "已入队" : "一键订阅"}</span>
+                      {actionState[String(item.id ?? idx)]?.status === "submitting" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Plus className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {actionState[String(item.id ?? idx)]?.status === "submitting"
+                          ? "订阅中"
+                          : actionState[String(item.id ?? idx)]?.status === "success"
+                            ? "已订阅"
+                            : "一键订阅"}
+                      </span>
                     </button>
                   </div>
+                  {actionState[String(item.id ?? idx)] && actionState[String(item.id ?? idx)]?.status !== "submitting" && (
+                    <p
+                      className="text-[10px] font-bold mt-2 text-right"
+                      style={{
+                        color: actionState[String(item.id ?? idx)]?.status === "success"
+                          ? "var(--accent-ok)"
+                          : "var(--accent-danger)",
+                      }}
+                    >
+                      {actionState[String(item.id ?? idx)]?.message}
+                    </p>
+                  )}
                 </div>
               </div>
             );
@@ -365,7 +382,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
           <div>
             <h4 className="text-xs font-black" style={{ color: "var(--txt)" }}>想看的新影视榜单中没有？</h4>
             <p className="text-[10px] font-semibold leading-relaxed mt-0.5" style={{ color: "var(--txt-muted)" }}>
-              您可以直接利用顶部的 磁力云端检索 或在 自动订阅 中配置私有 RSS 地址进行全自动轮询追踪。
+              您可以直接利用磁力秒传检索，或在 RSS智能追更 中配置私有 RSS 地址进行全自动轮询追踪。
             </p>
           </div>
         </div>
