@@ -1,4 +1,5 @@
 import api from './client';
+import { extractItems, withResponseData } from './response';
 
 const SAVE_OPERATION_TIMEOUT = 180000;
 
@@ -11,7 +12,10 @@ export const pan115Api = {
   getCookieInfo: () => api.get('/pan115/cookie'),
 
   // ---- 扫码登录 ----
-  listQrLoginApps: () => api.get('/pan115/login/qr/apps'),
+  listQrLoginApps: async () => {
+    const response = await api.get('/pan115/login/qr/apps');
+    return withResponseData(response, extractItems<Record<string, unknown>>(response.data));
+  },
 
   startQrLogin: (app = 'alipaymini') => api.post('/pan115/login/qr/start', { app }),
 

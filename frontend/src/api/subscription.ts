@@ -1,10 +1,13 @@
 import api from './client';
 import type { SubscriptionItem, DownloadRecord, SubscriptionSource } from './types';
+import { extractItems, withResponseData } from './response';
 
 export const subscriptionApi = {
   // ---- 订阅 CRUD ----
-  list: (params?: Record<string, unknown>) =>
-    api.get<SubscriptionItem[]>('/subscriptions', { params }),
+  list: async (params?: Record<string, unknown>) => {
+    const response = await api.get('/subscriptions', { params });
+    return withResponseData(response, extractItems<SubscriptionItem>(response.data));
+  },
 
   listForStatus: (params?: Record<string, unknown>) =>
     api.get('/subscriptions/status-map', {
@@ -58,7 +61,10 @@ export const subscriptionApi = {
     api.get(`/subscriptions/${id}/tv/missing-status`, { params }),
 
   // ---- 来源管理 ----
-  listSources: (id: string) => api.get<SubscriptionSource[]>(`/subscriptions/${id}/sources`),
+  listSources: async (id: string) => {
+    const response = await api.get(`/subscriptions/${id}/sources`);
+    return withResponseData(response, extractItems<SubscriptionSource>(response.data));
+  },
 
   createSource: (id: string, data: {
     share_url: string;

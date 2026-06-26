@@ -1,4 +1,5 @@
 import api from './client';
+import type { AxiosResponse } from 'axios';
 import type {
   ExploreMeta,
   ExploreSection,
@@ -11,6 +12,16 @@ import type {
   ExploreQueueTask,
   HDHiveUnlockRequest,
 } from './types';
+import { extractRecord, withResponseData } from './response';
+
+function normalizeStatusMapResponse(response: AxiosResponse<unknown>) {
+  const statusMap = extractRecord(response.data, ['status_map', 'items']);
+  return withResponseData(response, {
+    ...(typeof response.data === 'object' && response.data !== null ? response.data : {}),
+    items: statusMap,
+    status_map: statusMap,
+  });
+}
 
 export const searchApi = {
   // ---- 搜索 ----
@@ -34,11 +45,11 @@ export const searchApi = {
     api.get('/search/explore/poster', { params: { url, size } }),
 
   // ---- Emby / 飞牛 状态 ----
-  getEmbyStatusMap: (items: { media_type: string; tmdb_id: number }[]) =>
-    api.post<EmbyStatusMapResponse>('/search/emby/status-map', { items }),
+  getEmbyStatusMap: async (items: { media_type: string; tmdb_id: number }[]) =>
+    normalizeStatusMapResponse(await api.post<EmbyStatusMapResponse>('/search/emby/status-map', { items })),
 
-  getFeiniuStatusMap: (items: { media_type: string; tmdb_id: number }[]) =>
-    api.post<FeiniuStatusMapResponse>('/search/feiniu/status-map', { items }),
+  getFeiniuStatusMap: async (items: { media_type: string; tmdb_id: number }[]) =>
+    normalizeStatusMapResponse(await api.post<FeiniuStatusMapResponse>('/search/feiniu/status-map', { items })),
 
   // ---- 探索 resolve / queue ----
   resolveExploreItem: (payload: ExploreResolvePayload) =>
