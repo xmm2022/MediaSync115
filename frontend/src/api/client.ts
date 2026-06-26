@@ -1,5 +1,5 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
-import { AUTH_REQUIRED_EVENT, getApiErrorMessage } from './errors';
+import { AUTH_REQUIRED_EVENT, getApiErrorMessage, isWebSessionAuthError } from './errors';
 
 const api = axios.create({
   baseURL: '/api',
@@ -22,16 +22,13 @@ api.interceptors.response.use(
 
     const requestUrl: string = error?.config?.url || '';
 
-    // Don't redirect for /pan115/ prefixed requests (resource credential issue, not session)
-    if (requestUrl.includes('/pan115/')) {
-      return Promise.reject(error);
-    }
-
-    // Don't redirect for auth endpoints
+    // Auth endpoints and external service credential failures must not log out
+    // the Web session. Only the backend session middleware returns "请先登录".
     if (
       requestUrl.includes('/auth/login') ||
       requestUrl.includes('/auth/logout') ||
-      requestUrl.includes('/auth/session')
+      requestUrl.includes('/auth/session') ||
+      !isWebSessionAuthError(error)
     ) {
       return Promise.reject(error);
     }

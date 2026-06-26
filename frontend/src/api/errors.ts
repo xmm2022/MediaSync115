@@ -20,6 +20,16 @@ function getResponseDetail(data: unknown): string {
   return "";
 }
 
+export function isWebSessionAuthError(error: unknown): boolean {
+  const err = error as ApiErrorPayload;
+  if (err?.response?.status !== 401) return false;
+
+  const detail = getResponseDetail(err.response.data);
+  if (!detail) return true;
+
+  return detail === "请先登录";
+}
+
 export function getApiErrorMessage(error: unknown, fallback = "请求失败，请稍后重试"): string {
   const err = error as ApiErrorPayload;
   const status = err?.response?.status;

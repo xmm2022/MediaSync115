@@ -16,6 +16,16 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("AUTH_REQUIRED_EVENT", client)
         self.assertNotIn("window.location.href = '/login'", client)
 
+    def test_service_credential_401_does_not_trigger_web_logout(self) -> None:
+        client = read_source("src/api/client.ts")
+        errors = read_source("src/api/errors.ts")
+
+        self.assertIn("isWebSessionAuthError", client)
+        self.assertIn("isWebSessionAuthError", errors)
+        self.assertIn("请先登录", errors)
+        self.assertIn('return detail === "请先登录"', errors)
+        self.assertIn("!isWebSessionAuthError(error)", client)
+
     def test_explore_errors_are_user_facing(self) -> None:
         explore = read_source("src/components/ExploreTab.tsx")
 

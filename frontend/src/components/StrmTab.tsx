@@ -8,6 +8,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { strmApi, archiveApi } from "../api";
+import { getApiErrorMessage } from "../api/errors";
 import type { StrmConfig, ArchiveConfig } from "../api/types";
 import { Film, RefreshCw, Play, AlertTriangle, CheckCircle2, XCircle, Settings2, Folder, ScanLine } from "lucide-react";
 import { motion } from "motion/react";
@@ -65,9 +66,9 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
       setRefreshFeiniu(Boolean(c.strm_refresh_feiniu_after_generate));
       setProxyEnabled(Boolean(c.strm_proxy_enabled));
       setProxyPort(c.strm_proxy_port as number | undefined);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError("加载 STRM/归档配置失败");
+      setError(`加载 STRM/归档配置失败: ${getApiErrorMessage(err)}`);
     } finally {
       setLoading(false);
     }
@@ -93,8 +94,8 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
       });
       setConfig(data);
       await addLog("SUCCESS", "STRM 配置已保存");
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || err?.message || String(err);
+    } catch (err: unknown) {
+      const detail = getApiErrorMessage(err);
       setError(`保存失败: ${detail}`);
       addLog("ERROR", `STRM 配置保存失败: ${detail}`);
     } finally {
@@ -110,8 +111,8 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
       const result = await strmApi.generate();
       await addLog("SUCCESS", "STRM 生成任务已触发");
       setDiagnose(result.data);
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || err?.message || String(err);
+    } catch (err: unknown) {
+      const detail = getApiErrorMessage(err);
       setError(`生成失败: ${detail}`);
       addLog("ERROR", `STRM 生成失败: ${detail}`);
     } finally {
@@ -124,8 +125,8 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
     try {
       const { data } = await strmApi.diagnose();
       setDiagnose(data);
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || err?.message || String(err);
+    } catch (err: unknown) {
+      const detail = getApiErrorMessage(err);
       setDiagnose({ error: detail });
     } finally {
       setDiagnoseLoading(false);
@@ -137,8 +138,8 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
     try {
       await archiveApi.runScan();
       await addLog("SUCCESS", "归档扫描已触发");
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || err?.message || String(err);
+    } catch (err: unknown) {
+      const detail = getApiErrorMessage(err);
       setError(`归档扫描失败: ${detail}`);
     } finally {
       setScanning(false);

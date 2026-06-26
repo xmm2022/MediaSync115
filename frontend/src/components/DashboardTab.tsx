@@ -21,6 +21,7 @@
 import React, { useState, useEffect } from "react";
 import { SyncDirectory } from "../types";
 import { archiveApi } from "../api";
+import { getApiErrorMessage } from "../api/errors";
 import type { ArchiveTask } from "../api/types";
 import { ACTIVE_ARCHIVE_TASK_STATUS } from "../utils/runtimeDefaults";
 import {
@@ -108,7 +109,7 @@ export default function DashboardTab({
       setDirectories(prev => prev.map(d => ({ ...d, enabled: nextEnabled })));
     } catch (err) {
       console.error("Failed to toggle archive config:", err);
-      addLog("ERROR", "更新归档配置失败: " + String(err));
+      addLog("ERROR", "更新归档配置失败: " + getApiErrorMessage(err));
     }
   };
 
@@ -167,7 +168,7 @@ export default function DashboardTab({
       setDirectories(dirs);
     } catch (err) {
       console.error("Failed to update archive config:", err);
-      addLog("ERROR", "更新归档配置失败: " + String(err));
+      addLog("ERROR", "更新归档配置失败: " + getApiErrorMessage(err));
     }
 
     // Reset form
@@ -198,7 +199,7 @@ export default function DashboardTab({
       }, 2000);
     } catch (err) {
       console.error("Failed to run archive scan:", err);
-      addLog("ERROR", "归档扫描请求失败: " + String(err));
+      addLog("ERROR", "归档扫描请求失败: " + getApiErrorMessage(err));
     } finally {
       setTimeout(() => {
         setIsSyncingAll(false);
@@ -669,11 +670,11 @@ export default function DashboardTab({
       <div className="glass rounded-2xl p-4 space-y-2">
         <p className="text-[10px] font-black" style={{ color:"var(--txt-muted)" }}>归档工具</p>
         <div className="flex flex-wrap gap-1.5">
-          <button onClick={async () => { try { const r = await archiveApi.getSubdirOptions(); await addLog("SUCCESS", `子目录选项: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+          <button onClick={async () => { try { const r = await archiveApi.getSubdirOptions(); await addLog("SUCCESS", `子目录选项: ${JSON.stringify(r.data)}`); } catch(e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
             className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>子目录选项</button>
-          <button onClick={async () => { try { const r = await archiveApi.getNamingOptions(); await addLog("SUCCESS", `命名选项: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+          <button onClick={async () => { try { const r = await archiveApi.getNamingOptions(); await addLog("SUCCESS", `命名选项: ${JSON.stringify(r.data)}`); } catch(e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
             className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>命名选项</button>
-          <button onClick={async () => { try { await archiveApi.clearTasks(true); await addLog("WARN", "已清理归档任务(含失败)"); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+          <button onClick={async () => { try { await archiveApi.clearTasks(true); await addLog("WARN", "已清理归档任务(含失败)"); } catch(e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
             className="px-2 py-1 rounded text-[9px] font-bold" style={{ color:"var(--accent-danger)", border:"1px solid rgba(239,68,68,0.3)" }}>清理任务</button>
         </div>
       </div>

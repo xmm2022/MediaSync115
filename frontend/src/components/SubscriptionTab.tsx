@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { SubscriptionItem, SubscriptionSource, DownloadRecord } from "../api/types";
 import { subscriptionApi } from "../api";
+import { getApiErrorMessage } from "../api/errors";
 import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import type { SyncDirectory } from "../types";
@@ -434,7 +435,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                   try {
                     await subscriptionApi.runChannelCheckBackground(ch);
                     await addLog("INFO", `已触发 ${ch} 频道后台扫描`);
-                  } catch (err: unknown) { await addLog("ERROR", `触发 ${ch} 扫描失败: ${String(err)}`); }
+                  } catch (err: unknown) { await addLog("ERROR", `触发 ${ch} 扫描失败: ${getApiErrorMessage(err)}`); }
                 }}
                 className="px-2 py-1.5 rounded-lg text-[9px] font-black glass-hover transition-all"
                 style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
@@ -448,7 +449,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                 try {
                   await subscriptionApi.runAllChannelsCheckBackground(true);
                   await addLog("INFO", "已触发全频道后台扫描");
-                } catch (err: unknown) { await addLog("ERROR", `全频道扫描失败: ${String(err)}`); }
+                } catch (err: unknown) { await addLog("ERROR", `全频道扫描失败: ${getApiErrorMessage(err)}`); }
               }}
               className="px-2 py-1.5 rounded-lg text-[9px] font-black text-white"
               style={{ background: "var(--brand-primary)" }}

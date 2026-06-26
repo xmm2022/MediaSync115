@@ -36,6 +36,7 @@ import { quarkApi } from "../api/quark";
 import { pansouApi } from "../api/pansou";
 import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
+import { getApiErrorMessage } from "../api/errors";
 
 interface SettingsTabProps {
   logs: SyncLog[];
@@ -76,8 +77,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       const msg = typeof data === "string" ? data : JSON.stringify(data ?? "OK").slice(0, 200);
       setLastResult((p) => ({ ...p, [key]: { ok: true, msg } }));
       await addLog("SUCCESS", `${label} 成功: ${msg}`);
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || err?.message || String(err);
+    } catch (err: unknown) {
+      const detail = getApiErrorMessage(err);
       setLastResult((p) => ({ ...p, [key]: { ok: false, msg: String(detail) } }));
       await addLog("ERROR", `${label} 失败: ${detail}`);
     } finally {
@@ -187,7 +188,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setTgQrStatus("启动二维码失败: 无 token");
       }
     } catch (err: unknown) {
-      setTgQrStatus(`启动失败: ${String(err)}`);
+      setTgQrStatus(`启动失败: ${getApiErrorMessage(err)}`);
     } finally {
       setTgQrPolling(false);
     }
@@ -222,7 +223,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         // it is not exposed in this UI tab (needs a different config UI).
       } catch (err) {
         console.error("Failed to load runtime settings:", err);
-        addLog("ERROR", "加载运行时设置失败: " + (err instanceof Error ? err.message : String(err)));
+        addLog("ERROR", "加载运行时设置失败: " + getApiErrorMessage(err));
       }
 
       try {
@@ -233,7 +234,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         savedCookieRef.current = masked;
       } catch (err) {
         console.error("Failed to load 115 cookie info:", err);
-        addLog("ERROR", "加载115 Cookie信息失败: " + (err instanceof Error ? err.message : String(err)));
+        addLog("ERROR", "加载115 Cookie信息失败: " + getApiErrorMessage(err));
       }
     };
     loadConfig();
@@ -284,7 +285,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           savedCookieRef.current = cookie115;
         } catch (cookieErr) {
           console.error("Failed to update 115 cookie:", cookieErr);
-          addLog("ERROR", "115 Cookie 更新失败: " + (cookieErr instanceof Error ? cookieErr.message : String(cookieErr)));
+          addLog("ERROR", "115 Cookie 更新失败: " + getApiErrorMessage(cookieErr));
           // Continue — runtime settings may still have saved successfully
         }
       }
@@ -292,7 +293,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       addLog("SUCCESS", "系统配置已保存到后端");
     } catch (err) {
       console.error("Failed to save config to server:", err);
-      addLog("ERROR", "无法向后端保存配置信息: " + (err instanceof Error ? err.message : String(err)));
+      addLog("ERROR", "无法向后端保存配置信息: " + getApiErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -309,7 +310,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           savedCookieRef.current = cookie115;
         } catch (updateErr) {
           console.error("Failed to update cookie before test:", updateErr);
-          addLog("ERROR", "115 Cookie 更新失败（测试前保存）: " + (updateErr instanceof Error ? updateErr.message : String(updateErr)));
+          addLog("ERROR", "115 Cookie 更新失败（测试前保存）: " + getApiErrorMessage(updateErr));
           setIsTesting115(false);
           return;
         }
@@ -325,7 +326,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       }
     } catch (err) {
       console.error("Failed to test 115:", err);
-      addLog("ERROR", "115 会话握手测试失败: " + (err instanceof Error ? err.message : String(err)));
+      addLog("ERROR", "115 会话握手测试失败: " + getApiErrorMessage(err));
     } finally {
       setIsTesting115(false);
     }
@@ -349,7 +350,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       }
     } catch (err) {
       console.error("Failed to test Emby:", err);
-      addLog("ERROR", "Emby Webscan Webhook 测试失败: " + (err instanceof Error ? err.message : String(err)));
+      addLog("ERROR", "Emby Webscan Webhook 测试失败: " + getApiErrorMessage(err));
     } finally {
       setIsTestingEmby(false);
     }
@@ -363,7 +364,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       addLog("INFO", "服务端日志已清空");
     } catch (err) {
       console.error("Failed to clear logs on server:", err);
-      addLog("ERROR", "清空服务端日志失败: " + (err instanceof Error ? err.message : String(err)));
+      addLog("ERROR", "清空服务端日志失败: " + getApiErrorMessage(err));
     }
   };
 
@@ -378,7 +379,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       addLog("SUCCESS", "归档扫描已触发 — 检查 archive/tasks 查看进度");
     } catch (err) {
       console.error("Failed to trigger archive scan:", err);
-      addLog("ERROR", "触发归档扫描失败: " + (err instanceof Error ? err.message : String(err)));
+      addLog("ERROR", "触发归档扫描失败: " + getApiErrorMessage(err));
     }
   };
 
@@ -1022,10 +1023,10 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   <Trash2 className="w-4 h-4" />
                 </button>
                 <button type="button" title="日志模块列表"
-                  onClick={async () => { try { const r = await logsApi.modules(); setLogs(prev => [...prev, {id:"m1", timestamp:new Date().toISOString(), level:"INFO", message:`日志模块: ${JSON.stringify(r.data)}`}]); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+                  onClick={async () => { try { const r = await logsApi.modules(); setLogs(prev => [...prev, {id:"m1", timestamp:new Date().toISOString(), level:"INFO", message:`日志模块: ${JSON.stringify(r.data)}`}]); } catch(e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
                   className="p-1.5 hover:bg-gray-700 rounded text-blue-400 transition-colors"><Database className="w-4 h-4" /></button>
                 <button type="button" title="清理旧日志(30天)"
-                  onClick={async () => { try { await logsApi.prune(30); await addLog("SUCCESS", "已清理30天前旧日志"); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+                  onClick={async () => { try { await logsApi.prune(30); await addLog("SUCCESS", "已清理30天前旧日志"); } catch(e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
                   className="p-1.5 hover:bg-gray-700 rounded text-amber-400 transition-colors"><AlertTriangle className="w-4 h-4" /></button>
               </div>
             </div>
