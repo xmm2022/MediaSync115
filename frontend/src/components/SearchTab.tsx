@@ -47,7 +47,35 @@ interface ResourceLinkRaw {
   access_code?: string;
   source_service?: string;
   resolution?: string;
+  slug?: string;
+  unlocked?: boolean;
+  magnet?: string;
+  info_hash?: string;
 }
+
+/** 资源来源选项（多源资源浏览） */
+type ResourceSourceKey =
+  | "unified"
+  | "115_pansou"
+  | "115_hdhive"
+  | "115_tg"
+  | "quark_pansou"
+  | "quark_hdhive"
+  | "quark_tg"
+  | "magnet_seedhub"
+  | "magnet_butailing";
+
+const RESOURCE_SOURCES: { key: ResourceSourceKey; label: string; desc: string }[] = [
+  { key: "unified", label: "统一", desc: "后端统一聚合管道" },
+  { key: "115_pansou", label: "115·盘搜", desc: "pansou 网盘资源" },
+  { key: "115_hdhive", label: "115·HDHive", desc: "HDHive 网盘资源（可解锁）" },
+  { key: "115_tg", label: "115·TG", desc: "Telegram 频道资源" },
+  { key: "quark_pansou", label: "夸克·盘搜", desc: "夸克网盘·pansou" },
+  { key: "quark_hdhive", label: "夸克·HDHive", desc: "夸克网盘·HDHive" },
+  { key: "quark_tg", label: "夸克·TG", desc: "夸克网盘·Telegram" },
+  { key: "magnet_seedhub", label: "磁力·SeedHub", desc: "SeedHub 磁力搜索" },
+  { key: "magnet_butailing", label: "磁力·不淘", desc: "不淘磁力搜索" },
+];
 
 export default function SearchTab({ addLog, searchQuery, setSearchQuery }: SearchTabProps) {
   const [resources, setResources] = useState<MediaResource[]>([]);
@@ -59,6 +87,8 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
+  const [activeSource, setActiveSource] = useState<ResourceSourceKey>("unified");
+  const [unlockingSlug, setUnlockingSlug] = useState<string | null>(null);
 
   // ---- Helper: map explore item → MediaResource ----
   const mapExploreItem = (item: ExploreItem, sectionTag?: string): MediaResource => {
@@ -151,25 +181,79 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   }, []);
 
   // ---- Fetch resource links for detail panel ----
-  const fetchResourceLinks = async (resource: MediaResource): Promise<MediaResourceLink[]> => {
+  // ---- Fetch resource links (multi-source) ----
+  const fetchResourceLinks = async (
+    resource: MediaResource,
+    source: ResourceSourceKey = "unified",
+  ): Promise<MediaResourceLink[]> => {
     if (!resource.tmdb_id || !resource.media_type) {
       console.warn("Resource missing tmdb_id/media_type, cannot fetch links");
       return [];
     }
+    const isMovie = (resource.media_type || "movie") === "movie";
     try {
-      const response = await searchApi.getMediaResources(
-        resource.tmdb_id,
-        resource.media_type,
-        null,
-        false,
-      );
-      const rawLinks: ResourceLinkRaw[] = Array.isArray(response.data)
-        ? response.data
-        : (response.data as any)?.items || (response.data as any)?.resources || [];
+      let response: { data: unknown };
+      switch (source) {
+        case "unified":
+          response = await searchApi.getMediaResources(resource.tmdb_id, resource.media_type, null, false);
+          break;
+        case "115_pansou":
+          response = isMovie
+            ? await searchApi.getMoviePan115Pansou(resource.tmdb_id)
+            : await searchApi.getTvPan115Pansou(resource.tmdb_id);
+          break;
+        case "115_hdhive":
+          response = isMovie
+            ? await searchApi.getMoviePan115Hdhive(resource.tmdb_id)
+            : await searchApi.getTvPan115Hdhive(resource.tmdb_id);
+          break;
+        case "115_tg":
+          response = isMovie
+            ? await searchApi.getMoviePan115Tg(resource.tmdb_id)
+            : await searchApi.getTvPan115Tg(resource.tmdb_id);
+          break;
+        case "quark_pansou":
+          response = isMovie
+            ? await searchApi.getMovieQuarkPansou(resource.tmdb_id)
+            : await searchApi.getTvQuarkPansou(resource.tmdb_id);
+          break;
+        case "quark_hdhive":
+          response = isMovie
+            ? await searchApi.getMovieQuarkHdhive(resource.tmdb_id)
+            : await searchApi.getTvQuarkHdhive(resource.tmdb_id);
+          break;
+        case "quark_tg":
+          response = isMovie
+            ? await searchApi.getMovieQuarkTg(resource.tmdb_id)
+            : await searchApi.getTvQuarkTg(resource.tmdb_id);
+          break;
+        case "magnet_seedhub":
+          response = isMovie
+            ? await searchApi.getMovieMagnetSeedhub(resource.tmdb_id)
+            : await searchApi.getTvMagnetSeedhub(resource.tmdb_id);
+          break;
+        case "magnet_butailing":
+          response = isMovie
+            ? await searchApi.getMovieMagnetButailing(resource.tmdb_id)
+            : await searchApi.getTvMagnetButailing(resource.tmdb_id);
+          break;
+        default:
+          response = await searchApi.getMediaResources(resource.tmdb_id, resource.media_type, null, false);
+      }
+
+      // 不同来源响应壳不同：可能是数组，也包在 items/resources/links/magnets 下
+      const rawData = response.data;
+      const rawLinks: ResourceLinkRaw[] = Array.isArray(rawData)
+        ? (rawData as ResourceLinkRaw[])
+        : ((rawData as Record<string, unknown>)?.items as ResourceLinkRaw[])
+          || ((rawData as Record<string, unknown>)?.resources as ResourceLinkRaw[])
+          || ((rawData as Record<string, unknown>)?.links as ResourceLinkRaw[])
+          || ((rawData as Record<string, unknown>)?.magnets as ResourceLinkRaw[])
+          || [];
 
       return rawLinks.map((rl) => {
         const shareUrl = rl.share_link || rl.share_url || rl.url || "";
-        // Extract receive_code from share URL or dedicated field
+        const magnetUrl = rl.magnet || (rl.info_hash ? `magnet:?xt=urn:btih:${rl.info_hash}` : "");
         const receiveCode =
           rl.receive_code ||
           rl.access_code ||
@@ -183,9 +267,14 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
           size: typeof rl.size === "number" ? formatSize(rl.size) : String(rl.size || "未知"),
           seeds: rl.seeds,
           pickcode: rl.pick_code || rl.pickcode,
-          url: shareUrl,
+          url: shareUrl || magnetUrl || "",
           shareUrl,
           receiveCode,
+          sourceService: rl.source_service,
+          resolution: rl.resolution,
+          slug: rl.slug,
+          unlocked: rl.unlocked,
+          magnetUrl,
         };
       });
     } catch (err: any) {
@@ -206,12 +295,46 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   // ---- Handle resource selection (lazy-load links) ----
   const handleSelectResource = async (resource: MediaResource) => {
     setSelectedResource({ ...resource, links: [] });
-    if (resource.links.length > 0) return; // already loaded
-
+    setActiveSource("unified"); // 重置为统一来源
     setLoadingLinks(true);
-    const links = await fetchResourceLinks(resource);
+    const links = await fetchResourceLinks(resource, "unified");
     setSelectedResource((prev) => (prev ? { ...prev, links } : null));
     setLoadingLinks(false);
+  };
+
+  // ---- Switch resource source (multi-source browsing) ----
+  const handleSwitchSource = async (source: ResourceSourceKey) => {
+    if (!selectedResource) return;
+    setActiveSource(source);
+    setLoadingLinks(true);
+    setSelectedResource((prev) => (prev ? { ...prev, links: [] } : null));
+    const links = await fetchResourceLinks(selectedResource, source);
+    setSelectedResource((prev) => (prev ? { ...prev, links } : null));
+    setLoadingLinks(false);
+  };
+
+  // ---- HDHive unlock ----
+  const handleUnlockHdhive = async (slug: string, linkIndex: number) => {
+    const actionId = `unlock-${slug}-${linkIndex}`;
+    setUnlockingSlug(actionId);
+    try {
+      await searchApi.unlockHdhiveResource(slug);
+      setSelectedResource((prev) =>
+        prev
+          ? {
+              ...prev,
+              links: prev.links.map((l, i) => (i === linkIndex ? { ...l, unlocked: true } : l)),
+            }
+          : prev,
+      );
+      await addLog("SUCCESS", `HDHive 资源 ${slug} 已解锁`);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || String(err);
+      console.error("HDHive unlock error:", detail);
+      await addLog("ERROR", `HDHive 解锁失败: ${detail}`);
+    } finally {
+      setUnlockingSlug(null);
+    }
   };
 
   // ---- Transfer handler ----
@@ -477,10 +600,35 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-black text-txt-dark flex items-center gap-1.5">
                       <Download className="w-4 h-4 text-brand-primary" />
-                      <span>115 网盘磁力链转存通道</span>
+                      <span>资源通道</span>
                     </span>
-                    <span className="text-[10px] text-brand-primary font-bold">秒级秒传</span>
+                    {selectedResource.tmdb_id ? (
+                      <span className="text-[10px] text-brand-primary font-bold">多源可切换</span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 font-bold">无 TMDB ID</span>
+                    )}
                   </div>
+
+                  {/* 多源资源选择器 */}
+                  {selectedResource.tmdb_id && (
+                    <div className="flex flex-wrap gap-1">
+                      {RESOURCE_SOURCES.map((s) => (
+                        <button
+                          key={s.key}
+                          onClick={() => handleSwitchSource(s.key)}
+                          disabled={loadingLinks}
+                          title={s.desc}
+                          className={`px-2 py-1 rounded-lg text-[9px] font-bold border transition-all ${
+                            activeSource === s.key
+                              ? "bg-brand-primary text-white border-brand-primary"
+                              : "bg-white/70 text-slate-500 border-slate-200/60 hover:bg-white"
+                          } disabled:opacity-50`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {loadingLinks ? (
                     <div className="text-center py-6">
@@ -511,12 +659,54 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                               </span>
                             </div>
 
+                            {/* 来源/分辨率/HDHive 状态标记 */}
+                            {(link.sourceService || link.resolution || link.slug) && (
+                              <div className="flex flex-wrap gap-1">
+                                {link.sourceService && (
+                                  <span className="text-[8px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded">{link.sourceService}</span>
+                                )}
+                                {link.resolution && (
+                                  <span className="text-[8px] bg-indigo-50 text-indigo-600 font-bold px-1.5 py-0.5 rounded">{link.resolution}</span>
+                                )}
+                                {link.slug && (
+                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${link.unlocked ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                                    {link.unlocked ? "HDHive已解锁" : "HDHive待解锁"}
+                                  </span>
+                                )}
+                                {link.magnetUrl && !link.shareUrl && (
+                                  <span className="text-[8px] bg-purple-50 text-purple-600 font-bold px-1.5 py-0.5 rounded">磁力链</span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* HDHive 解锁按钮 */}
+                            {link.slug && !link.unlocked && (
+                              <button
+                                disabled={unlockingSlug === `unlock-${link.slug}-${idx}`}
+                                onClick={() => handleUnlockHdhive(link.slug!, idx)}
+                                className="self-start px-2.5 py-1 rounded-lg text-[10px] font-black bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {unlockingSlug === `unlock-${link.slug}-${idx}` ? (
+                                  <>
+                                    <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    <span>解锁中</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Shield className="w-3 h-3" />
+                                    <span>HDHive 解锁</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+
                             <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mt-1">
                               <div className="flex gap-3">
                                 <span>大小: <strong className="text-slate-600">{link.size}</strong></span>
                                 {link.seeds != null && <span>健康度: <strong className="text-green-600">{link.seeds}</strong></span>}
                               </div>
 
+                              {link.shareUrl && (
                               <button
                                 disabled={isTransferring || disabled}
                                 onClick={() => handleTransfer(selectedResource, link, idx)}
@@ -553,6 +743,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                                   </>
                                 )}
                               </button>
+                              )}
                             </div>
                           </div>
                         );

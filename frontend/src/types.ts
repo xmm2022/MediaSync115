@@ -38,6 +38,16 @@ export interface MediaResourceLink {
   shareUrl?: string;
   /** Receive code extracted from share link */
   receiveCode?: string;
+  /** 资源来源服务标识(115/quark/pansou/hdhive/tg/seedhub/butailing) */
+  sourceService?: string;
+  /** 资源分辨率/编码标记(后端返回 resolution) */
+  resolution?: string;
+  /** HDHive 资源 slug，用于解锁 */
+  slug?: string;
+  /** HDHive 资源是否已解锁(后端返回) */
+  unlocked?: boolean;
+  /** 原始磁力链接(磁力来源) */
+  magnetUrl?: string;
 }
 
 /**

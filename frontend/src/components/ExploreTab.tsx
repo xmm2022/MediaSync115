@@ -56,6 +56,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sectionTitle, setSectionTitle] = useState("");
+  const [queuedKey, setQueuedKey] = useState<string | null>(null); // 正在提交到探索队列的 item key
 
   const fetchBoard = useCallback(async (board: BoardKey) => {
     setLoading(true);
@@ -317,11 +318,31 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
                     </button>
 
                     <button
-                      onClick={() => onAddSubscription(title.split(" (")[0], category, poster)}
+                      onClick={() => {
+                        const key = String(item.id ?? idx);
+                        onAddSubscription(title.split(" (")[0], category, poster);
+                        // 同时触发后端探索队列异步订阅（resolve + enqueue）
+                        (async () => {
+                          setQueuedKey(key);
+                          try {
+                            await searchApi.enqueueExploreSubscribeTask({
+                              source: activeBoard === "tmdb" ? "tmdb" : "douban",
+                              douban_id: item.douban_id,
+                              title,
+                              media_type: (item.media_type === "tv" ? "tv" : "movie"),
+                              tmdb_id: item.tmdb_id,
+                            });
+                          } catch (err) {
+                            console.warn("explore queue subscribe failed", err);
+                          } finally {
+                            setTimeout(() => setQueuedKey(null), 2000);
+                          }
+                        })();
+                      }}
                       className="px-2.5 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white hover:bg-brand-primary-light hover:shadow-sm transition-all flex items-center gap-1"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>一键订阅</span>
+                      <span>{queuedKey === String(item.id ?? idx) ? "已入队" : "一键订阅"}</span>
                     </button>
                   </div>
                 </div>
