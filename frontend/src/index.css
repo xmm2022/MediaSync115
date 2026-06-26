@@ -1,40 +1,147 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/* ============================================================
+ *  Theme tokens — dark (default) & light, glassmorphism style.
+ *  All surface/brand colors flow through CSS variables so the
+ *  whole app re-themes by switching [data-theme] on <html>.
+ * ============================================================ */
+:root,
+[data-theme='dark'] {
+  --brand-primary: #8b5cf6;
+  --brand-primary-light: #a78bfa;
+  --brand-secondary: #60a5fa;
+
+  --bg: #0b1020;
+  --bg-elev: #111827;
+  --surface: rgba(31, 41, 55, 0.55);
+  --surface-solid: #1f2937;
+  --surface-hover: rgba(55, 65, 81, 0.7);
+  --surface-subtle: rgba(255, 255, 255, 0.04);
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --txt: #f3f4f6;
+  --txt-secondary: #cbd5e1;
+  --txt-muted: #94a3b8;
+
+  --glass-bg: rgba(26, 34, 48, 0.6);
+  --glass-bg-heavy: rgba(22, 29, 41, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.08);
+
+  --accent-ok: #22c55e;
+  --accent-warn: #f59e0b;
+  --accent-danger: #ef4444;
+  --accent-info: #60a5fa;
+
+  --ambient-1: rgba(139, 92, 246, 0.14);
+  --ambient-2: rgba(59, 130, 246, 0.12);
+  --ambient-3: rgba(217, 70, 239, 0.10);
+  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='light'] {
+  --brand-primary: #7c3aed;
+  --brand-primary-light: #a78bfa;
+  --brand-secondary: #3b82f6;
+
+  --bg: #faf9fe;
+  --bg-elev: #ffffff;
+  --surface: rgba(255, 255, 255, 0.7);
+  --surface-solid: #ffffff;
+  --surface-hover: rgba(255, 255, 255, 0.92);
+  --surface-subtle: rgba(0, 0, 0, 0.02);
+
+  --border: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.14);
+
+  --txt: #1e1b4b;
+  --txt-secondary: #475569;
+  --txt-muted: #94a3b8;
+
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-heavy: rgba(255, 255, 255, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.7);
+
+  --accent-ok: #16a34a;
+  --accent-warn: #d97706;
+  --accent-danger: #dc2626;
+  --accent-info: #2563eb;
+
+  --ambient-1: rgba(139, 92, 246, 0.10);
+  --ambient-2: rgba(59, 130, 246, 0.08);
+  --ambient-3: rgba(217, 70, 239, 0.06);
+  --shadow-card: 0 8px 32px rgba(30, 27, 75, 0.08);
+}
+
+/* Map Tailwind brand color utilities to theme tokens.
+ * Components keep using bg-brand-primary / text-txt-dark etc. */
 @theme {
-  --color-brand-primary: #7c3aed;
-  --color-brand-primary-light: #a78bfa;
-  --color-brand-secondary: #3b82f6;
-  --color-brand-background: #faf9fe;
-  --color-brand-surface-lowest: #ffffff;
-  --color-brand-surface-low: #f5f3ff;
-  --color-brand-surface-normal: #ddd6fe;
-  --color-brand-surface-high: #c7d2fe;
-  --color-brand-surface-highest: #8b5cf6;
-  --color-brand-dark-bg: #1e1b4b;
-  --color-txt-dark: #1e1b4b;
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-primary-light: var(--brand-primary-light);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-background: var(--bg);
+  --color-brand-surface-lowest: var(--surface-solid);
+  --color-brand-surface-low: var(--bg-elev);
+  --color-brand-surface-normal: var(--surface-hover);
+  --color-brand-surface-high: var(--border-strong);
+  --color-brand-surface-highest: var(--brand-primary);
+  --color-brand-dark-bg: var(--bg);
+  --color-txt-dark: var(--txt);
   --font-headline: "Space Grotesk", "Inter", sans-serif;
   --font-body: "Inter", sans-serif;
 }
 
-/* Hide scrollbar for Chrome, Safari and Opera */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
+/* ---- Scrollbars ---- */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Hide scrollbar for IE, Edge and Firefox */
-.no-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
 }
+::-webkit-scrollbar-thumb:hover { background: var(--txt-muted); }
 
 body {
-  background-color: var(--color-brand-background);
-  color: var(--color-txt-dark);
+  background-color: var(--bg);
+  color: var(--txt);
   font-family: var(--font-body);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-.text-headline {
-  font-family: var(--font-headline);
-}
+.text-headline { font-family: var(--font-headline); }
 
+/* ============================================================
+ *  Glass card primitives — reusable utility classes
+ * ============================================================ */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card);
+}
+.glass-heavy {
+  background: var(--glass-bg-heavy);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card);
+}
+.glass-hover { transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease; }
+.glass-hover:hover { background: var(--surface-hover); }
+
+/* Themed surface shorthands for component classes that hardcode slate/white */
+.theme-bg-surface { background: var(--surface); backdrop-filter: blur(12px); }
+.theme-bg-elev { background: var(--bg-elev); }
+.theme-border { border-color: var(--border); }
+.theme-border-strong { border-color: var(--border-strong); }
+.theme-txt { color: var(--txt); }
+.theme-txt-secondary { color: var(--txt-secondary); }
+.theme-txt-muted { color: var(--txt-muted); }
+
+/* Selection */
+::selection { background: var(--brand-primary); color: #fff; }

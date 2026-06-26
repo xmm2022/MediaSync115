@@ -36,8 +36,11 @@ import {
   FileVideo,
   Clock,
   Bookmark,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { useTheme } from "./utils/useTheme";
 
 export default function App() {
   const [activePage, setActivePage] = useState<PageName>(PageName.DASHBOARD);
@@ -50,6 +53,9 @@ export default function App() {
   // Backend ready state
   const [backendReady, setBackendReady] = useState(false);
   const [backendError, setBackendError] = useState(false);
+
+  // 主题切换（深色玻璃拟态默认，持久化到 localStorage）
+  const { theme, toggle: toggleTheme } = useTheme();
 
   // Wait for backend and load initial data
   useEffect(() => {
@@ -214,35 +220,36 @@ export default function App() {
   };
 
   return (
-    <div className="bg-brand-background text-txt-dark min-h-screen font-body flex flex-col md:flex-row relative overflow-x-hidden">
+    <div className="min-h-screen font-body flex flex-col md:flex-row relative overflow-x-hidden" style={{ background: "var(--bg)", color: "var(--txt)" }}>
       {/* Dynamic ambient glassmorphism blur background lights */}
-      <div className="absolute top-[-10%] left-[-10%] w-[45vw] h-[45vw] min-w-[300px] min-h-[300px] rounded-full bg-gradient-to-tr from-violet-400/10 to-indigo-500/10 blur-[100px] pointer-events-none z-0" />
-      <div className="absolute bottom-[15%] right-[-10%] w-[40vw] h-[40vw] min-w-[280px] min-h-[280px] rounded-full bg-gradient-to-br from-indigo-400/10 to-purple-500/5 blur-[100px] pointer-events-none z-0" />
-      <div className="absolute top-[35%] left-[50%] w-[30vw] h-[30vw] min-w-[200px] min-h-[200px] rounded-full bg-gradient-to-r from-fuchsia-400/5 to-violet-500/10 blur-[80px] pointer-events-none z-0" />
+      <div className="absolute top-[-10%] left-[-10%] w-[45vw] h-[45vw] min-w-[300px] min-h-[300px] rounded-full blur-[100px] pointer-events-none z-0" style={{ background: "radial-gradient(circle at 30% 30%, var(--ambient-1), transparent 70%)" }} />
+      <div className="absolute bottom-[15%] right-[-10%] w-[40vw] h-[40vw] min-w-[280px] min-h-[280px] rounded-full blur-[100px] pointer-events-none z-0" style={{ background: "radial-gradient(circle at 70% 70%, var(--ambient-2), transparent 70%)" }} />
+      <div className="absolute top-[35%] left-[50%] w-[30vw] h-[30vw] min-w-[200px] min-h-[200px] rounded-full blur-[80px] pointer-events-none z-0" style={{ background: "radial-gradient(circle, var(--ambient-3), transparent 70%)" }} />
 
       {/* Mobile Backdrop Overlay */}
       {mobileSidebarOpen && (
         <div
-          className="fixed inset-0 bg-slate-950/20 backdrop-blur-xs z-45 md:hidden"
+          className="fixed inset-0 z-45 md:hidden"
+          style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
 
       {/* 1. Left Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 lg:w-72 bg-white/75 backdrop-blur-xl border-r border-slate-200/40 flex flex-col transform md:transform-none transition-transform duration-300 ease-in-out ${
+      <aside className={`glass-heavy fixed inset-y-0 left-0 z-50 w-64 lg:w-72 flex flex-col transform md:transform-none transition-transform duration-300 ease-in-out ${
         mobileSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       }`}>
         {/* Brand header */}
-        <div className="px-6 py-6 border-b border-slate-100 flex items-center justify-between">
+        <div className="px-6 py-6 border-b flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-brand-primary/10 text-brand-primary flex items-center justify-center font-black shadow-xs">
               <Activity className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-headline font-black text-base tracking-tight text-txt-dark leading-none">
+              <h2 className="font-headline font-black text-base tracking-tight leading-none" style={{ color: "var(--txt)" }}>
                 MediaSync115
               </h2>
-              <span className="text-[10px] text-brand-primary font-bold mt-1 inline-flex items-center gap-1">
+              <span className="text-[10px] font-bold mt-1 inline-flex items-center gap-1" style={{ color: "var(--brand-primary)" }}>
                 <span className={`w-1.5 h-1.5 rounded-full ${backendReady ? 'bg-teal-500' : backendError ? 'bg-red-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`} />
                 {backendReady ? "系统挂载就绪" : backendError ? "后端连接失败" : "正在连接后端..."}
               </span>
@@ -261,7 +268,7 @@ export default function App() {
         <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-7 no-scrollbar">
           {navigationGroups.map((group, groupIdx) => (
             <div key={groupIdx} className="space-y-2">
-              <span className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider block">
+              <span className="px-3 text-[10px] font-bold uppercase tracking-wider block" style={{ color: "var(--txt-muted)" }}>
                 {group.title}
               </span>
               <div className="space-y-1">
@@ -272,18 +279,20 @@ export default function App() {
                     <button
                       key={item.name}
                       onClick={() => handlePageChange(item.name)}
-                      className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-xs font-semibold transition-all relative ${
+                      className="w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-xs font-semibold transition-all relative glass-hover"
+                      style={
                         isActive
-                          ? "bg-brand-primary/10 text-brand-primary shadow-xs"
-                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                      }`}
+                          ? { background: "rgba(var(--brand-primary-rgb,139,92,246), 0.16)" as string, color: "var(--brand-primary)" as string }
+                          : { color: "var(--txt-secondary)" as string, background: "transparent" }
+                      }
                     >
-                      <Icon className={`w-4.5 h-4.5 ${isActive ? "text-brand-primary" : "text-slate-400"}`} />
+                      <Icon className={`w-4.5 h-4.5 ${isActive ? "text-brand-primary" : ""}`} style={isActive ? { color: "var(--brand-primary)" } : { color: "var(--txt-muted)" }} />
                       <span className={isActive ? "font-bold" : ""}>{item.label}</span>
                       {isActive && (
                         <motion.div
                           layoutId="sidebarActiveMarker"
-                          className="absolute right-3 w-1.5 h-1.5 rounded-full bg-brand-primary"
+                          className="absolute right-3 w-1.5 h-1.5 rounded-full"
+                          style={{ background: "var(--brand-primary)" }}
                         />
                       )}
                     </button>
@@ -295,8 +304,8 @@ export default function App() {
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full border border-slate-100 overflow-hidden shrink-0 shadow-xs flex items-center justify-center bg-slate-100">
+        <div className="p-4 border-t flex items-center gap-3" style={{ borderColor: "var(--border)", background: "var(--surface-subtle)" }}>
+          <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 flex items-center justify-center" style={{ background: "var(--surface-hover)", border: "1px solid var(--border)" }}>
             <img
               alt="User Portrait"
               referrerPolicy="no-referrer"
@@ -305,8 +314,8 @@ export default function App() {
             />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-bold text-txt-dark truncate">高级云端站长</p>
-            <p className="text-[9px] text-slate-400 font-semibold truncate">nhxdev@gmail.com</p>
+            <p className="text-xs font-bold truncate" style={{ color: "var(--txt)" }}>高级云端站长</p>
+            <p className="text-[9px] font-semibold truncate" style={{ color: "var(--txt-muted)" }}>nhxdev@gmail.com</p>
           </div>
           <div className={`w-2 h-2 rounded-full ${backendReady ? 'bg-teal-500' : 'bg-slate-300'}`} title="在线联通状态" />
         </div>
@@ -315,34 +324,47 @@ export default function App() {
       {/* 3. Main Content */}
       <div className="flex-1 min-w-0 md:ml-64 lg:ml-72 flex flex-col min-h-screen">
         {/* Header */}
-        <header className="sticky top-0 z-30 bg-brand-background/70 backdrop-blur-md border-b border-slate-200/40 px-6 py-4.5 flex items-center justify-between">
+        <header className="glass sticky top-0 z-30 px-6 py-4.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileSidebarOpen(true)}
-              className="p-1.5 hover:bg-slate-50 rounded-xl border border-slate-100 text-slate-500 md:hidden transition-all"
+              className="p-1.5 rounded-xl md:hidden transition-all glass-hover"
+              style={{ border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
             >
               <Menu className="w-5 h-5" />
             </button>
             <div>
-              <h1 className="font-headline font-black text-lg tracking-tight text-txt-dark flex items-center gap-2">
+              <h1 className="font-headline font-black text-lg tracking-tight flex items-center gap-2" style={{ color: "var(--txt)" }}>
                 <span>{currentActiveLabel()}</span>
               </h1>
-              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider hidden sm:block">
+              <p className="text-[9px] font-bold uppercase tracking-wider hidden sm:block" style={{ color: "var(--txt-muted)" }}>
                 MediaSync115 . STRM . RSS
               </p>
             </div>
           </div>
 
-          {/* Notifications */}
-          <div className="relative">
+          <div className="relative flex items-center gap-2">
+            {/* Theme toggle */}
+            <button
+              onClick={toggleTheme}
+              title={theme === "dark" ? "切换到浅色" : "切换到深色"}
+              className="w-9.5 h-9.5 flex items-center justify-center rounded-full transition-all glass-hover"
+              style={{ border: "1px solid var(--border)", color: "var(--txt-secondary)", background: "var(--surface)" }}
+            >
+              {theme === "dark" ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
+            </button>
+
+            {/* Notifications */}
             <button
               onClick={() => setShowNotifications(!showNotifications)}
-              className={`w-9.5 h-9.5 flex items-center justify-center rounded-full hover:bg-slate-50 transition-all relative border border-slate-100 shadow-xs ${
-                showNotifications ? "bg-slate-100" : "bg-white"
-              }`}
+              className="w-9.5 h-9.5 flex items-center justify-center rounded-full transition-all relative glass-hover"
+              style={{
+                border: "1px solid var(--border)",
+                background: showNotifications ? "var(--surface-hover)" : "var(--surface)",
+              }}
             >
-              <Bell className="w-4.5 h-4.5 text-slate-500" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse" />
+              <Bell className="w-4.5 h-4.5" style={{ color: "var(--txt-secondary)" }} />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--brand-primary)" }} />
             </button>
 
             <AnimatePresence>
@@ -353,24 +375,18 @@ export default function App() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 10 }}
-                    className="absolute right-0 mt-2.5 w-80 bg-white rounded-2xl border border-slate-100 p-4 shadow-xl z-50 space-y-3"
+                    className="absolute right-0 mt-2.5 w-80 rounded-2xl p-4 z-50 space-y-3 glass-heavy"
                   >
-                    <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                      <span className="text-xs font-black text-txt-dark">系统警报 ({notificationsList.length})</span>
-                      <button onClick={() => setShowNotifications(false)} className="p-0.5 hover:bg-slate-50 rounded text-slate-400">
+                    <div className="flex justify-between items-center pb-2" style={{ borderBottom: "1px solid var(--border)" }}>
+                      <span className="text-xs font-black" style={{ color: "var(--txt)" }}>系统警报 ({notificationsList.length})</span>
+                      <button onClick={() => setShowNotifications(false)} className="p-0.5 rounded glass-hover" style={{ color: "var(--txt-muted)" }}>
                         <X className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="space-y-3 divide-y divide-slate-100 max-h-64 overflow-y-auto pr-1 no-scrollbar">
+                    <div className="space-y-3 max-h-64 overflow-y-auto pr-1 no-scrollbar">
                       {notificationsList.map((n) => (
                         <div key={n.id} className="pt-3 flex gap-3 text-left">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                            n.type === "success"
-                              ? "bg-teal-50 text-brand-primary"
-                              : n.type === "warn"
-                              ? "bg-amber-50 text-amber-600"
-                              : "bg-indigo-50 text-brand-secondary"
-                          }`}>
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--surface-subtle)", color: n.type === "success" ? "var(--accent-ok)" : n.type === "warn" ? "var(--accent-warn)" : "var(--accent-info)" }}>
                             {n.type === "success" ? (
                               <CheckCircle2 className="w-4 h-4" />
                             ) : n.type === "warn" ? (
@@ -380,9 +396,9 @@ export default function App() {
                             )}
                           </div>
                           <div className="space-y-0.5">
-                            <p className="text-xs font-bold text-txt-dark">{n.title}</p>
-                            <p className="text-[10px] text-slate-400 font-medium leading-tight">{n.desc}</p>
-                            <p className="text-[9px] text-slate-300 font-bold">{n.time}</p>
+                            <p className="text-xs font-bold" style={{ color: "var(--txt)" }}>{n.title}</p>
+                            <p className="text-[10px] font-medium leading-tight" style={{ color: "var(--txt-muted)" }}>{n.desc}</p>
+                            <p className="text-[9px] font-bold" style={{ color: "var(--txt-muted)" }}>{n.time}</p>
                           </div>
                         </div>
                       ))}
@@ -395,10 +411,10 @@ export default function App() {
         </header>
 
         {/* Dynamic Inner Router Views */}
-        <main className="px-6 py-8 pb-28 md:pb-8 flex-1 w-full max-w-5xl mx-auto">
+        <main className="px-6 py-8 pb-28 md:pb-8 flex-1 w-full max-w-6xl mx-auto">
           {/* Backend not ready banner */}
           {backendError && (
-            <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-semibold">
+            <div className="mb-6 p-4 rounded-xl text-sm font-semibold" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "var(--accent-danger)" }}>
               后端服务未就绪，请检查服务是否已启动。部分功能可能不可用。
             </div>
           )}
