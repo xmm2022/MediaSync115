@@ -5,22 +5,26 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { SyncLog } from "../types";
-import { 
-  Save, 
-  Settings, 
-  Key, 
-  Terminal, 
-  Trash2, 
-  RefreshCw, 
-  CheckCircle2, 
-  AlertCircle, 
-  Server, 
-  UserCheck, 
-  Cpu, 
+import {
+  Save,
+  Settings,
+  Key,
+  Terminal,
+  Trash2,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  Server,
+  UserCheck,
+  Cpu,
   Database,
-  Cloud 
+  Cloud
 } from "lucide-react";
 import { motion } from "motion/react";
+import { settingsApi } from "../api/settings";
+import { pan115Api } from "../api/pan115";
+import { logsApi } from "../api/logs";
+import { archiveApi } from "../api/archive";
 
 interface SettingsTabProps {
   logs: SyncLog[];
@@ -29,23 +33,29 @@ interface SettingsTabProps {
 }
 
 export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps) {
-  // Input fields loaded from full-stack backend config
-  const [cookie115, setCookie115] = useState("115_UID_3948512_CID_85_SEID_ab6f9ea2cd8...");
-  const [localMountPath, setLocalMountPath] = useState("./MediaSync115_Mount");
-  
-  const [embyUrl, setEmbyUrl] = useState("http://192.168.1.100:8096");
-  const [embyKey, setEmbyKey] = useState("emby_ak_842aef912cbd3948...");
+  // Input fields — initialised empty; populated by real backend GET on mount
+  const [cookie115, setCookie115] = useState("");
+  const [localMountPath, setLocalMountPath] = useState("");
 
-  const [plexUrl, setPlexUrl] = useState("http://127.0.0.1:32400");
-  const [plexToken, setPlexToken] = useState("plex_tk_abc123secret...");
+  const [embyUrl, setEmbyUrl] = useState("");
+  const [embyKey, setEmbyKey] = useState("");
 
-  // Constants sliders
-  const [maxThreads, setMaxThreads] = useState(12);
+  // Plex fields — backend has no Plex support; UI kept for future use
+  const [plexUrl, setPlexUrl] = useState("");
+  const [plexToken, setPlexToken] = useState("");
+
+  // maxThreads — no backend equivalent; UI kept as informational placeholder
+  const [maxThreads, setMaxThreads] = useState(8);
+  // refreshInterval maps to backend subscription_interval_hours
   const [refreshInterval, setRefreshInterval] = useState(15);
 
   const [isTesting115, setIsTesting115] = useState(false);
   const [isTestingEmby, setIsTestingEmby] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Track the originally-loaded (desensitised) cookie to decide whether
+  // a "test 115" click needs to update the cookie server-side first.
+  const savedCookieRef = useRef("");
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
@@ -54,117 +64,163 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  // Load config from backend
+  // Load config from real backend: runtime settings + 115 cookie
   useEffect(() => {
     const loadConfig = async () => {
       try {
-        const response = await fetch("/api/config");
-        if (response.ok) {
-          const config = await response.json();
-          setCookie115(config.cookie115);
-          setLocalMountPath(config.localMountPath);
-          setEmbyUrl(config.embyUrl);
-          setEmbyKey(config.embyKey);
-          setPlexUrl(config.plexUrl);
-          setPlexToken(config.plexToken);
-          setMaxThreads(config.maxThreads);
-          setRefreshInterval(config.refreshInterval);
+        // Fetch runtime settings (emby, strm, subscription interval, etc.)
+        const runtimeResp = await settingsApi.getRuntime();
+        const rt = runtimeResp.data;
+
+        setEmbyUrl(String(rt.emby_url || ""));
+        setEmbyKey(String(rt.emby_api_key || ""));
+        // localMountPath maps to strm_output_dir (the "strm 保存点" in the UI label)
+        setLocalMountPath(String(rt.strm_output_dir || ""));
+        // refreshInterval maps to subscription_interval_hours
+        const intervalHours = Number(rt.subscription_interval_hours);
+        if (!Number.isNaN(intervalHours) && intervalHours > 0) {
+          setRefreshInterval(Math.round(intervalHours * 60)); // hours → minutes for the minute slider
         }
+        // Note: archive_watch_cid is a 115 cloud CID, separate from strm_output_dir;
+        // it is not exposed in this UI tab (needs a different config UI).
       } catch (err) {
-        console.error("Failed to load backend config:", err);
+        console.error("Failed to load runtime settings:", err);
+        addLog("ERROR", "加载运行时设置失败: " + (err instanceof Error ? err.message : String(err)));
+      }
+
+      try {
+        // Fetch 115 cookie (masked by backend)
+        const cookieResp = await pan115Api.getCookieInfo();
+        const masked = String(cookieResp.data.masked_cookie || "");
+        setCookie115(masked);
+        savedCookieRef.current = masked;
+      } catch (err) {
+        console.error("Failed to load 115 cookie info:", err);
+        addLog("ERROR", "加载115 Cookie信息失败: " + (err instanceof Error ? err.message : String(err)));
       }
     };
     loadConfig();
   }, []);
 
-  // Save settings to backend
+  // Save settings to real backend: runtime settings PUT + 115 cookie update
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const response = await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cookie115,
-          localMountPath,
-          embyUrl,
-          embyKey,
-          plexUrl,
-          plexToken,
-          maxThreads,
-          refreshInterval
-        })
-      });
-      if (!response.ok) {
-        throw new Error("HTTP Error " + response.status);
+      // Build runtime settings payload with backend field names.
+      // Fields with no backend support (plexUrl, plexToken, maxThreads) are deliberately omitted.
+      const payload: Record<string, unknown> = {
+        emby_url: embyUrl || undefined,
+        emby_api_key: embyKey || undefined,
+        strm_output_dir: localMountPath || undefined,
+        subscription_interval_hours: refreshInterval
+          ? Math.max(1, Math.round(refreshInterval / 60)) // minutes → hours (backend unit)
+          : undefined,
+      };
+      await settingsApi.updateRuntime(payload);
+
+      // Update 115 cookie if it was edited (and is non-empty)
+      if (cookie115 && cookie115 !== savedCookieRef.current) {
+        try {
+          await pan115Api.updateCookie(cookie115);
+          savedCookieRef.current = cookie115;
+        } catch (cookieErr) {
+          console.error("Failed to update 115 cookie:", cookieErr);
+          addLog("ERROR", "115 Cookie 更新失败: " + (cookieErr instanceof Error ? cookieErr.message : String(cookieErr)));
+          // Continue — runtime settings may still have saved successfully
+        }
       }
+
+      addLog("SUCCESS", "系统配置已保存到后端");
     } catch (err) {
       console.error("Failed to save config to server:", err);
-      addLog("ERROR", "无法向后端保存配置信息：" + err);
+      addLog("ERROR", "无法向后端保存配置信息: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Test 115 connection on server
+  // Test 115 connection: if cookie changed since load, update it first, then check
   const test115Connection = async () => {
     setIsTesting115(true);
     try {
-      const response = await fetch("/api/test/115", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cookie: cookie115 })
-      });
-      if (!response.ok) {
-        throw new Error("HTTP Error " + response.status);
+      if (cookie115 && cookie115 !== savedCookieRef.current) {
+        // Cookie was edited — persist it before checking
+        try {
+          await pan115Api.updateCookie(cookie115);
+          savedCookieRef.current = cookie115;
+        } catch (updateErr) {
+          console.error("Failed to update cookie before test:", updateErr);
+          addLog("ERROR", "115 Cookie 更新失败（测试前保存）: " + (updateErr instanceof Error ? updateErr.message : String(updateErr)));
+          setIsTesting115(false);
+          return;
+        }
+      }
+
+      const checkResp = await pan115Api.checkCookie();
+      const data = checkResp.data as Record<string, unknown>;
+      if (data.valid) {
+        const userName = (data.user_info as Record<string, unknown> | undefined)?.user_name || "未知用户";
+        addLog("SUCCESS", `115 网盘连接成功 — 用户: ${userName}`);
+      } else {
+        addLog("WARN", `115 网盘连接失败: ${data.message || "Cookie 无效"}`);
       }
     } catch (err) {
       console.error("Failed to test 115:", err);
-      addLog("ERROR", "115 会话握手测试失败: " + err);
+      addLog("ERROR", "115 会话握手测试失败: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsTesting115(false);
     }
   };
 
-  // Test Emby/Plex webhooks connection on server
+  // Test Emby connection via GET /api/settings/emby/check with query params
   const testEmbyConnection = async () => {
     setIsTestingEmby(true);
     try {
-      const response = await fetch("/api/test/emby", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: embyUrl, key: embyKey })
+      const resp = await settingsApi.checkEmby({
+        emby_url: embyUrl || undefined,
+        emby_api_key: embyKey || undefined,
       });
-      if (!response.ok) {
-        throw new Error("HTTP Error " + response.status);
+      const data = resp.data as Record<string, unknown>;
+      if (data.ok || data.connected || data.success) {
+        addLog("SUCCESS", `Emby 服务器连接成功 — ${embyUrl}`);
+      } else if (data.message) {
+        addLog("WARN", `Emby 连接检查: ${data.message}`);
+      } else {
+        addLog("INFO", `Emby 连接检查完成 — ${embyUrl}`);
       }
     } catch (err) {
       console.error("Failed to test Emby:", err);
-      addLog("ERROR", "Emby Webscan Webhook 测试失败: " + err);
+      addLog("ERROR", "Emby Webscan Webhook 测试失败: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsTestingEmby(false);
     }
   };
 
-  // Clear logs terminal on server
+  // Clear logs on server (DELETE /api/logs/clear)
   const clearTerminalLogs = async () => {
     try {
-      const response = await fetch("/api/logs/clear", { method: "POST" });
-      if (response.ok) {
-        setLogs([]);
-      }
+      await logsApi.clear();
+      setLogs([]);
+      addLog("INFO", "服务端日志已清空");
     } catch (err) {
       console.error("Failed to clear logs on server:", err);
+      addLog("ERROR", "清空服务端日志失败: " + (err instanceof Error ? err.message : String(err)));
     }
   };
 
-  // Simulate a live random synchronization task run by posting to the server's sync endpoint
-  const forceMockSyncRun = async () => {
+  // Trigger archive scan (closest real-backend analogue to "full sync").
+  // Other sync operations available but not exposed in this single-button UI:
+  //   - POST /api/subscriptions/system/run  (subscription channel run)
+  //   - POST /api/strm/generate             (STRM generation)
+  //   - POST /api/settings/emby/sync/run    (Emby library sync)
+  const forceSyncRun = async () => {
     try {
-      await fetch("/api/sync/run", { method: "POST" });
+      await archiveApi.runScan();
+      addLog("SUCCESS", "归档扫描已触发 — 检查 archive/tasks 查看进度");
     } catch (err) {
-      console.error("Failed to force mock sync run:", err);
+      console.error("Failed to trigger archive scan:", err);
+      addLog("ERROR", "触发归档扫描失败: " + (err instanceof Error ? err.message : String(err)));
     }
   };
 
@@ -187,7 +243,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-500">115 浏览器 Cookie 原始字符串 (全字段) *</label>
-              <textarea 
+              <textarea
                 required
                 rows={3}
                 placeholder="键入您的 115 浏览器 Cookie 原始串 (包含 UID, CID, SEID, 登录令牌以保证同步后台握手正常...)"
@@ -202,8 +258,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-500">NAS 统筹媒体存储绝对路径 (strm 保存点) *</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 required
                 placeholder="e.g. /volume1/Media"
                 value={localMountPath}
@@ -213,8 +269,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             </div>
 
             <div className="pt-2">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={test115Connection}
                 disabled={isTesting115}
                 className="w-full py-2.5 bg-slate-50 hover:bg-slate-100/50 text-brand-primary border border-slate-100 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
@@ -229,7 +285,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-5 hover:bg-white/80 transition-all">
             <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
               <Server className="w-5 h-5 text-brand-secondary" />
-              本地多媒体应用服务器连接 (Emby & Plex)
+              本地多媒体应用服务器连接 (Emby)
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -238,12 +294,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   <div className="w-2 h-2 rounded-full bg-green-500" />
                   <span>Emby Server 极速钩子 (增量库刷新)</span>
                 </div>
-                
+
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-400">Emby API 地址</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       placeholder="e.g. http://192.168.1.100:8096"
                       value={embyUrl}
                       onChange={(e) => setEmbyUrl(e.target.value)}
@@ -252,8 +308,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-400">Emby 登录 API 证书秘钥 (Token)</label>
-                    <input 
-                      type="password" 
+                    <input
+                      type="password"
                       placeholder="e.g. emby_key_xxx"
                       value={embyKey}
                       onChange={(e) => setEmbyKey(e.target.value)}
@@ -263,17 +319,20 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 </div>
               </div>
 
+              {/* Plex section — backend has no Plex support; configuration is NOT persisted.
+                  UI kept for potential future use. */}
               <div className="space-y-4 pt-1 border-t md:border-t-0 md:border-l md:pl-4 border-slate-100">
                 <div className="flex items-center gap-1 text-xs font-bold text-slate-500">
                   <div className="w-2 h-2 rounded-full bg-amber-500" />
                   <span>Plex Server 极速钩子</span>
+                  <span className="text-[9px] text-red-400 ml-1">（后端暂未支持，配置不会保存）</span>
                 </div>
 
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-400">Plex API 地址</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       placeholder="e.g. http://127.0.0.1:32400"
                       value={plexUrl}
                       onChange={(e) => setPlexUrl(e.target.value)}
@@ -282,8 +341,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-400">Plex-X-Token 认证识别码</label>
-                    <input 
-                      type="password" 
+                    <input
+                      type="password"
                       placeholder="e.g. plex_token_xxx"
                       value={plexToken}
                       onChange={(e) => setPlexToken(e.target.value)}
@@ -295,8 +354,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             </div>
 
             <div className="pt-2">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={testEmbyConnection}
                 disabled={isTestingEmby}
                 className="w-full py-2.5 bg-slate-50 hover:bg-slate-100/50 text-brand-secondary border border-slate-100 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
@@ -307,11 +366,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             </div>
           </div>
 
-          {/* Card 3: Advanced thread limitations */}
+          {/* Card 3: Advanced — maxThreads has no backend equivalent; subscription_interval_hours is mapped */}
           <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-6 hover:bg-white/80 transition-all">
             <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
               <Cpu className="w-5 h-5 text-brand-primary" />
-              后台极速扫库 & 并发性能 parameters 设定
+              后台极速扫库 &amp; 并发性能 parameters 设定
             </h3>
 
             <div className="space-y-4">
@@ -319,11 +378,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 <div className="flex justify-between text-xs font-bold text-slate-500">
                   <span>最大并行异步同步扫描线程限制</span>
                   <span className="text-brand-primary">{maxThreads} 个并发流</span>
+                  <span className="text-[9px] text-red-400 ml-1">（后端暂未支持，此参数不生效）</span>
                 </div>
-                <input 
-                  type="range" 
-                  min={1} 
-                  max={32} 
+                <input
+                  type="range"
+                  min={1}
+                  max={32}
                   value={maxThreads}
                   onChange={(e) => setMaxThreads(Number(e.target.value))}
                   className="w-full accent-brand-primary h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer"
@@ -338,10 +398,10 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                   <span>视频目录定时扫描比对刷新间隔</span>
                   <span className="text-brand-primary">{refreshInterval} 分钟 / 周期</span>
                 </div>
-                <input 
-                  type="range" 
-                  min={5} 
-                  max={120} 
+                <input
+                  type="range"
+                  min={5}
+                  max={120}
                   step={5}
                   value={refreshInterval}
                   onChange={(e) => setRefreshInterval(Number(e.target.value))}
@@ -356,8 +416,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
           {/* Submit Action Block */}
           <div className="flex justify-end gap-3 pt-4">
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={isSaving}
               className="px-8 py-3.5 bg-brand-primary text-white text-sm font-bold rounded-xl hover:bg-opacity-95 transition-all shadow-lg shadow-brand-primary/10 flex items-center gap-2 active:scale-95 disabled:bg-slate-400"
             >
@@ -377,16 +437,16 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 <span className="text-xs font-bold tracking-wider">SYSTEM CONNECT LOGGER (API)</span>
               </div>
               <div className="flex gap-2">
-                <button 
+                <button
                   type="button"
-                  title="模拟生成一条增量同步日志"
-                  onClick={forceMockSyncRun}
+                  title="触发归档扫描（全量同步）"
+                  onClick={forceSyncRun}
                   className="p-1.5 hover:bg-gray-700 rounded text-brand-primary-light hover:text-white transition-colors"
                 >
                   <RefreshCw className="w-4 h-4 animate-spin-hover" />
                 </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   title="清空终端日志"
                   onClick={clearTerminalLogs}
                   className="p-1.5 hover:bg-gray-700 rounded text-red-400 hover:text-red-300 transition-colors"
