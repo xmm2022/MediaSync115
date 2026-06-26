@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { PageName, SyncDirectory, SyncLog } from "./types";
+import { PageName, SyncDirectory, SyncLog, type DetailContext } from "./types";
 import { logsApi, archiveApi, workflowApi } from "./api";
 import type { WorkflowItem } from "./api/types";
 import { waitForBackendReady } from "./utils/health";
@@ -19,6 +19,7 @@ import StrmTab from "./components/StrmTab";
 import SchedulerTab from "./components/SchedulerTab";
 import LibraryPlusTab from "./components/LibraryPlusTab";
 import Pan115FilesTab from "./components/Pan115FilesTab";
+import MediaDetailTab from "./components/MediaDetailTab";
 import {
   LayoutDashboard,
   Search,
@@ -167,6 +168,9 @@ export default function App() {
     ]);
   };
 
+  // State for detail page navigation
+  const [detailContext, setDetailContext] = useState<DetailContext | null>(null);
+
   // State for mobile drawer and shared search query
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [searchQueryShared, setSearchQueryShared] = useState("");
@@ -212,6 +216,11 @@ export default function App() {
   const handlePageChange = (page: PageName) => {
     setActivePage(page);
     setMobileSidebarOpen(false);
+  };
+
+  const handleNavigateToDetail = (ctx: DetailContext) => {
+    setDetailContext(ctx);
+    setActivePage(PageName.DETAIL);
   };
 
   const currentActiveLabel = () => {
@@ -452,6 +461,7 @@ export default function App() {
                   addLog={addLog}
                   searchQuery={searchQueryShared}
                   setSearchQuery={setSearchQueryShared}
+                  onNavigateToDetail={handleNavigateToDetail}
                 />
               </motion.div>
             )}
@@ -584,6 +594,28 @@ export default function App() {
                 transition={{ duration: 0.2 }}
               >
                 <Pan115FilesTab addLog={addLog} />
+              </motion.div>
+            )}
+
+            {activePage === PageName.DETAIL && detailContext && (
+              <motion.div
+                key={`detail-${detailContext.tmdbId}`}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+              >
+                <MediaDetailTab
+                  tmdbId={detailContext.tmdbId}
+                  mediaType={detailContext.mediaType}
+                  defaultTitle={detailContext.title}
+                  defaultPoster={detailContext.poster}
+                  onBack={() => {
+                    setActivePage(detailContext.returnTo);
+                    setDetailContext(null);
+                  }}
+                  addLog={addLog}
+                />
               </motion.div>
             )}
 

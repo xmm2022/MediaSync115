@@ -14,7 +14,18 @@ export enum PageName {
   SCHEDULER = "scheduler",
   STRM = "strm",
   PAN115 = "pan115",
+  DETAIL = "detail",
   SETTINGS = "settings",
+}
+
+/** 详情页上下文 — 从列表页跳转详情页时传递的参数 */
+export interface DetailContext {
+  tmdbId: number;
+  mediaType: "movie" | "tv";
+  title: string;
+  poster?: string;
+  /** 返回时恢复的页面 */
+  returnTo: PageName;
 }
 
 export interface MediaResource {

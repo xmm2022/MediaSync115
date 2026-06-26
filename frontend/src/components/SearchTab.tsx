@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { MediaResource, MediaResourceLink } from "../types";
+import { MediaResource, MediaResourceLink, PageName, type DetailContext } from "../types";
 import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, ExternalLink, AlertTriangle, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { searchApi } from "../api/search";
@@ -11,6 +11,7 @@ interface SearchTabProps {
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  onNavigateToDetail?: (ctx: DetailContext) => void;
 }
 
 // Item shape from GET /api/search/explore/sections → sections[].items[]
@@ -78,7 +79,7 @@ const RESOURCE_SOURCES: { key: ResourceSourceKey; label: string; desc: string }[
   { key: "magnet_butailing", label: "磁力·不淘", desc: "不淘磁力搜索" },
 ];
 
-export default function SearchTab({ addLog, searchQuery, setSearchQuery }: SearchTabProps) {
+export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavigateToDetail }: SearchTabProps) {
   const [resources, setResources] = useState<MediaResource[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<"All" | "Movie" | "TV" | "Anime">("All");
   const [selectedResource, setSelectedResource] = useState<MediaResource | null>(null);
@@ -745,6 +746,23 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
                     {selectedResource.description || "暂无简介"}
                   </p>
                 </div>
+
+                {/* Navigate to full detail page */}
+                {selectedResource.tmdb_id && onNavigateToDetail && (
+                  <button
+                    onClick={() => onNavigateToDetail({
+                      tmdbId: selectedResource.tmdb_id!,
+                      mediaType: (selectedResource.media_type === "tv" ? "tv" : "movie") as "movie" | "tv",
+                      title: selectedResource.title,
+                      poster: selectedResource.poster,
+                      returnTo: PageName.SEARCH,
+                    })}
+                    className="text-[10px] font-black px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 self-start"
+                    style={{ color: "var(--brand-primary)", border: "1px solid rgba(139,92,246,0.25)", background: "rgba(139,92,246,0.08)" }}
+                  >
+                    查看完整详情 <ExternalLink className="w-3 h-3" />
+                  </button>
+                )}
 
                 {/* Torrent/Link Tables */}
                 <div className="space-y-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
