@@ -4,6 +4,7 @@ import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, Ext
 import { motion, AnimatePresence } from "motion/react";
 import { searchApi } from "../api/search";
 import { pan115Api } from "../api/pan115";
+import { getExplorePosterSrc } from "../utils/runtimeDefaults";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 import Pan115Progress, { type Pan115ProgressState, deriveDefaultProgressState } from "./Pan115Progress";
 
@@ -79,6 +80,15 @@ const RESOURCE_SOURCES: { key: ResourceSourceKey; label: string; desc: string }[
   { key: "magnet_butailing", label: "磁力·不淘", desc: "不淘磁力搜索" },
 ];
 
+function normalizePosterSrc(rawPoster?: string): string {
+  const value = String(rawPoster || "").trim();
+  if (!value) return "";
+  if (value.startsWith("/") && !value.startsWith("/api/")) {
+    return getExplorePosterSrc(`https://image.tmdb.org/t/p/w200${value}`);
+  }
+  return getExplorePosterSrc(value);
+}
+
 export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavigateToDetail }: SearchTabProps) {
   const [resources, setResources] = useState<MediaResource[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<"All" | "Movie" | "TV" | "Anime">("All");
@@ -119,7 +129,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     return {
       id: String(item.tmdb_id || item.douban_id || item.id || Math.random()),
       title: item.title || item.name || "未命名",
-      poster: item.poster_path || item.poster_url || "",
+      poster: normalizePosterSrc(item.poster_path || item.poster_url),
       rating: item.rating || item.vote_average || 0,
       year,
       category,
@@ -442,7 +452,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
         const resource: MediaResource = {
           id: String(data.tmdb_id),
           title: data.title || data.name || "IMDB 匹配",
-          poster: data.poster_path || "",
+          poster: normalizePosterSrc(data.poster_path),
           rating: data.vote_average || 0,
           year: data.year || 0,
           category: data.media_type === "tv" ? "TV" : "Movie",

@@ -6,12 +6,17 @@ function isObjectPayload(value: unknown): value is ObjectPayload {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-export function extractItems<T>(payload: unknown): T[] {
+export function extractItems<T>(payload: unknown, keys: string[] = ["items"]): T[] {
   if (Array.isArray(payload)) {
     return payload as T[];
   }
-  if (isObjectPayload(payload) && Array.isArray(payload.items)) {
-    return payload.items as T[];
+  if (isObjectPayload(payload)) {
+    for (const key of keys) {
+      const value = payload[key];
+      if (Array.isArray(value)) {
+        return value as T[];
+      }
+    }
   }
   return [];
 }

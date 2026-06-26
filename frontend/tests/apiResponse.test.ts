@@ -19,6 +19,15 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  extractItems<{ cid: string; name: string }>(
+    { folders: [{ cid: "100", name: "Movies" }] },
+    ["folders", "items"],
+  ),
+  [{ cid: "100", name: "Movies" }],
+  "object responses can expose list data under endpoint-specific keys",
+);
+
+assert.deepEqual(
   extractItems({ items: null }),
   [],
   "malformed list responses should fall back to an empty array",

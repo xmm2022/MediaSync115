@@ -1,4 +1,5 @@
 import api from './client';
+import { extractItems, withResponseData } from './response';
 import type { QuarkCookieInfo, QuarkFolderInfo } from './types';
 
 const SAVE_OPERATION_TIMEOUT = 180000;
@@ -12,8 +13,14 @@ export const quarkApi = {
 
   checkConnectivity: () => api.get('/quark/connectivity/check'),
 
-  listFolders: (parentFid = '0', page = 1, size = 200) =>
-    api.get<QuarkFolderInfo[]>('/quark/folders', { params: { parent_fid: parentFid, page, size } }),
+  listFolders: async (parentFid = '0', page = 1, size = 200) => {
+    const response = await api.get('/quark/folders', { params: { parent_fid: parentFid, page, size } });
+    const folders = extractItems<Record<string, unknown>>(response.data, ['folders', 'items']).map((folder) => ({
+      ...folder,
+      name: String(folder.name || folder.file_name || folder.fid || ''),
+    })) as QuarkFolderInfo[];
+    return withResponseData(response, folders);
+  },
 
   getDefaultFolder: () => api.get('/quark/default-folder'),
 

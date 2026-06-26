@@ -12,6 +12,7 @@ const app = source("src/App.tsx");
 const dashboard = source("src/components/DashboardTab.tsx");
 const usage = source("src/components/UsageTab.tsx");
 const explore = source("src/components/ExploreTab.tsx");
+const search = source("src/components/SearchTab.tsx");
 
 assert.ok(
   !app.includes('status: "archiving"') && !dashboard.includes('status: "archiving"'),
@@ -31,6 +32,16 @@ assert.ok(
 assert.ok(
   explore.includes("getExplorePosterSrc"),
   "explore posters should use the backend poster proxy helper",
+);
+
+assert.ok(
+  search.includes("getExplorePosterSrc"),
+  "search recommendation posters should use the backend poster proxy helper",
+);
+
+assert.ok(
+  !search.includes('poster: item.poster_path || item.poster_url || ""'),
+  "search recommendations must not pass raw backend poster URLs directly into img tags",
 );
 
 console.log("runtime default usage tests passed");

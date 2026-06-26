@@ -1,4 +1,5 @@
 import api from './client';
+import { extractItems, withResponseData } from './response';
 import type { ArchiveConfig, ArchiveFolder, ArchiveTask } from './types';
 
 export const archiveApi = {
@@ -10,9 +11,15 @@ export const archiveApi = {
 
   updateConfig: (payload: Partial<ArchiveConfig>) => api.put('/archive/config', payload),
 
-  listFolders: (cid = '0') => api.get<ArchiveFolder[]>('/archive/folders', { params: { cid } }),
+  listFolders: async (cid = '0') => {
+    const response = await api.get('/archive/folders', { params: { cid } });
+    return withResponseData(response, extractItems<ArchiveFolder>(response.data, ['folders', 'items']));
+  },
 
-  listTasks: (params?: Record<string, unknown>) => api.get<ArchiveTask[]>('/archive/tasks', { params }),
+  listTasks: async (params?: Record<string, unknown>) => {
+    const response = await api.get('/archive/tasks', { params });
+    return withResponseData(response, extractItems<ArchiveTask>(response.data));
+  },
 
   runScan: () => api.post('/archive/scan', null, { timeout: 300000 }),
 
