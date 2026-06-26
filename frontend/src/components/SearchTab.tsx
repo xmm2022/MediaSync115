@@ -528,7 +528,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
             placeholder="搜索电影、电视剧、动漫、或资源标签..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full glass rounded-2xl py-3 pl-11 pr-4 text-sm font-semibold outline-none transition-all placeholder:text-slate-400"
+            className="w-full glass rounded-2xl py-3 pl-11 pr-4 text-sm font-semibold outline-none transition-all placeholder:text-[var(--txt-muted)]"
             style={{ color: "var(--txt)" }}
           />
           <Search className="w-5 h-5 absolute left-4 top-3.5" style={{ color: "var(--txt-muted)" }} />

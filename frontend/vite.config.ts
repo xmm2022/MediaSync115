@@ -23,6 +23,16 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       sourcemap: mode !== 'production',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom', 'react/jsx-runtime'],
+            motion: ['motion'],
+            icons: ['lucide-react'],
+            http: ['axios'],
+          },
+        },
+      },
     },
   };
 });

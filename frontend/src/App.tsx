@@ -639,7 +639,7 @@ export default function App() {
       </div>
 
       {/* 4. Mobile Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white/75 backdrop-blur-xl border-t border-slate-200/40 px-3 py-2 flex items-center justify-around shadow-[0_-8px_32px_rgba(0,0,0,0.04)] pb-safe-bottom">
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass px-3 py-2 flex items-center justify-around shadow-[0_-8px_32px_rgba(0,0,0,0.04)] pb-safe-bottom">
         {[
           { name: PageName.DASHBOARD, label: "主面板", icon: LayoutDashboard },
           { name: PageName.SEARCH, label: "秒传搜索", icon: Search },
@@ -652,17 +652,17 @@ export default function App() {
             <button
               key={item.name}
               onClick={() => handlePageChange(item.name)}
-              className="flex flex-col items-center gap-1.5 py-1 px-3.5 rounded-xl transition-all relative text-slate-500 active:scale-95"
+              className="flex flex-col items-center gap-1.5 py-1 px-3.5 rounded-xl transition-all relative text-[var(--txt-secondary)] active:scale-95"
             >
               <div className={`p-1.5 rounded-lg transition-all ${
                 isActive
                   ? "bg-brand-primary/10 text-brand-primary"
-                  : "text-slate-400 hover:text-slate-600"
+                  : "text-[var(--txt-muted)] hover:text-[var(--txt)]"
               }`}>
                 <Icon className="w-5 h-5" />
               </div>
               <span className={`text-[9px] font-black tracking-wider transition-all ${
-                isActive ? "text-brand-primary font-black" : "text-slate-400 font-bold"
+                isActive ? "text-brand-primary font-black" : "text-[var(--txt-muted)] font-bold"
               }`}>
                 {item.label}
               </span>
@@ -681,20 +681,20 @@ export default function App() {
           className={`flex flex-col items-center gap-1.5 py-1 px-3.5 rounded-xl transition-all active:scale-95 ${
             [PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
               ? "text-brand-primary"
-              : "text-slate-500"
+              : "text-[var(--txt-secondary)]"
           }`}
         >
           <div className={`p-1.5 rounded-lg transition-all ${
             [PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
               ? "bg-brand-primary/10 text-brand-primary"
-              : "text-slate-400"
+              : "text-[var(--txt-muted)]"
           }`}>
             <Menu className="w-5 h-5" />
           </div>
           <span className={`text-[9px] font-black tracking-wider ${
             [PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
               ? "text-brand-primary font-black"
-              : "text-slate-400 font-bold"
+              : "text-[var(--txt-muted)] font-bold"
           }`}>
             更多系统
           </span>
