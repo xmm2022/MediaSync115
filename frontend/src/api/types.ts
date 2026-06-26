@@ -312,6 +312,15 @@ export interface StrmConfig {
   strm_output_dir?: string;
   strm_base_url?: string;
   strm_redirect_mode?: string;
+  strm_refresh_emby_after_generate?: boolean;
+  strm_refresh_feiniu_after_generate?: boolean;
+  strm_proxy_enabled?: boolean;
+  strm_proxy_port?: number;
+  archive_output_cid?: string;
+  archive_output_name?: string;
+  mount_paths?: unknown;
+  suggested_base_url?: string;
+  runtime?: Record<string, unknown>;
   [key: string]: unknown;
 }
 

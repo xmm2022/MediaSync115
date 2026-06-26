@@ -15,6 +15,7 @@ import SubscriptionTab from "./components/SubscriptionTab";
 import UsageTab from "./components/UsageTab";
 import AutomationsTab from "./components/AutomationsTab";
 import SettingsTab from "./components/SettingsTab";
+import StrmTab from "./components/StrmTab";
 import {
   LayoutDashboard,
   Search,
@@ -30,6 +31,7 @@ import {
   X,
   Menu,
   Activity,
+  FileVideo,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -186,6 +188,7 @@ export default function App() {
       items: [
         { name: PageName.USAGE, label: "传输统计", icon: BarChart3 },
         { name: PageName.AUTOMATIONS, label: "工作流", icon: Workflow },
+        { name: PageName.STRM, label: "STRM 管理", icon: FileVideo },
         { name: PageName.SETTINGS, label: "配置与终端", icon: Settings },
       ],
     },
@@ -511,6 +514,18 @@ export default function App() {
               </motion.div>
             )}
 
+            {activePage === PageName.STRM && (
+              <motion.div
+                key="strm"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+              >
+                <StrmTab addLog={addLog} />
+              </motion.div>
+            )}
+
             {activePage === PageName.SETTINGS && (
               <motion.div
                 key="settings"
@@ -571,20 +586,20 @@ export default function App() {
         <button
           onClick={() => setMobileSidebarOpen(true)}
           className={`flex flex-col items-center gap-1.5 py-1 px-3.5 rounded-xl transition-all active:scale-95 ${
-            [PageName.USAGE, PageName.AUTOMATIONS, PageName.SETTINGS].includes(activePage)
+            [PageName.USAGE, PageName.AUTOMATIONS, PageName.STRM, PageName.SETTINGS].includes(activePage)
               ? "text-brand-primary"
               : "text-slate-500"
           }`}
         >
           <div className={`p-1.5 rounded-lg transition-all ${
-            [PageName.USAGE, PageName.AUTOMATIONS, PageName.SETTINGS].includes(activePage)
+            [PageName.USAGE, PageName.AUTOMATIONS, PageName.STRM, PageName.SETTINGS].includes(activePage)
               ? "bg-brand-primary/10 text-brand-primary"
               : "text-slate-400"
           }`}>
             <Menu className="w-5 h-5" />
           </div>
           <span className={`text-[9px] font-black tracking-wider ${
-            [PageName.USAGE, PageName.AUTOMATIONS, PageName.SETTINGS].includes(activePage)
+            [PageName.USAGE, PageName.AUTOMATIONS, PageName.STRM, PageName.SETTINGS].includes(activePage)
               ? "text-brand-primary font-black"
               : "text-slate-400 font-bold"
           }`}>

@@ -10,6 +10,7 @@ export enum PageName {
   SUBSCRIPTION = "subscription",
   USAGE = "usage",
   AUTOMATIONS = "automations",
+  STRM = "strm",
   SETTINGS = "settings",
 }
 
