@@ -1,32 +1,30 @@
 {
   "name": "mediasync115-frontend",
-  "version": "1.2.5",
   "private": true,
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test:smoke": "playwright test -c playwright.smoke.config.js",
-    "test:smoke:headed": "playwright test -c playwright.smoke.config.js --headed"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@element-plus/icons-vue": "^2.3.1",
-    "axios": "^1.6.8",
-    "element-plus": "^2.6.1",
-    "pinia": "^2.1.7",
-    "vue": "^3.4.21",
-    "vue-router": "^4.3.0"
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "axios": "^1.7.0",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "recharts": "^3.9.0",
+    "tailwindcss": "^4.1.14",
+    "vite": "^6.2.3"
   },
   "devDependencies": {
-    "@iconify-json/ep": "^1.2.4",
-    "@playwright/test": "^1.54.2",
-    "@vitejs/plugin-vue": "^5.2.4",
-    "sass": "^1.85.0",
-    "terser": "^5.46.0",
-    "unplugin-auto-import": "^21.0.0",
-    "unplugin-icons": "^23.0.1",
-    "unplugin-vue-components": "^31.0.0",
-    "vite": "^6.2.0"
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "~5.8.2"
   }
 }
