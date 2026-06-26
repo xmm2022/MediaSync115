@@ -642,6 +642,15 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
           </div>
         )}
       </AnimatePresence>
+
+      {/* 工作流高级工具 */}
+      <div className="glass rounded-2xl p-4 space-y-2">
+        <p className="text-[10px] font-black" style={{ color:"var(--txt-muted)" }}>工作流工具</p>
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={async () => { try { const types = await workflowApi.listEventTypes(); const r = await workflowApi.triggerEvent({ event_type: "manual_trigger", payload: { source: "ui" } }); await addLog("SUCCESS", `已触发事件: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+            className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-secondary)", border:"1px solid var(--border)" }}>触发事件</button>
+        </div>
+      </div>
     </div>
   );
 }

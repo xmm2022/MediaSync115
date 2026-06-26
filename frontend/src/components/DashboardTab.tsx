@@ -663,6 +663,19 @@ export default function DashboardTab({
           </div>
         )}
       </AnimatePresence>
+
+      {/* 归档高级工具 */}
+      <div className="glass rounded-2xl p-4 space-y-2">
+        <p className="text-[10px] font-black" style={{ color:"var(--txt-muted)" }}>归档工具</p>
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={async () => { try { const r = await archiveApi.getSubdirOptions(); await addLog("SUCCESS", `子目录选项: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+            className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>子目录选项</button>
+          <button onClick={async () => { try { const r = await archiveApi.getNamingOptions(); await addLog("SUCCESS", `命名选项: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+            className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>命名选项</button>
+          <button onClick={async () => { try { await archiveApi.clearTasks(true); await addLog("WARN", "已清理归档任务(含失败)"); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+            className="px-2 py-1 rounded text-[9px] font-bold" style={{ color:"var(--accent-danger)", border:"1px solid rgba(239,68,68,0.3)" }}>清理任务</button>
+        </div>
+      </div>
     </div>
   );
 }

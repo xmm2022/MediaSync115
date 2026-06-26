@@ -53,6 +53,31 @@ export default function LibraryPlusTab({ addLog }: { addLog: (l: "INFO" | "SUCCE
       {sub === "watchlist" && <WatchlistPanel addLog={addLog} />}
       {sub === "person" && <PersonPanel addLog={addLog} />}
       {sub === "license" && <LicensePanel addLog={addLog} />}
+
+      {/* 高级工具 (全局) */}
+      {sub === "watchlist" && (
+        <div className="glass rounded-2xl p-4 space-y-2">
+          <p className="text-[10px] font-black" style={{ color:"var(--txt-muted)" }}>高级: 导入/预览</p>
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={async () => { try { const r = await watchlistApi.listForStatus(); await addLog("SUCCESS", `状态映射: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+              className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>状态映射</button>
+            <button onClick={async () => { try { const r = await watchlistApi.getImportCatalog(); await addLog("SUCCESS", `导入目录: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+              className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>导入目录</button>
+            <button onClick={async () => { try { const r = await watchlistApi.getImportSources(); await addLog("SUCCESS", `导入来源: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+              className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>导入来源</button>
+            <button onClick={async () => { try { const r = await watchlistApi.previewImport({source:"tmdb",media_type:"movie"}); await addLog("SUCCESS", `导入预览: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+              className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>导入预览</button>
+            <button onClick={async () => { try { const r = await watchlistApi.importFromTmdb({source:"tmdb",media_type:"movie"}); await addLog("SUCCESS", `TMDB导入: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+              className="px-2 py-1 rounded text-[9px] font-bold text-white" style={{ background:"var(--brand-primary)" }}>导入TMDB</button>
+          </div>
+        </div>
+      )}
+      {sub === "person" && (
+        <div className="pt-2">
+          <button onClick={async () => { try { const r = await personFollowApi.getStatusMap(); await addLog("SUCCESS", `影人状态: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>影人状态映射</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -314,7 +339,12 @@ function LicensePanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "E
           <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="许可证密钥" className="flex-1 text-xs rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" } as React.CSSProperties} />
           <button onClick={handleActivate} disabled={busy} className="px-4 py-2 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"><KeyRound className="w-3.5 h-3.5" /> {busy ? "激活中" : "激活"}</button>
         </div>
+        <div className="flex gap-2 mt-2">
+          <button onClick={async () => { try { const r = await licenseApi.checkFeature("search"); await addLog("SUCCESS", `特性检测: ${JSON.stringify(r.data)}`); } catch(e: any) { await addLog("ERROR", String(e)); } }}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover" style={{ color: "var(--txt-muted)", border: "1px solid var(--border)" }}>特性检测</button>
+        </div>
       </div>
+
     </div>
   );
 }

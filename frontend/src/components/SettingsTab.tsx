@@ -30,6 +30,7 @@ import {
   Search,
   BarChart3,
   Info,
+  AlertTriangle,
 } from "lucide-react";
 import { motion } from "motion/react";
 import CollapsibleSection from "./CollapsibleSection";
@@ -1084,6 +1085,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
+                <button type="button" title="日志模块列表"
+                  onClick={async () => { try { const r = await logsApi.modules(); setLogs(prev => [...prev, {id:"m1", timestamp:new Date().toISOString(), level:"INFO", message:`日志模块: ${JSON.stringify(r.data)}`}]); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+                  className="p-1.5 hover:bg-gray-700 rounded text-blue-400 transition-colors"><Database className="w-4 h-4" /></button>
+                <button type="button" title="清理旧日志(30天)"
+                  onClick={async () => { try { await logsApi.prune(30); await addLog("SUCCESS", "已清理30天前旧日志"); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+                  className="p-1.5 hover:bg-gray-700 rounded text-amber-400 transition-colors"><AlertTriangle className="w-4 h-4" /></button>
               </div>
             </div>
 
