@@ -8,12 +8,13 @@
  *   - GET /api/subscriptions    → 订阅总数/按类型分布/活跃数
  *   - GET /api/archive/tasks    → 归档任务总数/按状态分布
  *   - GET /api/scheduler/tasks  → 调度任务总数/启停分布
- *   - GET /api/logs?limit=0     → 操作日志总条数
+ *   - GET /api/logs?limit=1     → 操作日志总条数
  */
 
 import React, { useState, useEffect } from "react";
 import { SyncDirectory } from "../types";
 import { subscriptionApi, archiveApi, schedulerApi, logsApi } from "../api";
+import { LOG_TOTAL_LIST_PARAMS } from "../utils/runtimeDefaults";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { Rss, Archive, Clock, FileText, HardDrive, Activity, AlertCircle, FolderOpen } from "lucide-react";
 
@@ -31,7 +32,7 @@ interface UsageStats {
 }
 
 const ARCHIVE_STATUS_LABEL: Record<string, string> = {
-  archiving: "进行中", completed: "已完成", failed: "失败", pending: "等待中", cancelled: "已取消",
+  processing: "进行中", success: "已完成", failed: "失败", pending: "等待中", skipped: "已跳过",
 };
 
 function formatStatusLabel(status: string): string {
@@ -52,7 +53,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
           subscriptionApi.list().catch(() => ({ data: [] as unknown[] })),
           archiveApi.listTasks().catch(() => ({ data: [] as unknown[] })),
           schedulerApi.listTasks().catch(() => ({ data: [] as unknown[] })),
-          logsApi.list({ limit: 0 }).catch(() => ({ data: { total: 0 } })),
+          logsApi.list(LOG_TOTAL_LIST_PARAMS).catch(() => ({ data: { total: 0 } })),
         ]);
         if (cancelled) return;
         const subs = Array.isArray(subsRes.data) ? subsRes.data : [];

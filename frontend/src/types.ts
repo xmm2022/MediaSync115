@@ -74,7 +74,7 @@ export interface MediaResourceLink {
  *   localPath   ← ArchiveConfig.archive_watch_cid（后端无"本地路径"概念，此处存监听 CID）
  *   folderId115 ← ArchiveFolder.cid
  *   targetClient ← 后端仅支持 emby/feiniu（全局 runtime settings），plex/jellyfin 无后端对应
- *   status      ← ArchiveTask.status 派生（archiving→syncing, 无任务→idle, failed→error）
+ *   status      ← ArchiveTask.status 派生（processing→syncing, 无任务→idle, failed→error）
  *   speed       ← 后端无实时速度字段，显示 "-"
  *   progress    ← 如有活跃 ArchiveTask 可派生进度，否则 0
  *   enabled     ← ArchiveConfig.archive_enabled（全局开关，非按目录）
@@ -101,4 +101,3 @@ export interface SyncLog {
   level: "INFO" | "SUCCESS" | "WARN" | "ERROR";
   message: string;
 }
-

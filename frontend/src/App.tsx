@@ -8,6 +8,7 @@ import { PageName, SyncDirectory, SyncLog, type DetailContext } from "./types";
 import { logsApi, archiveApi, workflowApi } from "./api";
 import type { WorkflowItem } from "./api/types";
 import { waitForBackendReady } from "./utils/health";
+import { ACTIVE_ARCHIVE_TASK_STATUS } from "./utils/runtimeDefaults";
 import DashboardTab from "./components/DashboardTab";
 import SearchTab from "./components/SearchTab";
 import ExploreTab from "./components/ExploreTab";
@@ -80,7 +81,7 @@ export default function App() {
         const [foldersRes, configRes, tasksRes] = await Promise.all([
           archiveApi.listFolders("0"),
           archiveApi.getConfig(),
-          archiveApi.listTasks({ status: "archiving", limit: 50 }).catch(() => ({ data: [] })),
+          archiveApi.listTasks({ status: ACTIVE_ARCHIVE_TASK_STATUS, limit: 50 }).catch(() => ({ data: [] })),
         ]);
         const folderData = foldersRes.data;
         const configData = configRes.data;
@@ -90,7 +91,7 @@ export default function App() {
 
         // Build SyncDirectory list from archive config + folders
         // Fields without backend data: speed→"-", totalSize→"-", itemCount→0
-        // status derived from ArchiveTask (archiving→syncing), targetClient from config
+        // status derived from ArchiveTask (processing→syncing), targetClient from config
         const dirs: SyncDirectory[] = [];
         if (Array.isArray(folderData)) {
           for (const f of folderData.slice(0, 20)) {

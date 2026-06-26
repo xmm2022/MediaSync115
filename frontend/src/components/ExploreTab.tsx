@@ -3,6 +3,7 @@ import { Sparkles, Trophy, Star, Search, Plus, Calendar, BookmarkCheck, ArrowRig
 import { motion } from "motion/react";
 import { searchApi } from "../api/search";
 import type { ExploreItem } from "../api/types";
+import { DEFAULT_EXPLORE_BOARD, getExplorePosterSrc } from "../utils/runtimeDefaults";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 
 interface ExploreTabProps {
@@ -50,7 +51,7 @@ const FALLBACK_POSTER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='176' viewBox='0 0 120 176'%3E%3Crect fill='%23e2e8f0' width='120' height='176'/%3E%3Ctext x='60' y='92' text-anchor='middle' fill='%2394a3b8' font-size='12'%3ENo Poster%3C/text%3E%3C/svg%3E";
 
 export default function ExploreTab({ onSearchQuery, onAddSubscription }: ExploreTabProps) {
-  const [activeBoard, setActiveBoard] = useState<BoardKey>("tmdb");
+  const [activeBoard, setActiveBoard] = useState<BoardKey>(DEFAULT_EXPLORE_BOARD);
   const [items, setItems] = useState<ExploreItem[]>([]);
   const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
   const [loading, setLoading] = useState(false);
@@ -226,7 +227,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
       {!loading && !error && items.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {items.map((item, idx) => {
-            const poster = item.poster_url || FALLBACK_POSTER;
+            const poster = getExplorePosterSrc(item.poster_url || "") || FALLBACK_POSTER;
             const title = item.title || "未知标题";
             const category = mapCategory(item.media_type, activeBoard);
             const desc = item.intro || item.year || "暂无简介";
@@ -265,7 +266,10 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
                     referrerPolicy="no-referrer"
                     loading="lazy"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = FALLBACK_POSTER;
+                      const img = e.target as HTMLImageElement;
+                      if (img.src !== FALLBACK_POSTER) {
+                        img.src = FALLBACK_POSTER;
+                      }
                     }}
                   />
                 </div>

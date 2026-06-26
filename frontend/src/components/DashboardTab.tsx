@@ -6,7 +6,7 @@
  *
  * 字段映射诚实原则（详见 types.ts SyncDirectory 注释）：
  *   name/folderId115/id ← ArchiveFolder (实时)
- *   status ← ArchiveTask (archiving→syncing, 无任务→idle, failed→error)
+ *   status ← ArchiveTask (processing→syncing, 无任务→idle, failed→error)
  *   enabled ← ArchiveConfig.archive_enabled (全局开关)
  *   localPath ← ArchiveConfig.archive_watch_cid
  *   speed/totalSize/itemCount ← 后端无对应字段，显示 "-"/0
@@ -22,6 +22,7 @@ import React, { useState, useEffect } from "react";
 import { SyncDirectory } from "../types";
 import { archiveApi } from "../api";
 import type { ArchiveTask } from "../api/types";
+import { ACTIVE_ARCHIVE_TASK_STATUS } from "../utils/runtimeDefaults";
 import {
   Zap,
   ArrowUpRight,
@@ -70,7 +71,7 @@ export default function DashboardTab({
   useEffect(() => {
     const loadTasks = async () => {
       try {
-        const res = await archiveApi.listTasks({ status: "archiving", limit: 50 });
+        const res = await archiveApi.listTasks({ status: ACTIVE_ARCHIVE_TASK_STATUS, limit: 50 });
         const tasks = res.data;
         if (Array.isArray(tasks)) setArchiveTasks(tasks as ArchiveTask[]);
       } catch (err) {
@@ -137,7 +138,7 @@ export default function DashboardTab({
       const [foldersRes, configRes, tasksRes] = await Promise.all([
         archiveApi.listFolders("0"),
         archiveApi.getConfig(),
-        archiveApi.listTasks({ status: "archiving", limit: 50 }).catch(() => ({ data: [] })),
+        archiveApi.listTasks({ status: ACTIVE_ARCHIVE_TASK_STATUS, limit: 50 }).catch(() => ({ data: [] })),
       ]);
       const folderData = foldersRes.data;
       const configData = configRes.data;
@@ -190,7 +191,7 @@ export default function DashboardTab({
       // 延迟刷新任务列表以更新状态
       setTimeout(async () => {
         try {
-          const res = await archiveApi.listTasks({ status: "archiving", limit: 50 });
+          const res = await archiveApi.listTasks({ status: ACTIVE_ARCHIVE_TASK_STATUS, limit: 50 });
           const tasks = res.data;
           if (Array.isArray(tasks)) setArchiveTasks(tasks as ArchiveTask[]);
         } catch { /* ignore refresh errors */ }
@@ -211,7 +212,7 @@ export default function DashboardTab({
       const [foldersRes, configRes, tasksRes] = await Promise.all([
         archiveApi.listFolders("0"),
         archiveApi.getConfig(),
-        archiveApi.listTasks({ status: "archiving", limit: 50 }).catch(() => ({ data: [] })),
+        archiveApi.listTasks({ status: ACTIVE_ARCHIVE_TASK_STATUS, limit: 50 }).catch(() => ({ data: [] })),
       ]);
       const folderData = foldersRes.data;
       const configData = configRes.data;
