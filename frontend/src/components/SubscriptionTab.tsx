@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { SubscriptionItem, SubscriptionSource, DownloadRecord } from "../api/types";
 import { subscriptionApi } from "../api";
-import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle } from "lucide-react";
+import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import type { SyncDirectory } from "../types";
 
@@ -117,6 +117,40 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const [newSourceCode, setNewSourceCode] = useState("");
   const [addingSource, setAddingSource] = useState(false);
 
+  // 执行日志（步骤日志流）
+  interface StepLogItem {
+    id: number;
+    run_id: string;
+    subscription_id: number;
+    subscription_title: string;
+    channel: string;
+    step: string;
+    status: string;
+    message: string;
+    payload: unknown;
+    created_at: string;
+  }
+  const [detailStepLogs, setDetailStepLogs] = useState<StepLogItem[]>([]);
+  const [detailStepLogsLoading, setDetailStepLogsLoading] = useState(false);
+  const stepLabelMap: Record<string, string> = {
+    run_start: "任务启动", run_finish: "任务完成",
+    subscription_start: "开始处理", subscription_done: "处理完成", subscription_failed: "处理失败",
+    fetch_resources: "资源抓取", fetch_skip: "跳过抓取",
+    fetch_hdhive_tmdb_start: "HDHive抓取", fetch_hdhive_tmdb_done: "HDHive完成", fetch_hdhive_tmdb_failed: "HDHive失败",
+    fetch_hdhive_keyword_start: "HDHive关键词", fetch_hdhive_keyword_done: "HDHive关键词完成",
+    fetch_tg_keyword_start: "TG抓取", fetch_tg_keyword_done: "TG完成",
+    fetch_pansou_tmdb_start: "Pansou抓取", fetch_pansou_tmdb_done: "Pansou完成", fetch_pansou_tmdb_empty: "Pansou无结果",
+    fetch_pansou_keyword_start: "Pansou关键词", fetch_pansou_keyword_done: "Pansou关键词完成",
+    store_new_resources: "资源入库",
+    auto_transfer_skip: "跳过转存", auto_transfer_new_start: "新资源转存", auto_transfer_new_done: "转存完成",
+    auto_transfer_retry_start: "重试开始", auto_transfer_retry_done: "重试完成",
+    auto_transfer_item_start: "转存项目开始", auto_transfer_item_done: "转存成功", auto_transfer_item_failed: "转存失败",
+    auto_transfer_summary: "转存汇总",
+    tv_missing_fetch_start: "缺集查询", tv_missing_fetch_done: "缺集完成", tv_missing_fetch_failed: "缺集失败",
+    tv_record_files_parsed: "文件解析", tv_record_unparsed_fallback: "未解析保守转存",
+    tv_record_skip_no_missing: "无缺集跳过", tv_transfer_selected_done: "精准转存完成",
+  };
+
   // 缺集总览加载
   const loadMissingOverview = async () => {
     setMissingOverviewLoading(true);
@@ -158,12 +192,29 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
     }
   };
 
+  // 加载订阅执行日志（步骤日志流）
+  const loadStepLogs = async (sub: SubscriptionItem) => {
+    setDetailStepLogsLoading(true);
+    setDetailStepLogs([]);
+    try {
+      const resp = await subscriptionApi.listStepLogs({ subscription_id: Number(sub.id), limit: 200 });
+      const data = (resp as { data?: StepLogItem[] }).data;
+      setDetailStepLogs(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("step logs failed", err);
+      setDetailStepLogs([]);
+    } finally {
+      setDetailStepLogsLoading(false);
+    }
+  };
+
   const toggleExpand = (sub: SubscriptionItem) => {
     if (expandedId === sub.id) {
       setExpandedId(null);
     } else {
       setExpandedId(sub.id);
       void loadDetail(sub);
+      void loadStepLogs(sub);
     }
   };
 
@@ -905,6 +956,63 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                                   </div>
                                 </div>
                               ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 执行日志（订阅步骤日志流） */}
+                        <div>
+                          <div className="flex items-center gap-1.5 text-[10px] font-black mb-1.5" style={{ color: "var(--txt)" } as React.CSSProperties}>
+                            <ClipboardList className="w-3.5 h-3.5" style={{ color: "var(--accent-info)" } as React.CSSProperties} />
+                            <span>执行日志 ({detailStepLogs.length})</span>
+                          </div>
+                          {detailStepLogsLoading ? (
+                            <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>加载中…</p>
+                          ) : detailStepLogs.length === 0 ? (
+                            <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>暂无执行日志（该订阅尚无扫描记录）</p>
+                          ) : (
+                            <div className="max-h-[240px] overflow-y-auto pr-1 no-scrollbar space-y-1">
+                              {detailStepLogs.slice(0, 50).map((log, i) => {
+                                const statusColor =
+                                  log.status === "success" ? "var(--accent-ok)" :
+                                  log.status === "failed" ? "var(--accent-danger)" :
+                                  log.status === "warning" ? "var(--accent-warn)" : "var(--txt-muted)";
+                                const stepLabel = stepLabelMap[log.step] || log.step || "-";
+                                const timeStr = (log.created_at || "").replace("T", " ").substring(0, 19);
+                                return (
+                                  <div key={log.id || i} className="flex items-start gap-2 rounded-lg px-2 py-1.5"
+                                    style={{ background: "var(--surface)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                                    <div className="shrink-0 mt-0.5">
+                                      {log.status === "success" ? <CheckCircle2 className="w-3 h-3" style={{ color: "var(--accent-ok)" }} /> :
+                                       log.status === "failed" ? <XCircle className="w-3 h-3" style={{ color: "var(--accent-danger)" }} /> :
+                                       <Activity className="w-3 h-3" style={{ color: "var(--txt-muted)" }} />}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[9px] font-bold truncate" style={{ color: "var(--txt)" }}>{stepLabel}</span>
+                                        <span className="text-[8px] font-bold shrink-0 px-1 py-0.5 rounded"
+                                          style={{ background: statusColor.replace(")", ",0.12)"), color: statusColor }}>
+                                          {log.status}
+                                        </span>
+                                        {log.channel && log.channel !== "unknown" && (
+                                          <span className="text-[8px] font-semibold shrink-0" style={{ color: "var(--txt-muted)" }}>{log.channel}</span>
+                                        )}
+                                      </div>
+                                      {log.message && (
+                                        <p className="text-[9px] font-medium mt-0.5 line-clamp-2 leading-snug" style={{ color: "var(--txt-secondary)" }}>
+                                          {log.message}
+                                        </p>
+                                      )}
+                                      <p className="text-[8px] font-semibold mt-0.5" style={{ color: "var(--txt-muted)" }}>{timeStr}</p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {detailStepLogs.length > 50 && (
+                                <p className="text-[9px] font-semibold text-center py-1" style={{ color: "var(--txt-muted)" }}>
+                                  仅显示最近 50 条，共 {detailStepLogs.length} 条
+                                </p>
+                              )}
                             </div>
                           )}
                         </div>

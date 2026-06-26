@@ -31,6 +31,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { motion } from "motion/react";
+import CollapsibleSection from "./CollapsibleSection";
 import { settingsApi } from "../api/settings";
 import { pan115Api } from "../api/pan115";
 import { quarkApi } from "../api/quark";
@@ -318,7 +319,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       </section>
 
       {/* ===== 服务集成面板 (批次5) ===== */}
-      <div className="space-y-6">
+      <CollapsibleSection icon={<HeartPulse className="w-4 h-4" />} title="服务集成与诊断" subtitle="健康检查、同步触发、TG/Bot 登录与索引管理" badge="服务" defaultOpen={false}>
+      <div className="space-y-6 pt-3">
         {/* 全服务健康总览 */}
         <div className="glass glass-hover p-6 rounded-2xl space-y-4 transition-all">
           <div className="flex items-center justify-between">
@@ -718,13 +720,15 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           )}
         </div>
       </div>
+      </CollapsibleSection>
       {/* ===== 服务集成面板结束 ===== */}
 
       <form onSubmit={handleSaveSettings} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left column forms: Standard Configurations */}
         <div className="lg:col-span-7 space-y-8">
           {/* Card 1: 115 Account cookie setting */}
-          <div className="glass glass-hover p-6 rounded-2xl space-y-5 transition-all">
+          <CollapsibleSection icon={<Cloud className="w-4 h-4" />} title="115 云盘授权设置" badge="凭据" defaultOpen>
+          <div className="space-y-5 pt-3">
             <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <Cloud className="w-5 h-5 text-brand-primary" />
               115 云盘授权参数设置 (Cookies)
@@ -772,9 +776,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </button>
             </div>
           </div>
+          </CollapsibleSection>
 
           {/* Card 2: Emby & Plex webhooks client mapping */}
-          <div className="glass glass-hover p-6 rounded-2xl space-y-5 transition-all">
+          <CollapsibleSection icon={<Server className="w-4 h-4" />} title="媒体服务器连接" badge="Emby" defaultOpen>
+          <div className="space-y-5 pt-3">
             <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <Server className="w-5 h-5 text-brand-secondary" />
               本地多媒体应用服务器连接 (Emby)
@@ -862,9 +868,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </button>
             </div>
           </div>
+          </CollapsibleSection>
 
           {/* Card 3: Advanced — maxThreads has no backend equivalent; subscription_interval_hours is mapped */}
-          <div className="glass glass-hover p-6 rounded-2xl space-y-6 transition-all">
+          <CollapsibleSection icon={<Cpu className="w-4 h-4" />} title="系统性能参数" badge="调优" defaultOpen>
+          <div className="space-y-6 pt-3">
             <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <Cpu className="w-5 h-5 text-brand-primary" />
               后台极速扫库 &amp; 并发性能 parameters 设定
@@ -924,10 +932,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               <span>{isSaving ? "正在进行安全保存..." : "保存当前全部系统配置"}</span>
             </button>
           </div>
+          </CollapsibleSection>
         </div>
 
         {/* Right column: Debug Log terminal */}
-        <div className="lg:col-span-5 bg-slate-900/80 backdrop-blur-xl text-gray-200 rounded-2xl p-6 shadow-xl flex flex-col justify-between h-[640px] border border-slate-800/60 sticky top-24 font-mono select-none">
+        <CollapsibleSection icon={<Terminal className="w-4 h-4" />} title="实时操作日志" badge={`${logs.length}`} defaultOpen={false}>
+        <div className="bg-slate-900/80 backdrop-blur-xl text-gray-200 rounded-2xl p-6 shadow-xl flex flex-col justify-between h-[640px] border border-slate-800/60 font-mono select-none">
           <div className="space-y-4 h-full flex flex-col justify-between">
             {/* Terminal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-gray-700/60 shrink-0">
@@ -994,6 +1004,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             </div>
           </div>
         </div>
+        </CollapsibleSection>
       </form>
     </div>
   );

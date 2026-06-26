@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { MediaResource, MediaResourceLink } from "../types";
-import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, ExternalLink, AlertTriangle } from "lucide-react";
+import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, ExternalLink, AlertTriangle, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { searchApi } from "../api/search";
 import { pan115Api } from "../api/pan115";
@@ -91,6 +91,12 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   const [activeSource, setActiveSource] = useState<ResourceSourceKey>("unified");
   const [unlockingSlug, setUnlockingSlug] = useState<string | null>(null);
   const [progress, setProgress] = useState<Pan115ProgressState>(deriveDefaultProgressState());
+
+  // IMDB 桥接
+  const [showImdbBridge, setShowImdbBridge] = useState(false);
+  const [imdbId, setImdbId] = useState("");
+  const [imdbMediaType, setImdbMediaType] = useState<"movie" | "tv">("movie");
+  const [imdbSearching, setImdbSearching] = useState(false);
 
   // ---- Helper: map explore item → MediaResource ----
   const mapExploreItem = (item: ExploreItem, sectionTag?: string): MediaResource => {
@@ -424,6 +430,47 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
     }
   };
 
+  // ---- IMDB 桥接：IMDB ID → TMDB 查找 ----
+  const handleImdbBridge = async () => {
+    if (!imdbId.trim()) return;
+    setImdbSearching(true);
+    try {
+      const resp = await searchApi.getBridgeByImdbId(imdbId.trim(), imdbMediaType);
+      const data = resp.data as { tmdb_id?: number; title?: string; name?: string; media_type?: string; poster_path?: string; overview?: string; year?: number; vote_average?: number };
+      if (data.tmdb_id) {
+        const resource: MediaResource = {
+          id: String(data.tmdb_id),
+          title: data.title || data.name || "IMDB 匹配",
+          poster: data.poster_path || "",
+          rating: data.vote_average || 0,
+          year: data.year || 0,
+          category: data.media_type === "tv" ? "TV" : "Movie",
+          description: data.overview || "",
+          tags: [],
+          links: [],
+          tmdb_id: data.tmdb_id,
+          media_type: (data.media_type as "movie" | "tv") || "movie",
+        };
+        setSelectedResource(resource);
+        setActiveSource("unified");
+        setLoadingLinks(true);
+        const links = await fetchResourceLinks(resource, "unified");
+        setSelectedResource((prev) => (prev ? { ...prev, links } : null));
+        setLoadingLinks(false);
+        setImdbId("");
+        setShowImdbBridge(false);
+        await addLog("SUCCESS", `IMDB 桥接成功: ${imdbId.trim()} → TMDB ${data.tmdb_id} (${resource.title})`);
+      } else {
+        await addLog("WARN", `IMDB 桥接未找到匹配: ${imdbId.trim()}`);
+      }
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+      await addLog("ERROR", `IMDB 桥接失败: ${detail}`);
+    } finally {
+      setImdbSearching(false);
+    }
+  };
+
   // ---- Initial load ----
   useEffect(() => {
     loadResources();
@@ -503,6 +550,53 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
             </button>
           ))}
         </div>
+      </div>
+
+      {/* IMDB 桥接 */}
+      <div>
+        <button
+          onClick={() => setShowImdbBridge(!showImdbBridge)}
+          className="flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all glass-hover"
+          style={{ color: "var(--txt-muted)", border: "1px dashed var(--border)" }}
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          {showImdbBridge ? "收起 IMDB 桥接" : "IMDB ID 桥接查找"}
+        </button>
+        {showImdbBridge && (
+          <div className="mt-2 flex gap-2 items-center">
+            <select
+              value={imdbMediaType}
+              onChange={(e) => setImdbMediaType(e.target.value as "movie" | "tv")}
+              className="px-3 py-2 rounded-xl text-xs font-bold outline-none"
+              style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
+            >
+              <option value="movie">电影</option>
+              <option value="tv">剧集</option>
+            </select>
+            <input
+              type="text"
+              placeholder="输入 IMDB ID，如 tt1375666"
+              value={imdbId}
+              onChange={(e) => setImdbId(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleImdbBridge()}
+              className="flex-1 max-w-xs px-4 py-2 rounded-xl text-xs font-semibold outline-none"
+              style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
+            />
+            <button
+              onClick={handleImdbBridge}
+              disabled={imdbSearching || !imdbId.trim()}
+              className="px-4 py-2 rounded-xl text-xs font-black text-white disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--brand-primary)" }}
+            >
+              {imdbSearching ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Search className="w-3.5 h-3.5" />
+              )}
+              查找
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Resources grid & Detail section split */}
