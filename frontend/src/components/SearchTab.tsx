@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { searchApi } from "../api/search";
 import { pan115Api } from "../api/pan115";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
+import Pan115Progress, { type Pan115ProgressState, deriveDefaultProgressState } from "./Pan115Progress";
 
 interface SearchTabProps {
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
@@ -89,6 +90,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
   const [activeSource, setActiveSource] = useState<ResourceSourceKey>("unified");
   const [unlockingSlug, setUnlockingSlug] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Pan115ProgressState>(deriveDefaultProgressState());
 
   // ---- Helper: map explore item → MediaResource ----
   const mapExploreItem = (item: ExploreItem, sectionTag?: string): MediaResource => {
@@ -317,6 +319,15 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
   const handleUnlockHdhive = async (slug: string, linkIndex: number) => {
     const actionId = `unlock-${slug}-${linkIndex}`;
     setUnlockingSlug(actionId);
+    const linkName = selectedResource?.links[linkIndex]?.name || slug;
+    setProgress({
+      visible: true,
+      phase: "progress",
+      status: "loading",
+      resourceLabel: linkName,
+      message: "正在通过 HDHive 解锁资源…",
+      actionType: "unlock",
+    });
     try {
       await searchApi.unlockHdhiveResource(slug);
       setSelectedResource((prev) =>
@@ -327,11 +338,25 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
             }
           : prev,
       );
-      await addLog("SUCCESS", `HDHive 资源 ${slug} 已解锁`);
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "success",
+        resourceLabel: linkName,
+        message: "HDHive 资源已解锁，现在可以一键转存到网盘。",
+        actionType: "unlock",
+      });
     } catch (err: any) {
       const detail = err?.response?.data?.detail || err?.message || String(err);
       console.error("HDHive unlock error:", detail);
-      await addLog("ERROR", `HDHive 解锁失败: ${detail}`);
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "failed",
+        resourceLabel: linkName,
+        message: `解锁失败: ${detail}`,
+        actionType: "unlock",
+      });
     } finally {
       setUnlockingSlug(null);
     }
@@ -342,16 +367,31 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
     const actionId = `${resource.id}-${linkIndex}`;
     setTransferringLinkId(actionId);
 
+    // Guard: share URL is required for save-to-folder
+    if (!link.shareUrl) {
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "warning",
+        resourceLabel: link.name,
+        message: "该资源无分享链接，无法转存到 115 网盘。",
+      });
+      setTransferringLinkId(null);
+      return;
+    }
+
+    const folderName = resource.title || link.name || "MediaSync115";
+    const receiveCode = link.receiveCode || "";
+
+    setProgress({
+      visible: true,
+      phase: "progress",
+      status: "loading",
+      resourceLabel: link.name,
+      message: "正在转存至 115 网盘，请稍候…",
+    });
+
     try {
-      // Guard: share URL is required for save-to-folder
-      if (!link.shareUrl) {
-        addLog("WARN", `该资源无分享链接，无法转存`);
-        return;
-      }
-
-      const folderName = resource.title || link.name || "MediaSync115";
-      const receiveCode = link.receiveCode || "";
-
       await pan115Api.saveShareToFolder(
         link.shareUrl,
         folderName,
@@ -360,14 +400,24 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
         String(resource.tmdb_id || ""),
       );
 
-      setTransferSuccessId(actionId);
-      setTimeout(() => {
-        setTransferSuccessId(null);
-      }, 4000);
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "success",
+        resourceLabel: link.name,
+        message: `已成功转存至「${folderName}」文件夹。`,
+      });
       addLog("SUCCESS", `已提交转存: ${link.name}`);
     } catch (err: any) {
       const detail = err?.response?.data?.detail || err?.message || String(err);
       console.error("Transfer error:", detail);
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "failed",
+        resourceLabel: link.name,
+        message: `转存失败: ${detail}`,
+      });
       addLog("ERROR", `转存失败: ${detail}`);
     } finally {
       setTransferringLinkId(null);
@@ -406,6 +456,9 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery }: Searc
 
   return (
     <div id="search-tab-container" className="space-y-6">
+      {/* 转存/解锁进度弹窗 */}
+      <Pan115Progress state={progress} onClose={() => setProgress(deriveDefaultProgressState())} />
+
       {/* Search Header Banner */}
       <div className="glass-heavy rounded-3xl p-6">
         <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>

@@ -13,6 +13,7 @@ export enum PageName {
   AUTOMATIONS = "automations",
   SCHEDULER = "scheduler",
   STRM = "strm",
+  PAN115 = "pan115",
   SETTINGS = "settings",
 }
 
