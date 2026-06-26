@@ -18,11 +18,22 @@ import {
   UserCheck,
   Cpu,
   Database,
-  Cloud
+  Cloud,
+  HeartPulse,
+  Radio,
+  Bot,
+  Send,
+  Wifi,
+  QrCode,
+  StopCircle,
+  Play,
+  Search,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { settingsApi } from "../api/settings";
 import { pan115Api } from "../api/pan115";
+import { quarkApi } from "../api/quark";
+import { pansouApi } from "../api/pansou";
 import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
 
@@ -58,6 +69,80 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const savedCookieRef = useRef("");
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  // ---- 服务集成状态 ----
+  const [busy, setBusy] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
+
+  const runAction = async (key: string, label: string, fn: () => Promise<unknown>) => {
+    setBusy(key);
+    try {
+      const resp = await fn();
+      const data = (resp as { data?: unknown })?.data;
+      const msg = typeof data === "string" ? data : JSON.stringify(data ?? "OK").slice(0, 200);
+      setLastResult((p) => ({ ...p, [key]: { ok: true, msg } }));
+      await addLog("SUCCESS", `${label} 成功: ${msg}`);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || String(err);
+      setLastResult((p) => ({ ...p, [key]: { ok: false, msg: String(detail) } }));
+      await addLog("ERROR", `${label} 失败: ${detail}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Emby/飞牛同步状态
+  const [embySyncStatus, setEmbySyncStatus] = useState<unknown>(null);
+  const [feiniuSyncStatus, setFeiniuSyncStatus] = useState<unknown>(null);
+  const loadSyncStatus = async () => {
+    try {
+      const [e, f] = await Promise.all([
+        settingsApi.getEmbySyncStatus().catch(() => null),
+        settingsApi.getFeiniuSyncStatus().catch(() => null),
+      ]);
+      setEmbySyncStatus(e?.data ?? null);
+      setFeiniuSyncStatus(f?.data ?? null);
+    } catch { /* ignore */ }
+  };
+  useEffect(() => { void loadSyncStatus(); }, []);
+
+  // TG 索引状态
+  const [tgIndexStatus, setTgIndexStatus] = useState<unknown>(null);
+  const loadTgIndexStatus = async () => {
+    try {
+      const { data } = await settingsApi.getTgIndexStatus();
+      setTgIndexStatus(data);
+    } catch { /* ignore */ }
+  };
+
+  // 夸克 cookie
+  const [quarkCookie, setQuarkCookie] = useState("");
+
+  // pansou 配置
+  const [pansouConfig, setPansouConfig] = useState<Record<string, unknown> | null>(null);
+
+  // 代理
+  const [proxyInfo, setProxyInfo] = useState<unknown>(null);
+
+  // 健康总览
+  const [healthAll, setHealthAll] = useState<unknown>(null);
+
+  // HDHive 登录凭据
+  const [hdhiveUser, setHdhiveUser] = useState("");
+  const [hdhivePass, setHdhivePass] = useState("");
+
+  // 飞牛登录凭据
+  const [feiniuUser, setFeiniuUser] = useState("");
+  const [feiniuPass, setFeiniuPass] = useState("");
+  const [feiniuUrlField, setFeiniuUrlField] = useState("");
+  const [feiniuKey, setFeiniuKey] = useState("");
+
+  // TG 密码登录
+  const [tgPassword, setTgPassword] = useState("");
+  const [tgSession, setTgSession] = useState("");
+
+  const resultOf = (key: string) => lastResult[key];
+  const isBusy = (key: string) => busy === key;
 
   // Auto-scroll logs terminal
   useEffect(() => {
@@ -230,6 +315,356 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         <h2 className="font-headline text-4xl font-black text-txt-dark mb-2">系统参数设置</h2>
         <p className="text-sm text-slate-500">配置 115 账号凭据、本地 Emby 钩子、线程吞吐及查看实时数据调试日志</p>
       </section>
+
+      {/* ===== 服务集成面板 (批次5) ===== */}
+      <div className="space-y-6">
+        {/* 全服务健康总览 */}
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
+          <div className="flex items-center justify-between">
+            <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+              <HeartPulse className="w-5 h-5 text-rose-500" />
+              全服务健康总览
+            </h3>
+            <button
+              disabled={isBusy("health")}
+              onClick={() =>
+                runAction("health", "健康总览检查", () =>
+                  settingsApi.checkAllHealth().then((r) => { setHealthAll(r.data); return r; }),
+                )
+              }
+              className="px-4 py-2 rounded-xl text-xs font-black bg-brand-primary text-white hover:bg-brand-primary-light disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isBusy("health") ? "animate-spin" : ""}`} />
+              {isBusy("health") ? "检测中…" : "一键体检"}
+            </button>
+          </div>
+          {healthAll != null ? (
+            <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-3 overflow-auto max-h-64 font-mono">{JSON.stringify(healthAll, null, 2)}</pre>
+          ) : (
+            <p className="text-xs text-slate-400 font-semibold">点击体检会批量探测 TMDB/Emby/飞牛/115/夸克/pansou/TG 等服务的连通性。</p>
+          )}
+        </div>
+
+        {/* Emby / 飞牛 同步 */}
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
+          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+            <RefreshCw className="w-5 h-5 text-brand-primary" />
+            Emby / 飞牛 库同步
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-txt-dark">Emby 同步</span>
+                <button
+                  disabled={isBusy("embySync")}
+                  onClick={() => runAction("embySync", "Emby 同步", () => settingsApi.runEmbySync().then((r) => { void loadSyncStatus(); return r; }))}
+                  className="px-3 py-1 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Play className="w-3 h-3" /> {isBusy("embySync") ? "同步中…" : "立即同步"}
+                </button>
+              </div>
+              <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-40 font-mono">{JSON.stringify(embySyncStatus ?? "—", null, 2)}</pre>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-txt-dark">飞牛同步</span>
+                <button
+                  disabled={isBusy("feiniuSync")}
+                  onClick={() => runAction("feiniuSync", "飞牛同步", () => settingsApi.runFeiniuSync().then((r) => { void loadSyncStatus(); return r; }))}
+                  className="px-3 py-1 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Play className="w-3 h-3" /> {isBusy("feiniuSync") ? "同步中…" : "立即同步"}
+                </button>
+              </div>
+              <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-40 font-mono">{JSON.stringify(feiniuSyncStatus ?? "—", null, 2)}</pre>
+            </div>
+          </div>
+          {/* 飞牛登录 */}
+          <div className="border-t border-slate-100 pt-3 space-y-2">
+            <span className="text-xs font-bold text-slate-500">飞牛影视登录 (feiniuLogin)</span>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <input value={feiniuUrlField} onChange={(e) => setFeiniuUrlField(e.target.value)} placeholder="飞牛地址" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+              <input value={feiniuKey} onChange={(e) => setFeiniuKey(e.target.value)} placeholder="API Key (可选)" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+              <input value={feiniuUser} onChange={(e) => setFeiniuUser(e.target.value)} placeholder="用户名" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+              <div className="flex gap-2">
+                <input type="password" value={feiniuPass} onChange={(e) => setFeiniuPass(e.target.value)} placeholder="密码" className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+                <button
+                  disabled={isBusy("feiniuLogin")}
+                  onClick={() => runAction("feiniuLogin", "飞牛登录", () => settingsApi.feiniuLogin(feiniuUser, feiniuPass, feiniuUrlField || undefined))}
+                  className="px-3 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50"
+                >
+                  {isBusy("feiniuLogin") ? "登录中" : "登录"}
+                </button>
+              </div>
+            </div>
+          </div>
+          <button
+            disabled={isBusy("feiniuCheck")}
+            onClick={() => runAction("feiniuCheck", "飞牛连通检测", () => settingsApi.checkFeiniu())}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+          >
+            <RefreshCw className="w-3 h-3" /> 飞牛连通检测
+          </button>
+          {resultOf("feiniuLogin") && (
+            <p className={`text-[10px] font-bold ${resultOf("feiniuLogin")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("feiniuLogin")!.msg}</p>
+          )}
+        </div>
+
+        {/* 飞牛/Emby 连通测试 */}
+        {resultOf("embyCheck") && (
+          <p className={`text-[10px] font-bold ${resultOf("embyCheck")!.ok ? "text-emerald-600" : "text-red-500"}`}>Emby 检测: {resultOf("embyCheck")!.msg}</p>
+        )}
+
+        {/* Telegram 登录 / 索引 / Bot */}
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
+          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+            <Send className="w-5 h-5 text-sky-500" />
+            Telegram 集成
+          </h3>
+
+          {/* TG 连通检测 */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              disabled={isBusy("tgCheck")}
+              onClick={() => runAction("tgCheck", "TG 连通检测", () => settingsApi.checkTg())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <Radio className="w-3 h-3" /> 连通检测
+            </button>
+            {resultOf("tgCheck") && <span className={`text-[10px] font-bold ${resultOf("tgCheck")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("tgCheck")!.msg}</span>}
+          </div>
+
+          {/* TG 密码登录 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input value={tgSession} onChange={(e) => setTgSession(e.target.value)} placeholder="session (会话名)" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <input type="password" value={tgPassword} onChange={(e) => setTgPassword(e.target.value)} placeholder="两步验证密码" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <button
+              disabled={isBusy("tgPwd")}
+              onClick={() => runAction("tgPwd", "TG 密码登录", () => settingsApi.tgVerifyPassword({ password: tgPassword, session: tgSession }))}
+              className="px-3 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1 justify-center"
+            >
+              <Key className="w-3 h-3" /> 密码登录
+            </button>
+          </div>
+          {resultOf("tgPwd") && <p className={`text-[10px] font-bold ${resultOf("tgPwd")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("tgPwd")!.msg}</p>}
+
+          {/* QR 登录 */}
+          <div className="flex gap-2 items-center">
+            <button
+              disabled={isBusy("tgQr")}
+              onClick={() => runAction("tgQr", "启动 TG 二维码登录", () => settingsApi.tgStartQrLogin())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <QrCode className="w-3 h-3" /> 启动二维码登录
+            </button>
+            <button
+              disabled={isBusy("tgLogout")}
+              onClick={() => runAction("tgLogout", "TG 退出登录", () => settingsApi.tgLogout())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <Trash2 className="w-3 h-3" /> 退出登录
+            </button>
+          </div>
+
+          {/* 索引管理 */}
+          <div className="border-t border-slate-100 pt-3 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={loadTgIndexStatus}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" /> 刷新索引状态
+              </button>
+              <button
+                disabled={isBusy("tgBackfill")}
+                onClick={() => runAction("tgBackfill", "TG 索引回灌", () => settingsApi.startTgIndexBackfill(false).then((r) => { void loadTgIndexStatus(); return r; }))}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+              >
+                <Play className="w-3 h-3" /> {isBusy("tgBackfill") ? "回灌中" : "启动回灌"}
+              </button>
+              <button
+                disabled={isBusy("tgIncremental")}
+                onClick={() => runAction("tgIncremental", "TG 增量索引", () => settingsApi.runTgIndexIncremental().then((r) => { void loadTgIndexStatus(); return r; }))}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+              >
+                <Database className="w-3 h-3" /> {isBusy("tgIncremental") ? "索引中" : "增量索引"}
+              </button>
+              <button
+                disabled={isBusy("tgRebuild")}
+                onClick={() => runAction("tgRebuild", "TG 重建索引", () => settingsApi.rebuildTgIndex().then((r) => { void loadTgIndexStatus(); return r; }))}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-amber-200 text-amber-600 hover:bg-amber-50 disabled:opacity-50 flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" /> {isBusy("tgRebuild") ? "重建中" : "全量重建"}
+              </button>
+              <button
+                disabled={isBusy("tgStopJob")}
+                onClick={() => runAction("tgStopJob", "停止 TG 索引任务", () => settingsApi.stopTgIndexJob("backfill"))}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-50 flex items-center gap-1"
+              >
+                <StopCircle className="w-3 h-3" /> 停止任务
+              </button>
+            </div>
+            <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-40 font-mono">{JSON.stringify(tgIndexStatus ?? "—", null, 2)}</pre>
+          </div>
+
+          {/* TG Bot */}
+          <div className="border-t border-slate-100 pt-3 flex gap-2 items-center">
+            <Bot className="w-4 h-4 text-slate-500" />
+            <button
+              disabled={isBusy("tgBotRestart")}
+              onClick={() => runAction("tgBotRestart", "重启 TG Bot", () => settingsApi.restartTgBot())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" /> {isBusy("tgBotRestart") ? "重启中" : "重启 Bot"}
+            </button>
+            <button
+              disabled={isBusy("tgBotStop")}
+              onClick={() => runAction("tgBotStop", "停止 TG Bot", () => settingsApi.stopTgBot())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <StopCircle className="w-3 h-3" /> 停止 Bot
+            </button>
+            <button
+              disabled={isBusy("tgBotStatus")}
+              onClick={() => runAction("tgBotStatus", "查询 TG Bot 状态", () => settingsApi.getTgBotStatus())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <Server className="w-3 h-3" /> Bot 状态
+            </button>
+          </div>
+        </div>
+
+        {/* HDHive */}
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
+          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+            <Server className="w-5 h-5 text-indigo-500" />
+            HDHive 集成
+          </h3>
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              disabled={isBusy("hdhiveCheck")}
+              onClick={() => runAction("hdhiveCheck", "HDHive 连通检测", () => settingsApi.checkHdhive())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <Radio className="w-3 h-3" /> 连通检测
+            </button>
+            <button
+              disabled={isBusy("hdhiveCheckin")}
+              onClick={() => runAction("hdhiveCheckin", "HDHive 签到", () => settingsApi.runHdhiveCheckin({}))}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+            >
+              <CheckCircle2 className="w-3 h-3" /> 签到
+            </button>
+            {resultOf("hdhiveCheck") && <span className={`text-[10px] font-bold ${resultOf("hdhiveCheck")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("hdhiveCheck")!.msg}</span>}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input value={hdhiveUser} onChange={(e) => setHdhiveUser(e.target.value)} placeholder="HDHive 用户名" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <input type="password" value={hdhivePass} onChange={(e) => setHdhivePass(e.target.value)} placeholder="密码" className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" />
+            <button
+              disabled={isBusy("hdhiveLogin")}
+              onClick={() => runAction("hdhiveLogin", "HDHive 登录", () => settingsApi.hdhiveLogin(hdhiveUser, hdhivePass))}
+              className="px-3 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50"
+            >
+              {isBusy("hdhiveLogin") ? "登录中" : "登录"}
+            </button>
+          </div>
+          {resultOf("hdhiveLogin") && <p className={`text-[10px] font-bold ${resultOf("hdhiveLogin")!.ok ? "text-emerald-600" : "text-red-500"}`}>{resultOf("hdhiveLogin")!.msg}</p>}
+        </div>
+
+        {/* 夸克网盘 */}
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
+          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+            <Cloud className="w-5 h-5 text-emerald-500" />
+            夸克网盘集成
+          </h3>
+          <textarea
+            rows={2}
+            placeholder="夸克网盘 Cookie"
+            value={quarkCookie}
+            onChange={(e) => setQuarkCookie(e.target.value)}
+            className="w-full text-xs font-mono p-3 rounded-lg border border-slate-100 bg-white resize-none"
+          />
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              disabled={isBusy("quarkUpdate")}
+              onClick={() => runAction("quarkUpdate", "更新夸克 Cookie", () => quarkApi.updateCookie(quarkCookie))}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+            >
+              <Save className="w-3 h-3" /> 保存
+            </button>
+            <button
+              disabled={isBusy("quarkCheck")}
+              onClick={() => runAction("quarkCheck", "夸克 Cookie 校验", () => quarkApi.checkCookie())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" /> 校验
+            </button>
+            <button
+              disabled={isBusy("quarkConn")}
+              onClick={() => runAction("quarkConn", "夸克连通检测", () => quarkApi.checkConnectivity())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <Wifi className="w-3 h-3" /> 连通性
+            </button>
+            {(resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn")) && (
+              <span className={`text-[10px] font-bold ${(resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn"))!.ok ? "text-emerald-600" : "text-red-500"}`}>
+                {(resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn"))!.msg}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* pansou */}
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
+          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+            <Search className="w-5 h-5 text-purple-500" />
+            pansou 网盘搜索服务
+          </h3>
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              disabled={isBusy("pansouHealth")}
+              onClick={() => runAction("pansouHealth", "pansou 健康检查", () => pansouApi.health())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <HeartPulse className="w-3 h-3" /> 健康
+            </button>
+            <button
+              disabled={isBusy("pansouGet")}
+              onClick={() => runAction("pansouGet", "加载 pansou 配置", () => pansouApi.getConfig().then((r) => { setPansouConfig(r.data as Record<string, unknown>); return r; }))}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" /> 读取配置
+            </button>
+            <button
+              disabled={isBusy("pansouCheck")}
+              onClick={() => runAction("pansouCheck", "pansou 连通检测", () => settingsApi.checkPansou())}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+            >
+              <Radio className="w-3 h-3" /> 连通检测
+            </button>
+          </div>
+          {pansouConfig && <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-32 font-mono">{JSON.stringify(pansouConfig, null, 2)}</pre>}
+        </div>
+
+        {/* 代理 */}
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/60 shadow-sm space-y-4 hover:bg-white/80 transition-all">
+          <h3 className="font-headline text-lg font-bold text-txt-dark flex items-center gap-2">
+            <Wifi className="w-5 h-5 text-slate-500" />
+            代理配置
+          </h3>
+          <div className="flex gap-2 items-center">
+            <button
+              disabled={isBusy("proxy")}
+              onClick={() => runAction("proxy", "读取代理配置", () => settingsApi.getProxy().then((r) => { setProxyInfo(r.data); return r; }))}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" /> 读取当前代理
+            </button>
+          </div>
+          {proxyInfo != null && <pre className="text-[10px] text-slate-600 bg-slate-50 rounded-xl p-2 overflow-auto max-h-32 font-mono">{JSON.stringify(proxyInfo, null, 2)}</pre>}
+        </div>
+      </div>
+      {/* ===== 服务集成面板结束 ===== */}
 
       <form onSubmit={handleSaveSettings} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left column forms: Standard Configurations */}
