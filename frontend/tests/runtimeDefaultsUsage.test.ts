@@ -13,6 +13,7 @@ const dashboard = source("src/components/DashboardTab.tsx");
 const usage = source("src/components/UsageTab.tsx");
 const explore = source("src/components/ExploreTab.tsx");
 const search = source("src/components/SearchTab.tsx");
+const searchResources = source("src/utils/searchResources.ts");
 
 assert.ok(
   !app.includes('status: "archiving"') && !dashboard.includes('status: "archiving"'),
@@ -35,8 +36,8 @@ assert.ok(
 );
 
 assert.ok(
-  search.includes("getExplorePosterSrc"),
-  "search recommendation posters should use the backend poster proxy helper",
+  search.includes("normalizeSearchPosterSrc") && searchResources.includes("getExplorePosterSrc"),
+  "search recommendation posters should use the backend poster proxy helper through normalizeSearchPosterSrc",
 );
 
 assert.ok(

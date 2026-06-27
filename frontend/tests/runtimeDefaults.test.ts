@@ -4,7 +4,7 @@ import {
   LOG_TOTAL_LIST_PARAMS,
   DEFAULT_EXPLORE_BOARD,
   getExplorePosterSrc,
-} from "../src/utils/runtimeDefaults";
+} from "../src/utils/runtimeDefaults.ts";
 
 assert.equal(
   ACTIVE_ARCHIVE_TASK_STATUS,

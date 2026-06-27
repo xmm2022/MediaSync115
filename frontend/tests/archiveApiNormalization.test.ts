@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import api from "../src/api/client";
-import { archiveApi } from "../src/api/archive";
-import { quarkApi } from "../src/api/quark";
+import api from "../src/api/client.ts";
+import { archiveApi } from "../src/api/archive.ts";
+import { quarkApi } from "../src/api/quark.ts";
 
 const originalGet = api.get;
 

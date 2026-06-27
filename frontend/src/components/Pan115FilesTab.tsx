@@ -178,21 +178,30 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   const [progress, setProgress] = useState<Pan115ProgressState>(deriveDefaultProgressState());
 
   // ---- 加载状态概览 ----
-  const loadStatus = useCallback(async () => {
+  const loadStatus = useCallback(async (): Promise<boolean> => {
     setStatusLoading(true);
+    let cookieValid = false;
     try {
       // Cookie 检查
       try {
         const cookieResp = await pan115Api.checkCookie();
         const data = cookieResp.data as Record<string, unknown>;
+        cookieValid = Boolean(data.valid || data.success || data.ok);
         setCookieStatus({
-          valid: Boolean(data.valid || data.success || data.ok),
+          valid: cookieValid,
           username: String(data.username || data.user_name || data.nickname || ""),
           avatar: String(data.avatar || data.face || ""),
           message: String(data.message || data.msg || ""),
         });
       } catch {
         setCookieStatus({ valid: false, message: "Cookie 无效或已过期" });
+      }
+
+      if (!cookieValid) {
+        setUserInfo(null);
+        setOfflineQuota(null);
+        setRiskStatus("auth_invalid");
+        return false;
       }
 
       // 用户信息
@@ -238,6 +247,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
     } finally {
       setStatusLoading(false);
     }
+    return cookieValid;
   }, []);
 
   // ---- 文件列表加载 ----
@@ -336,7 +346,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   };
 
   // ---- 离线任务 ----
-  const loadOfflineTasks = async () => {
+  const loadOfflineTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
       const resp = (await pan115Api.getOfflineTasks(1)) as { data: Record<string, unknown> | { tasks: unknown[] } };
@@ -350,7 +360,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
     } finally {
       setTasksLoading(false);
     }
-  };
+  }, []);
 
   const handleAddTask = async () => {
     if (!addTaskUrl.trim()) return;
@@ -586,11 +596,19 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   };
 
   // ---- 初始化 ----
+  const loadInitialPan115Data = useCallback(async () => {
+    const hasValidCookie = await loadStatus();
+    if (!hasValidCookie) {
+      setFiles([]);
+      setOfflineTasks([]);
+      return;
+    }
+    await Promise.all([loadFiles("0"), loadOfflineTasks()]);
+  }, [loadFiles, loadOfflineTasks, loadStatus]);
+
   useEffect(() => {
-    loadStatus();
-    loadFiles("0");
-    loadOfflineTasks();
-  }, []);
+    void loadInitialPan115Data();
+  }, [loadInitialPan115Data]);
 
   // ---- 风险等级显示 ----
   const riskDisplay = (() => {

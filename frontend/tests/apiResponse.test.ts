@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { extractItems, extractRecord } from "../src/api/response";
+import { extractItems, extractRecord } from "../src/api/response.ts";
 
 const subscriptions = [
   { id: "1", title: "A", media_type: "tv", is_active: true },

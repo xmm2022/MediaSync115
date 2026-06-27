@@ -49,6 +49,48 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertNotIn("maxThreads", settings)
         self.assertNotIn("离线仿真模拟服务已全开", settings)
 
+    def test_settings_exposes_runtime_settings_backed_controls(self) -> None:
+        settings = read_source("src/components/SettingsTab.tsx")
+        advanced = read_source("src/components/RuntimeAdvancedSettingsPanel.tsx")
+
+        self.assertIn("RuntimeAdvancedSettingsPanel", settings)
+        for key in (
+            "subscription_enabled",
+            "subscription_offline_transfer_enabled",
+            "subscription_hdhive_auto_unlock_enabled",
+            "subscription_resource_priority",
+            "resource_preferred_resolutions",
+            "resource_preferred_hdr",
+            "resource_preferred_codec",
+            "resource_preferred_audio",
+            "resource_preferred_subtitles",
+            "resource_exclude_tags",
+            "resource_min_size_gb",
+            "resource_max_size_gb",
+            "tg_index_enabled",
+            "tg_index_realtime_fallback_enabled",
+            "tg_index_query_limit_per_channel",
+            "tg_backfill_batch_size",
+            "tg_incremental_interval_minutes",
+            "emby_sync_enabled",
+            "emby_sync_interval_minutes",
+            "feiniu_url",
+            "feiniu_api_key",
+            "feiniu_session_token",
+            "feiniu_sync_enabled",
+            "feiniu_sync_interval_minutes",
+            "pansou_base_url",
+            "chart_subscription_enabled",
+            "person_follow_enabled",
+        ):
+            self.assertIn(key, advanced)
+
+    def test_pan115_page_does_not_eager_load_protected_api_without_valid_cookie(self) -> None:
+        pan115 = read_source("src/components/Pan115FilesTab.tsx")
+
+        self.assertIn("loadInitialPan115Data", pan115)
+        self.assertNotIn('loadFiles("0");\n    loadOfflineTasks();', pan115)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -59,3 +59,18 @@ def test_runtime_file_values_override_env_values_even_when_cleared(tmp_path, mon
     service = RuntimeSettingsService()
 
     assert service.get_tmdb_api_key() == ""
+
+
+def test_resource_codec_preference_is_saved_and_returned(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    service = RuntimeSettingsService()
+    updated = service.update_bulk({"resource_preferred_codec": ["H.265", "AV1"]})
+
+    assert updated["resource_preferred_codec"] == ["H.265", "AV1"]
+    assert service.get_all()["resource_preferred_codec"] == ["H.265", "AV1"]
+
+    persisted = json.loads(
+        (tmp_path / "data" / "runtime_settings.json").read_text(encoding="utf-8")
+    )
+    assert persisted["resource_preferred_codec"] == ["H.265", "AV1"]

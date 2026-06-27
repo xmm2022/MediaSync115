@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import CollapsibleSection from "./CollapsibleSection";
+import RuntimeAdvancedSettingsPanel from "./RuntimeAdvancedSettingsPanel";
 import { settingsApi } from "../api/settings";
 import { pan115Api } from "../api/pan115";
 import { quarkApi } from "../api/quark";
@@ -1066,6 +1067,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       </CollapsibleSection>
       {/* ===== 服务集成面板结束 ===== */}
 
+      <RuntimeAdvancedSettingsPanel addLog={addLog} />
+
       <form onSubmit={handleSaveSettings} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left column forms: Standard Configurations */}
         <div className="lg:col-span-7 space-y-8">
@@ -1080,7 +1083,6 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             <div className="space-y-1">
               <label className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>115 浏览器 Cookie 原始字符串 (全字段) *</label>
               <textarea
-                required
                 rows={3}
                 placeholder="键入您的 115 浏览器 Cookie 原始串 (包含 UID, CID, SEID, 登录令牌以保证同步后台握手正常...)"
                 value={cookie115}
@@ -1097,7 +1099,6 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               <label className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>NAS 统筹媒体存储绝对路径 (strm 保存点) *</label>
               <input
                 type="text"
-                required
                 placeholder="e.g. /volume1/Media"
                 value={localMountPath}
                 onChange={(e) => setLocalMountPath(e.target.value)}
@@ -1193,9 +1194,9 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 </div>
                 <input
                   type="range"
-                  min={5}
-                  max={120}
-                  step={5}
+                  min={60}
+                  max={4320}
+                  step={60}
                   value={refreshInterval}
                   onChange={(e) => setRefreshInterval(Number(e.target.value))}
                   className="w-full accent-brand-primary h-2 rounded-lg appearance-none cursor-pointer"
