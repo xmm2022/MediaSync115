@@ -118,17 +118,24 @@ class SeedHubService:
                 "movie_id": movie_id,
             }
 
-        resolved_items = await asyncio.gather(
-            *(resolve(movie_id, entry) for movie_id, entry in queued_entries),
-            return_exceptions=True,
-        )
-        for item in resolved_items:
-            if isinstance(item, Exception):
-                continue
-            if isinstance(item, dict):
-                collected.append(item)
-            if len(collected) >= max_results:
-                break
+        cursor = 0
+        while cursor < len(queued_entries) and len(collected) < max_results:
+            remaining = max_results - len(collected)
+            batch_size = min(max(1, concurrency), remaining, len(queued_entries) - cursor)
+            batch = queued_entries[cursor : cursor + batch_size]
+            cursor += batch_size
+
+            resolved_items = await asyncio.gather(
+                *(resolve(movie_id, entry) for movie_id, entry in batch),
+                return_exceptions=True,
+            )
+            for item in resolved_items:
+                if isinstance(item, Exception):
+                    continue
+                if isinstance(item, dict):
+                    collected.append(item)
+                if len(collected) >= max_results:
+                    break
         return collected[:max_results]
 
     async def _search_movie_ids(
