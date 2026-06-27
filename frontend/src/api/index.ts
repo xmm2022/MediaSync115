@@ -15,5 +15,6 @@ export { personFollowApi } from './personFollow';
 export { licenseApi } from './license';
 export { quarkApi } from './quark';
 export { pansouApi } from './pansou';
+export { moviepilotApi } from './moviepilot';
 
 export type * from './types';

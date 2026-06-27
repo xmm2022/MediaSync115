@@ -36,6 +36,7 @@ import { pan115Api } from "../api/pan115";
 import { quarkApi } from "../api/quark";
 import { authApi } from "../api/auth";
 import { pansouApi } from "../api/pansou";
+import { moviepilotApi } from "../api/moviepilot";
 import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
 import { getApiErrorMessage } from "../api/errors";
@@ -140,6 +141,14 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
   // pansou 配置
   const [pansouConfig, setPansouConfig] = useState<Record<string, unknown> | null>(null);
+
+  // MoviePilot PT 后端
+  const [moviepilotEnabled, setMoviepilotEnabled] = useState(false);
+  const [moviepilotBaseUrl, setMoviepilotBaseUrl] = useState("");
+  const [moviepilotUsername, setMoviepilotUsername] = useState("");
+  const [moviepilotPassword, setMoviepilotPassword] = useState("");
+  const [moviepilotPasswordConfigured, setMoviepilotPasswordConfigured] = useState(false);
+  const [moviepilotSavePath, setMoviepilotSavePath] = useState("");
 
   // 代理
   const [proxyInfo, setProxyInfo] = useState<unknown>(null);
@@ -290,6 +299,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setTgBotNotifyChatIdsInput(formatIdListInput(rt.tg_bot_notify_chat_ids));
         setTgBotHdhiveAutoUnlock(Boolean(rt.tg_bot_hdhive_auto_unlock));
         setAccountUsername(String(rt.auth_username || "admin"));
+        setMoviepilotEnabled(Boolean(rt.moviepilot_enabled));
+        setMoviepilotBaseUrl(String(rt.moviepilot_base_url || ""));
+        setMoviepilotUsername(String(rt.moviepilot_username || ""));
+        setMoviepilotPasswordConfigured(Boolean(rt.moviepilot_password_configured));
+        setMoviepilotSavePath(String(rt.moviepilot_save_path || ""));
         // archive_watch_cid is a 115 cloud CID, separate from strm_output_dir.
       } catch (err) {
         console.error("Failed to load runtime settings:", err);
@@ -331,7 +345,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
     // Auto-load service integration data (fire-and-forget, non-blocking)
     const loadServices = async () => {
       const safe = <T,>(p: Promise<T>) => p.catch(() => null);
-      const [health, quarkInfo, quarkDefault, pansouCfg, proxyCfg, botStatus, hdhiveStatus, charts] = await Promise.all([
+      const [health, quarkInfo, quarkDefault, pansouCfg, proxyCfg, botStatus, hdhiveStatus, charts, moviepilotCfg] = await Promise.all([
         safe(settingsApi.checkAllHealth()),
         safe(quarkApi.getCookieInfo()),
         safe(quarkApi.getDefaultFolder()),
@@ -340,6 +354,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         safe(settingsApi.getTgBotStatus()),
         safe(settingsApi.checkHdhive()),
         safe(settingsApi.getAvailableCharts()),
+        safe(moviepilotApi.getConfig()),
       ]);
       if (health) setHealthAll(health.data);
       if (quarkInfo) setQuarkCookie(String((quarkInfo.data as Record<string, unknown>)?.cookie || ""));
@@ -353,6 +368,13 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       if (botStatus) setBotStatus(botStatus.data);
       if (hdhiveStatus) setHdhiveLoginStatus(hdhiveStatus.data);
       if (charts) setAvailableCharts(charts.data);
+      if (moviepilotCfg) {
+        setMoviepilotEnabled(Boolean(moviepilotCfg.data.enabled));
+        setMoviepilotBaseUrl(String(moviepilotCfg.data.base_url || ""));
+        setMoviepilotUsername(String(moviepilotCfg.data.username || ""));
+        setMoviepilotPasswordConfigured(Boolean(moviepilotCfg.data.password_configured));
+        setMoviepilotSavePath(String(moviepilotCfg.data.save_path || ""));
+      }
     };
     void loadServices();
   }, []);
@@ -385,8 +407,19 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           notifyChatIdsInput: tgBotNotifyChatIdsInput,
           hdhiveAutoUnlock: tgBotHdhiveAutoUnlock,
         }),
+        moviepilot_enabled: moviepilotEnabled,
+        moviepilot_base_url: moviepilotBaseUrl.trim() || undefined,
+        moviepilot_username: moviepilotUsername.trim() || undefined,
+        moviepilot_save_path: moviepilotSavePath.trim() || undefined,
       };
+      if (moviepilotPassword.trim()) {
+        payload.moviepilot_password = moviepilotPassword;
+      }
       await settingsApi.updateRuntime(payload);
+      if (moviepilotPassword.trim()) {
+        setMoviepilotPassword("");
+        setMoviepilotPasswordConfigured(true);
+      }
 
       // Update 115 cookie if it was edited (and is non-empty)
       if (cookie115 && cookie115 !== savedCookieRef.current) {
@@ -408,6 +441,25 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       setIsSaving(false);
     }
   };
+
+  const saveMoviePilotSettings = () =>
+    runAction("moviepilotConfigSave", "保存 MoviePilot 配置", async () => {
+      const payload: Record<string, unknown> = {
+        moviepilot_enabled: moviepilotEnabled,
+        moviepilot_base_url: moviepilotBaseUrl.trim() || undefined,
+        moviepilot_username: moviepilotUsername.trim() || undefined,
+        moviepilot_save_path: moviepilotSavePath.trim() || undefined,
+      };
+      if (moviepilotPassword.trim()) {
+        payload.moviepilot_password = moviepilotPassword;
+      }
+      const response = await settingsApi.updateRuntime(payload);
+      if (moviepilotPassword.trim()) {
+        setMoviepilotPassword("");
+        setMoviepilotPasswordConfigured(true);
+      }
+      return response;
+    });
 
   const saveTgRuntimeSettings = () =>
     runAction("tgConfigSave", "保存 TG 配置", () =>
@@ -1285,6 +1337,102 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       <form onSubmit={handleSaveSettings} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left column forms: Standard Configurations */}
         <div className="lg:col-span-7 space-y-8">
+          <CollapsibleSection icon={<Radio className="w-4 h-4" />} title="MoviePilot PT 后端" subtitle="PT 搜索、订阅与下载执行后端" badge="PT" defaultOpen>
+          <div className="space-y-5 pt-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
+                <Radio className="w-5 h-5 text-brand-primary" />
+                MoviePilot 接入配置
+              </h3>
+              <label className="inline-flex items-center gap-2 text-xs font-black cursor-pointer" style={{ color: "var(--txt-secondary)" }}>
+                <input
+                  type="checkbox"
+                  checked={moviepilotEnabled}
+                  onChange={(e) => setMoviepilotEnabled(e.target.checked)}
+                  className="accent-brand-primary"
+                />
+                启用
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="space-y-1 block md:col-span-2">
+                <span className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>MoviePilot 地址</span>
+                <input
+                  type="text"
+                  placeholder="http://moviepilot:3000"
+                  value={moviepilotBaseUrl}
+                  onChange={(e) => setMoviepilotBaseUrl(e.target.value)}
+                  className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </label>
+              <label className="space-y-1 block">
+                <span className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>用户名</span>
+                <input
+                  type="text"
+                  value={moviepilotUsername}
+                  onChange={(e) => setMoviepilotUsername(e.target.value)}
+                  className="w-full text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </label>
+              <label className="space-y-1 block">
+                <span className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>密码</span>
+                <input
+                  type="password"
+                  value={moviepilotPassword}
+                  onChange={(e) => setMoviepilotPassword(e.target.value)}
+                  placeholder={moviepilotPasswordConfigured ? "已保存，留空不更新" : "MoviePilot 登录密码"}
+                  className="w-full text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </label>
+              <label className="space-y-1 block md:col-span-2">
+                <span className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>PT 下载入库路径</span>
+                <input
+                  type="text"
+                  placeholder="/incoming/pt"
+                  value={moviepilotSavePath}
+                  onChange={(e) => setMoviepilotSavePath(e.target.value)}
+                  className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={isBusy("moviepilotConfigSave")}
+                onClick={saveMoviePilotSettings}
+                className="px-4 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+              >
+                <Save className="w-3 h-3" /> {isBusy("moviepilotConfigSave") ? "保存中" : "保存配置"}
+              </button>
+              <button
+                type="button"
+                disabled={isBusy("moviepilotHealth")}
+                onClick={() => runAction("moviepilotHealth", "MoviePilot 连通检测", () => moviepilotApi.health())}
+                className="glass-hover px-4 py-2 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+              >
+                <RefreshCw className={`w-3 h-3 ${isBusy("moviepilotHealth") ? "animate-spin" : ""}`} /> 连通检测
+              </button>
+              {resultOf("moviepilotConfigSave") && (
+                <span className="text-[10px] font-bold self-center" style={{ color: resultOf("moviepilotConfigSave")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
+                  {resultOf("moviepilotConfigSave")!.msg}
+                </span>
+              )}
+              {resultOf("moviepilotHealth") && (
+                <span className="text-[10px] font-bold self-center" style={{ color: resultOf("moviepilotHealth")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
+                  {resultOf("moviepilotHealth")!.msg}
+                </span>
+              )}
+            </div>
+          </div>
+          </CollapsibleSection>
+
           {/* Card 1: 115 Account cookie setting */}
           <CollapsibleSection icon={<Cloud className="w-4 h-4" />} title="115 云盘授权设置" badge="凭据" defaultOpen>
           <div className="space-y-5 pt-3">

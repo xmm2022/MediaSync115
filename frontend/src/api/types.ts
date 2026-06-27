@@ -92,6 +92,10 @@ export interface SubscriptionItem {
   auto_download?: boolean;
   created_at?: string;
   updated_at?: string;
+  provider?: string;
+  external_system?: string;
+  external_subscription_id?: string;
+  external_status?: string;
   sources?: SubscriptionSource[];
 }
 
@@ -133,6 +137,58 @@ export interface DownloadRecord {
 // ---- Settings ----
 export interface RuntimeSettings {
   [key: string]: unknown;
+}
+
+// ---- MoviePilot ----
+export interface MoviePilotConfig {
+  enabled: boolean;
+  base_url: string;
+  username: string;
+  password_configured: boolean;
+  access_token_configured: boolean;
+  save_path: string;
+}
+
+export interface MoviePilotHealth {
+  ok: boolean;
+  subscription_count?: number;
+  [key: string]: unknown;
+}
+
+export interface MoviePilotSubscriptionCreatePayload {
+  title: string;
+  media_type: string;
+  tmdb_id?: number;
+  douban_id?: string;
+  poster_path?: string;
+  overview?: string;
+  year?: string | number;
+  rating?: number;
+  auto_download?: boolean;
+  tv_scope?: string;
+  tv_season_number?: number;
+  tv_episode_start?: number;
+  tv_episode_end?: number;
+  tv_follow_mode?: string;
+  tv_include_specials?: boolean;
+  moviepilot_quality?: string;
+  moviepilot_resolution?: string;
+  moviepilot_include?: string;
+  moviepilot_exclude?: string;
+  moviepilot_save_path?: string;
+  [key: string]: unknown;
+}
+
+export interface MoviePilotSubscriptionResponse {
+  id?: string | number;
+  title?: string;
+  media_type?: string;
+  tmdb_id?: number;
+  douban_id?: string;
+  provider?: string;
+  external_system?: string;
+  external_subscription_id?: string | number;
+  external_status?: string;
 }
 
 // ---- Scheduler ----

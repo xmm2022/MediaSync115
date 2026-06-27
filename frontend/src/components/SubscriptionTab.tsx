@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import type { SubscriptionItem, SubscriptionSource, DownloadRecord } from "../api/types";
-import { subscriptionApi } from "../api";
+import type { SubscriptionItem, SubscriptionSource, DownloadRecord, MoviePilotSubscriptionCreatePayload } from "../api/types";
+import { moviepilotApi, subscriptionApi } from "../api";
 import { getApiErrorMessage } from "../api/errors";
 import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -91,6 +91,12 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const [tvEpisodeEnd, setTvEpisodeEnd] = useState<number | undefined>(undefined);
   const [tvFollowMode, setTvFollowMode] = useState<string>("missing");
   const [autoDownload, setAutoDownload] = useState(true);
+  const [subscriptionProvider, setSubscriptionProvider] = useState<"mediasync115" | "moviepilot">("mediasync115");
+  const [moviepilotQuality, setMoviepilotQuality] = useState("");
+  const [moviepilotResolution, setMoviepilotResolution] = useState("");
+  const [moviepilotInclude, setMoviepilotInclude] = useState("");
+  const [moviepilotExclude, setMoviepilotExclude] = useState("");
+  const [moviepilotSavePath, setMoviepilotSavePath] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ---- 缺集总览 (GET /subscriptions/missing-status/tv) ----
@@ -315,7 +321,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const payload: Parameters<typeof subscriptionApi.create>[0] = {
+    const payload: Parameters<typeof subscriptionApi.create>[0] | MoviePilotSubscriptionCreatePayload = {
       title: title.trim(),
       media_type: mediaType,
     };
@@ -337,8 +343,21 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
     payload.auto_download = autoDownload;
 
     try {
-      await subscriptionApi.create(payload);
-      await addLog("SUCCESS", `成功创建订阅 [${title.trim()}]`);
+      if (subscriptionProvider === "moviepilot") {
+        const moviepilotPayload: MoviePilotSubscriptionCreatePayload = {
+          ...payload,
+          moviepilot_quality: moviepilotQuality.trim() || undefined,
+          moviepilot_resolution: moviepilotResolution.trim() || undefined,
+          moviepilot_include: moviepilotInclude.trim() || undefined,
+          moviepilot_exclude: moviepilotExclude.trim() || undefined,
+          moviepilot_save_path: moviepilotSavePath.trim() || undefined,
+        };
+        await moviepilotApi.createSubscription(moviepilotPayload);
+        await addLog("SUCCESS", `成功创建 MoviePilot PT 订阅 [${title.trim()}]`);
+      } else {
+        await subscriptionApi.create(payload);
+        await addLog("SUCCESS", `成功创建订阅 [${title.trim()}]`);
+      }
       // Reset form
       setTitle("");
       setTmdbId(undefined);
@@ -349,12 +368,17 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
       setTvEpisodeEnd(undefined);
       setTvFollowMode("missing");
       setAutoDownload(true);
+      setMoviepilotQuality("");
+      setMoviepilotResolution("");
+      setMoviepilotInclude("");
+      setMoviepilotExclude("");
+      setMoviepilotSavePath("");
       setShowAddForm(false);
       // Reload list
       await loadSubscriptions();
     } catch (err) {
       console.error("Failed to create subscription:", err);
-      setErrorMessage("创建订阅失败，请检查输入字段");
+      setErrorMessage(`创建订阅失败: ${getApiErrorMessage(err)}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -530,6 +554,32 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                 <span>创建新订阅</span>
               </h3>
 
+              <div className="space-y-2">
+                <label className="text-xs font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>订阅后端</label>
+                <div className="grid grid-cols-2 gap-2 rounded-2xl p-1" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                  <button
+                    type="button"
+                    onClick={() => setSubscriptionProvider("mediasync115")}
+                    className="px-3 py-2 rounded-xl text-xs font-black transition-all"
+                    style={subscriptionProvider === "mediasync115"
+                      ? { background: "var(--brand-primary)", color: "#fff" } as React.CSSProperties
+                      : { color: "var(--txt-secondary)" } as React.CSSProperties}
+                  >
+                    MediaSync115
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSubscriptionProvider("moviepilot")}
+                    className="px-3 py-2 rounded-xl text-xs font-black transition-all"
+                    style={subscriptionProvider === "moviepilot"
+                      ? { background: "var(--brand-primary)", color: "#fff" } as React.CSSProperties
+                      : { color: "var(--txt-secondary)" } as React.CSSProperties}
+                  >
+                    MoviePilot PT
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Title (required) */}
                 <div className="space-y-1">
@@ -653,6 +703,68 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                 </div>
               )}
 
+              {subscriptionProvider === "moviepilot" && (
+                <div className="space-y-3 pt-1">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>质量规则</label>
+                      <input
+                        type="text"
+                        placeholder="WEB-DL / BluRay"
+                        value={moviepilotQuality}
+                        onChange={(e) => setMoviepilotQuality(e.target.value)}
+                        className="w-full rounded-xl px-4 py-2.5 text-xs font-bold outline-none transition-all"
+                        style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" } as React.CSSProperties}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>分辨率</label>
+                      <input
+                        type="text"
+                        placeholder="1080p / 2160p"
+                        value={moviepilotResolution}
+                        onChange={(e) => setMoviepilotResolution(e.target.value)}
+                        className="w-full rounded-xl px-4 py-2.5 text-xs font-bold outline-none transition-all"
+                        style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" } as React.CSSProperties}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>包含关键词</label>
+                      <input
+                        type="text"
+                        placeholder="中字 组名"
+                        value={moviepilotInclude}
+                        onChange={(e) => setMoviepilotInclude(e.target.value)}
+                        className="w-full rounded-xl px-4 py-2.5 text-xs font-bold outline-none transition-all"
+                        style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" } as React.CSSProperties}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>排除关键词</label>
+                      <input
+                        type="text"
+                        placeholder="CAM TC"
+                        value={moviepilotExclude}
+                        onChange={(e) => setMoviepilotExclude(e.target.value)}
+                        className="w-full rounded-xl px-4 py-2.5 text-xs font-bold outline-none transition-all"
+                        style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" } as React.CSSProperties}
+                      />
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>下载入库路径</label>
+                      <input
+                        type="text"
+                        placeholder="留空使用系统 MoviePilot 默认路径"
+                        value={moviepilotSavePath}
+                        onChange={(e) => setMoviepilotSavePath(e.target.value)}
+                        className="w-full rounded-xl px-4 py-2.5 text-xs font-mono font-bold outline-none transition-all"
+                        style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" } as React.CSSProperties}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Checkbox: auto download */}
               <div className="flex items-center gap-2 pt-1">
                 <input
@@ -664,7 +776,9 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                   style={{ accentColor: "var(--brand-primary)" } as React.CSSProperties}
                 />
                 <label htmlFor="autoDownload" className="text-xs font-bold select-none cursor-pointer" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
-                  启用自动下载：发现新资源后自动转存至 115 网盘。（推荐开启）
+                  {subscriptionProvider === "moviepilot"
+                    ? "启用自动下载：由 MoviePilot 匹配 PT 资源后提交下载。"
+                    : "启用自动下载：发现新资源后自动转存至 115 网盘。（推荐开启）"}
                 </label>
               </div>
 
@@ -773,6 +887,28 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                         <Rss className="w-3.5 h-3.5" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />
                         <span className="truncate">{rssSource}</span>
                       </div>
+                      {(sub.provider || sub.external_system || sub.external_subscription_id) && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {sub.provider && sub.provider !== "mediasync115" && (
+                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase"
+                              style={{ background: "rgba(59,130,246,0.12)", color: "#3b82f6", border: "1px solid rgba(59,130,246,0.25)" } as React.CSSProperties}>
+                              {sub.provider}
+                            </span>
+                          )}
+                          {sub.external_system && (
+                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase"
+                              style={{ background: "rgba(34,197,94,0.12)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.25)" } as React.CSSProperties}>
+                              {sub.external_system}
+                            </span>
+                          )}
+                          {sub.external_subscription_id && (
+                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded"
+                              style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                              #{sub.external_subscription_id}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Action buttons footer */}
