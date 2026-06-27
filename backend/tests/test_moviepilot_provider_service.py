@@ -2,7 +2,8 @@ import pytest
 from sqlalchemy import delete, select
 
 from app.core.database import async_session_maker, ensure_subscription_columns, ensure_tables_exist
-from app.models.models import MediaType, Subscription
+from app.models.models import DownloadRecord, MediaStatus, MediaType, Subscription
+from app.services.job_registry import job_registry
 from app.services.moviepilot_provider_service import MoviePilotProviderService
 
 
@@ -10,6 +11,8 @@ class FakeMoviePilotClient:
     def __init__(self) -> None:
         self.created_payloads: list[dict] = []
         self.subscribe_items: list[dict] = []
+        self.download_items: list[dict] = []
+        self.transfer_payload: dict = {"success": True, "data": {"list": [], "total": 0}}
 
     async def create_subscribe(self, payload: dict) -> dict:
         self.created_payloads.append(payload)
@@ -17,6 +20,12 @@ class FakeMoviePilotClient:
 
     async def list_subscribes(self) -> list[dict]:
         return self.subscribe_items
+
+    async def list_downloads(self, name: str | None = None) -> list[dict]:
+        return self.download_items
+
+    async def transfer_history(self, *, title: str = "", page: int = 1, count: int = 50) -> dict:
+        return self.transfer_payload
 
 
 def test_build_subscribe_payload_maps_tv_scope_to_moviepilot_schema() -> None:
@@ -130,3 +139,148 @@ async def test_sync_subscriptions_updates_local_external_status() -> None:
 
         await db.delete(refreshed)
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_sync_active_downloads_creates_and_updates_download_record() -> None:
+    await ensure_tables_exist("subscriptions")
+    await ensure_subscription_columns()
+    fake_client = FakeMoviePilotClient()
+    fake_client.download_items = [
+        {
+            "hash": "abc123",
+            "title": "Provider Download Movie",
+            "name": "Provider.Download.Movie.2026.1080p",
+            "state": "downloading",
+            "progress": 42.5,
+            "save_path": "/incoming/pt",
+        }
+    ]
+    service = MoviePilotProviderService(client_factory=lambda: fake_client)
+
+    async with async_session_maker() as db:
+        await db.execute(delete(DownloadRecord).where(DownloadRecord.offline_info_hash == "abc123"))
+        await db.execute(delete(Subscription).where(Subscription.tmdb_id == 7654323))
+        local = Subscription(
+            title="Provider Download Movie",
+            media_type=MediaType.MOVIE,
+            tmdb_id=7654323,
+            provider="moviepilot",
+            external_system="moviepilot",
+            external_subscription_id="188",
+            external_status="R",
+        )
+        db.add(local)
+        await db.commit()
+
+        first = await service.sync_active_downloads(db)
+        second = await service.sync_active_downloads(db)
+
+        assert first["created_count"] == 1
+        assert first["updated_count"] == 0
+        assert second["created_count"] == 0
+        assert second["updated_count"] == 1
+
+        result = await db.execute(
+            select(DownloadRecord).where(DownloadRecord.offline_info_hash == "abc123")
+        )
+        record = result.scalar_one()
+        assert record.subscription_id == local.id
+        assert record.resource_name == "Provider.Download.Movie.2026.1080p"
+        assert record.resource_type == "moviepilot"
+        assert record.status == MediaStatus.DOWNLOADING
+        assert record.offline_status == "downloading"
+
+        await db.delete(record)
+        await db.delete(local)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_sync_transfer_history_marks_download_record_completed() -> None:
+    await ensure_tables_exist("subscriptions")
+    await ensure_subscription_columns()
+    fake_client = FakeMoviePilotClient()
+    fake_client.transfer_payload = {
+        "success": True,
+        "data": {
+            "list": [
+                {
+                    "id": 9,
+                    "title": "Provider Transfer Movie",
+                    "download_hash": "done123",
+                    "torrent_name": "Provider.Transfer.Movie.2026.1080p",
+                    "src": "/incoming/pt/file.mkv",
+                    "dest": "/media/Movies/file.mkv",
+                    "status": True,
+                    "errmsg": "",
+                }
+            ],
+            "total": 1,
+        },
+    }
+    service = MoviePilotProviderService(client_factory=lambda: fake_client)
+
+    async with async_session_maker() as db:
+        await db.execute(delete(DownloadRecord).where(DownloadRecord.offline_info_hash == "done123"))
+        await db.execute(delete(Subscription).where(Subscription.tmdb_id == 7654324))
+        local = Subscription(
+            title="Provider Transfer Movie",
+            media_type=MediaType.MOVIE,
+            tmdb_id=7654324,
+            provider="moviepilot",
+            external_system="moviepilot",
+            external_subscription_id="288",
+            external_status="R",
+        )
+        db.add(local)
+        await db.commit()
+        record = DownloadRecord(
+            subscription_id=local.id,
+            resource_name="Provider.Transfer.Movie.2026.1080p",
+            resource_url="done123",
+            resource_type="moviepilot",
+            offline_info_hash="done123",
+            offline_status="downloading",
+            status=MediaStatus.DOWNLOADING,
+        )
+        db.add(record)
+        await db.commit()
+
+        result = await service.sync_transfer_history(db)
+
+        assert result["updated_count"] == 1
+
+        refreshed = await db.get(DownloadRecord, record.id)
+        assert refreshed is not None
+        assert refreshed.status == MediaStatus.COMPLETED
+        assert refreshed.offline_status == "transfer_success"
+        assert refreshed.completed_at is not None
+        assert refreshed.error_message is None
+
+        await db.delete(refreshed)
+        await db.delete(local)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_moviepilot_sync_job_key_runs_provider(monkeypatch) -> None:
+    from app.services import moviepilot_provider_service as provider_module
+
+    async def fake_sync(db):
+        assert db is not None
+        return {"success": True, "download_created_count": 1}
+
+    monkeypatch.setattr(
+        provider_module.moviepilot_provider_service,
+        "sync_execution_state",
+        fake_sync,
+    )
+
+    assert "moviepilot.sync" in job_registry.list_keys()
+    job = job_registry.get("moviepilot.sync")
+    assert job is not None
+
+    result = await job()
+
+    assert result == {"success": True, "download_created_count": 1}

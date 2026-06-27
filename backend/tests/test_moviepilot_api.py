@@ -78,15 +78,26 @@ def test_moviepilot_sync_route_updates_local_metadata(
     from app.api import moviepilot as moviepilot_api
 
     async def fake_sync(db):
-        return {"items": [{"id": 88, "state": "R"}], "updated_count": 1}
+        return {
+            "subscriptions": {"items": [{"id": 88, "state": "R"}], "updated_count": 1},
+            "downloads": {"items": [{"hash": "abc"}], "created_count": 1, "updated_count": 0, "skipped_count": 0},
+            "transfer_history": {"items": [], "created_count": 0, "updated_count": 0, "skipped_count": 0},
+            "updated_count": 1,
+            "download_created_count": 1,
+            "download_updated_count": 0,
+            "transfer_created_count": 0,
+            "transfer_updated_count": 0,
+        }
 
     monkeypatch.setattr(
         moviepilot_api.moviepilot_provider_service,
-        "sync_subscriptions",
+        "sync_execution_state",
         fake_sync,
     )
 
     response = client.post("/api/moviepilot/subscriptions/sync")
 
     assert response.status_code == 200
-    assert response.json() == {"items": [{"id": 88, "state": "R"}], "updated_count": 1}
+    assert response.json()["updated_count"] == 1
+    assert response.json()["download_created_count"] == 1
+    assert response.json()["downloads"]["items"] == [{"hash": "abc"}]

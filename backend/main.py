@@ -26,6 +26,7 @@ from app.api import (
     settings as runtime_settings_api,
     strm as strm_api,
     subscriptions,
+    twilight,
     watchlists,
     person_follows,
     workflow,
@@ -440,6 +441,7 @@ app.include_router(workflow.router, prefix="/api")
 app.include_router(logs_api.router, prefix="/api")
 app.include_router(license_api.router, prefix="/api")
 app.include_router(moviepilot.router, prefix="/api")
+app.include_router(twilight.router, prefix="/api")
 
 
 @app.get("/")

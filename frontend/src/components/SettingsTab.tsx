@@ -27,6 +27,7 @@ import {
   BarChart3,
   Info,
   AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import { motion } from "motion/react";
 import CollapsibleSection from "./CollapsibleSection";
@@ -37,6 +38,7 @@ import { quarkApi } from "../api/quark";
 import { authApi } from "../api/auth";
 import { pansouApi } from "../api/pansou";
 import { moviepilotApi } from "../api/moviepilot";
+import { twilightApi } from "../api/twilight";
 import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
 import { getApiErrorMessage } from "../api/errors";
@@ -149,6 +151,13 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [moviepilotPassword, setMoviepilotPassword] = useState("");
   const [moviepilotPasswordConfigured, setMoviepilotPasswordConfigured] = useState(false);
   const [moviepilotSavePath, setMoviepilotSavePath] = useState("");
+
+  // Twilight Emby/Jellyfin 用户管理外部入口
+  const [twilightEnabled, setTwilightEnabled] = useState(false);
+  const [twilightBaseUrl, setTwilightBaseUrl] = useState("");
+  const [twilightWebUrl, setTwilightWebUrl] = useState("");
+  const [twilightApiKey, setTwilightApiKey] = useState("");
+  const [twilightApiKeyConfigured, setTwilightApiKeyConfigured] = useState(false);
 
   // 代理
   const [proxyInfo, setProxyInfo] = useState<unknown>(null);
@@ -304,6 +313,10 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setMoviepilotUsername(String(rt.moviepilot_username || ""));
         setMoviepilotPasswordConfigured(Boolean(rt.moviepilot_password_configured));
         setMoviepilotSavePath(String(rt.moviepilot_save_path || ""));
+        setTwilightEnabled(Boolean(rt.twilight_enabled));
+        setTwilightBaseUrl(String(rt.twilight_base_url || ""));
+        setTwilightWebUrl(String(rt.twilight_web_url || ""));
+        setTwilightApiKeyConfigured(Boolean(rt.twilight_api_key_configured));
         // archive_watch_cid is a 115 cloud CID, separate from strm_output_dir.
       } catch (err) {
         console.error("Failed to load runtime settings:", err);
@@ -345,7 +358,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
     // Auto-load service integration data (fire-and-forget, non-blocking)
     const loadServices = async () => {
       const safe = <T,>(p: Promise<T>) => p.catch(() => null);
-      const [health, quarkInfo, quarkDefault, pansouCfg, proxyCfg, botStatus, hdhiveStatus, charts, moviepilotCfg] = await Promise.all([
+      const [health, quarkInfo, quarkDefault, pansouCfg, proxyCfg, botStatus, hdhiveStatus, charts, moviepilotCfg, twilightCfg] = await Promise.all([
         safe(settingsApi.checkAllHealth()),
         safe(quarkApi.getCookieInfo()),
         safe(quarkApi.getDefaultFolder()),
@@ -355,6 +368,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         safe(settingsApi.checkHdhive()),
         safe(settingsApi.getAvailableCharts()),
         safe(moviepilotApi.getConfig()),
+        safe(twilightApi.getConfig()),
       ]);
       if (health) setHealthAll(health.data);
       if (quarkInfo) setQuarkCookie(String((quarkInfo.data as Record<string, unknown>)?.cookie || ""));
@@ -374,6 +388,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setMoviepilotUsername(String(moviepilotCfg.data.username || ""));
         setMoviepilotPasswordConfigured(Boolean(moviepilotCfg.data.password_configured));
         setMoviepilotSavePath(String(moviepilotCfg.data.save_path || ""));
+      }
+      if (twilightCfg) {
+        setTwilightEnabled(Boolean(twilightCfg.data.enabled));
+        setTwilightBaseUrl(String(twilightCfg.data.base_url || ""));
+        setTwilightWebUrl(String(twilightCfg.data.web_url || ""));
+        setTwilightApiKeyConfigured(Boolean(twilightCfg.data.api_key_configured));
       }
     };
     void loadServices();
@@ -411,14 +431,24 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         moviepilot_base_url: moviepilotBaseUrl.trim() || undefined,
         moviepilot_username: moviepilotUsername.trim() || undefined,
         moviepilot_save_path: moviepilotSavePath.trim() || undefined,
+        twilight_enabled: twilightEnabled,
+        twilight_base_url: twilightBaseUrl.trim() || undefined,
+        twilight_web_url: twilightWebUrl.trim() || undefined,
       };
       if (moviepilotPassword.trim()) {
         payload.moviepilot_password = moviepilotPassword;
+      }
+      if (twilightApiKey.trim()) {
+        payload.twilight_api_key = twilightApiKey;
       }
       await settingsApi.updateRuntime(payload);
       if (moviepilotPassword.trim()) {
         setMoviepilotPassword("");
         setMoviepilotPasswordConfigured(true);
+      }
+      if (twilightApiKey.trim()) {
+        setTwilightApiKey("");
+        setTwilightApiKeyConfigured(true);
       }
 
       // Update 115 cookie if it was edited (and is non-empty)
@@ -457,6 +487,24 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       if (moviepilotPassword.trim()) {
         setMoviepilotPassword("");
         setMoviepilotPasswordConfigured(true);
+      }
+      return response;
+    });
+
+  const saveTwilightSettings = () =>
+    runAction("twilightConfigSave", "保存 Twilight 配置", async () => {
+      const payload: Record<string, unknown> = {
+        twilight_enabled: twilightEnabled,
+        twilight_base_url: twilightBaseUrl.trim() || undefined,
+        twilight_web_url: twilightWebUrl.trim() || undefined,
+      };
+      if (twilightApiKey.trim()) {
+        payload.twilight_api_key = twilightApiKey;
+      }
+      const response = await settingsApi.updateRuntime(payload);
+      if (twilightApiKey.trim()) {
+        setTwilightApiKey("");
+        setTwilightApiKeyConfigured(true);
       }
       return response;
     });
@@ -1427,6 +1475,101 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               {resultOf("moviepilotHealth") && (
                 <span className="text-[10px] font-bold self-center" style={{ color: resultOf("moviepilotHealth")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
                   {resultOf("moviepilotHealth")!.msg}
+                </span>
+              )}
+            </div>
+          </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection icon={<Server className="w-4 h-4" />} title="Twilight 用户管理" subtitle="Emby/Jellyfin 用户、卡码、邀请与权限管理外部入口" badge="Twilight" defaultOpen={false}>
+          <div className="space-y-5 pt-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
+                <Server className="w-5 h-5 text-brand-secondary" />
+                Twilight 接入配置
+              </h3>
+              <label className="inline-flex items-center gap-2 text-xs font-black cursor-pointer" style={{ color: "var(--txt-secondary)" }}>
+                <input
+                  type="checkbox"
+                  checked={twilightEnabled}
+                  onChange={(e) => setTwilightEnabled(e.target.checked)}
+                  className="accent-brand-primary"
+                />
+                启用
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="space-y-1 block">
+                <span className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>Twilight API 地址</span>
+                <input
+                  type="text"
+                  placeholder="http://twilight-backend:5000"
+                  value={twilightBaseUrl}
+                  onChange={(e) => setTwilightBaseUrl(e.target.value)}
+                  className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </label>
+              <label className="space-y-1 block">
+                <span className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>Twilight Web 地址</span>
+                <input
+                  type="text"
+                  placeholder="http://localhost:3000"
+                  value={twilightWebUrl}
+                  onChange={(e) => setTwilightWebUrl(e.target.value)}
+                  className="w-full text-sm font-mono px-3.5 py-2.5 rounded-lg focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </label>
+              <label className="space-y-1 block md:col-span-2">
+                <span className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>API Key</span>
+                <input
+                  type="password"
+                  value={twilightApiKey}
+                  onChange={(e) => setTwilightApiKey(e.target.value)}
+                  placeholder={twilightApiKeyConfigured ? "已保存，留空不更新" : "Twilight X-API-Key"}
+                  className="w-full text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={isBusy("twilightConfigSave")}
+                onClick={saveTwilightSettings}
+                className="px-4 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+              >
+                <Save className="w-3 h-3" /> {isBusy("twilightConfigSave") ? "保存中" : "保存配置"}
+              </button>
+              <button
+                type="button"
+                disabled={isBusy("twilightHealth")}
+                onClick={() => runAction("twilightHealth", "Twilight 连通检测", () => twilightApi.health())}
+                className="glass-hover px-4 py-2 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+              >
+                <RefreshCw className={`w-3 h-3 ${isBusy("twilightHealth") ? "animate-spin" : ""}`} /> 连通检测
+              </button>
+              <button
+                type="button"
+                disabled={!twilightWebUrl.trim()}
+                onClick={() => window.open(twilightWebUrl.trim(), "_blank", "noopener,noreferrer")}
+                className="glass-hover px-4 py-2 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+              >
+                <ExternalLink className="w-3 h-3" /> 打开 Twilight
+              </button>
+              {resultOf("twilightConfigSave") && (
+                <span className="text-[10px] font-bold self-center" style={{ color: resultOf("twilightConfigSave")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
+                  {resultOf("twilightConfigSave")!.msg}
+                </span>
+              )}
+              {resultOf("twilightHealth") && (
+                <span className="text-[10px] font-bold self-center" style={{ color: resultOf("twilightHealth")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
+                  {resultOf("twilightHealth")!.msg}
                 </span>
               )}
             </div>

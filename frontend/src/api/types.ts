@@ -192,8 +192,40 @@ export interface MoviePilotSubscriptionResponse {
 }
 
 export interface MoviePilotSyncResponse {
-  items: unknown[];
+  subscriptions?: {
+    items?: unknown[];
+    updated_count?: number;
+  };
+  downloads?: {
+    items?: unknown[];
+    created_count?: number;
+    updated_count?: number;
+    skipped_count?: number;
+  };
+  transfer_history?: {
+    items?: unknown[];
+    created_count?: number;
+    updated_count?: number;
+    skipped_count?: number;
+  };
   updated_count: number;
+  download_created_count?: number;
+  download_updated_count?: number;
+  transfer_created_count?: number;
+  transfer_updated_count?: number;
+}
+
+export interface TwilightConfig {
+  enabled: boolean;
+  base_url: string;
+  web_url: string;
+  api_key_configured: boolean;
+}
+
+export interface TwilightHealth {
+  ok: boolean;
+  health?: unknown;
+  api_key_status?: unknown;
 }
 
 // ---- Scheduler ----

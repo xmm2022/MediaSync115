@@ -33,6 +33,7 @@ class JobRegistry:
             "chart_subscription.sync": self._chart_subscription_sync,
             "person_follow.sync": self._person_follow_sync,
             "tg.index.incremental": self._tg_index_incremental,
+            "moviepilot.sync": self._moviepilot_sync,
         }
 
     def get(self, job_key: str) -> Callable[..., Any] | None:
@@ -174,6 +175,12 @@ class JobRegistry:
         from app.services.tg_sync_service import tg_sync_service
 
         return await tg_sync_service.run_incremental_once()
+
+    async def _moviepilot_sync(self, **kwargs) -> dict[str, Any]:
+        from app.services.moviepilot_provider_service import moviepilot_provider_service
+
+        async with async_session_maker() as db:
+            return await moviepilot_provider_service.sync_execution_state(db)
 
 
 job_registry = JobRegistry()

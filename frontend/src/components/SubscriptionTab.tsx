@@ -421,7 +421,11 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
     setErrorMessage(null);
     try {
       const response = await moviepilotApi.syncSubscriptions();
-      await addLog("SUCCESS", `MoviePilot 状态同步完成，更新 ${response.data.updated_count} 个订阅`);
+      const data = response.data;
+      await addLog(
+        "SUCCESS",
+        `MoviePilot 状态同步完成：订阅更新 ${data.updated_count ?? 0}，下载新增 ${data.download_created_count ?? 0}，下载更新 ${data.download_updated_count ?? 0}，转移新增 ${data.transfer_created_count ?? 0}，转移更新 ${data.transfer_updated_count ?? 0}`,
+      );
       await loadSubscriptions();
     } catch (err) {
       console.error("MoviePilot sync failed", err);
@@ -1168,13 +1172,24 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                               {detailDownloads.map(dl => (
                                 <div key={dl.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
                                   style={{ background: "var(--surface)", border: "1px solid var(--border)" } as React.CSSProperties}>
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    {dl.status === "completed" || dl.status === "offline_completed"
-                                      ? <CheckCircle2 className="w-3 h-3 shrink-0" style={{ color: "var(--accent-ok)" } as React.CSSProperties} />
-                                      : dl.status === "failed"
-                                        ? <XCircle className="w-3 h-3 shrink-0" style={{ color: "var(--accent-danger)" } as React.CSSProperties} />
-                                        : <ClipboardList className="w-3 h-3 shrink-0" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />}
-                                    <span className="text-[10px] font-bold truncate" style={{ color: "var(--txt)" } as React.CSSProperties}>{dl.resource_name}</span>
+                                  <div className="flex items-start gap-1.5 min-w-0">
+                                    <div className="pt-0.5">
+                                      {dl.status === "completed" || dl.status === "offline_completed"
+                                        ? <CheckCircle2 className="w-3 h-3 shrink-0" style={{ color: "var(--accent-ok)" } as React.CSSProperties} />
+                                        : dl.status === "failed"
+                                          ? <XCircle className="w-3 h-3 shrink-0" style={{ color: "var(--accent-danger)" } as React.CSSProperties} />
+                                          : <ClipboardList className="w-3 h-3 shrink-0" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[10px] font-bold truncate" style={{ color: "var(--txt)" } as React.CSSProperties}>{dl.resource_name}</div>
+                                      {(dl.offline_status || dl.offline_info_hash || dl.error_message) && (
+                                        <div className="text-[9px] font-semibold truncate mt-0.5" style={{ color: dl.error_message ? "var(--accent-danger)" : "var(--txt-muted)" } as React.CSSProperties}>
+                                          {dl.offline_status ? `MP: ${dl.offline_status}` : ""}
+                                          {dl.offline_info_hash ? ` · ${dl.offline_info_hash.slice(0, 12)}` : ""}
+                                          {dl.error_message ? ` · ${dl.error_message}` : ""}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                   <div className="flex items-center gap-1.5 shrink-0">
                                     <span className="text-[9px] font-bold uppercase" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>{dl.status}</span>

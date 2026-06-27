@@ -6,7 +6,8 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import MediaType, Subscription
+from app.core.timezone_utils import beijing_now
+from app.models.models import DownloadRecord, MediaStatus, MediaType, Subscription
 from app.services.moviepilot_client import MoviePilotClient, MoviePilotClientError
 from app.services.runtime_settings_service import runtime_settings_service
 
@@ -102,6 +103,284 @@ class MoviePilotProviderService:
             await db.commit()
 
         return {"items": items, "updated_count": updated_count}
+
+    @staticmethod
+    def _text(value: Any) -> str:
+        return str(value or "").strip()
+
+    @staticmethod
+    def _lower_text(value: Any) -> str:
+        return str(value or "").strip().lower()
+
+    @staticmethod
+    def _extract_download_hash(item: dict[str, Any]) -> str:
+        for key in ("hash", "download_hash", "info_hash", "hashString"):
+            value = item.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return ""
+
+    @staticmethod
+    def _extract_download_name(item: dict[str, Any]) -> str:
+        media = item.get("media")
+        media_title = ""
+        if isinstance(media, dict):
+            media_title = str(media.get("title") or media.get("name") or "").strip()
+        for key in ("name", "title", "torrent_name", "content_path", "path"):
+            value = item.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return media_title or "MoviePilot Download"
+
+    @staticmethod
+    def _extract_download_url(item: dict[str, Any], fallback_hash: str) -> str:
+        for key in ("src", "dest", "content_path", "save_path", "path"):
+            value = item.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return fallback_hash or MoviePilotProviderService._extract_download_name(item)
+
+    @staticmethod
+    def _extract_transfer_items(payload: Any) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if not isinstance(payload, dict):
+            return []
+        data = payload.get("data")
+        if isinstance(data, dict):
+            items = data.get("list") or data.get("items")
+            if isinstance(items, list):
+                return [item for item in items if isinstance(item, dict)]
+        items = payload.get("list") or payload.get("items")
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+        return []
+
+    @staticmethod
+    def _candidate_texts(item: dict[str, Any]) -> list[str]:
+        values: list[str] = []
+        media = item.get("media")
+        if isinstance(media, dict):
+            values.extend(
+                [
+                    str(media.get("title") or ""),
+                    str(media.get("name") or ""),
+                    str(media.get("original_title") or ""),
+                ]
+            )
+        for key in (
+            "title",
+            "name",
+            "torrent_name",
+            "content_path",
+            "path",
+            "src",
+            "dest",
+        ):
+            values.append(str(item.get(key) or ""))
+        return [value.lower() for value in values if value]
+
+    async def _moviepilot_subscriptions(self, db: AsyncSession) -> list[Subscription]:
+        result = await db.execute(
+            select(Subscription).where(
+                or_(
+                    Subscription.provider == "moviepilot",
+                    Subscription.external_system == "moviepilot",
+                )
+            )
+        )
+        return result.scalars().all()
+
+    async def _match_subscription_for_item(
+        self,
+        db: AsyncSession,
+        item: dict[str, Any],
+        subscriptions: list[Subscription] | None = None,
+    ) -> Subscription | None:
+        media = item.get("media")
+        if isinstance(media, dict):
+            tmdb_id = media.get("tmdbid") or media.get("tmdb_id")
+            douban_id = media.get("doubanid") or media.get("douban_id")
+            filters = []
+            if tmdb_id:
+                filters.append(Subscription.tmdb_id == int(tmdb_id))
+            if douban_id:
+                filters.append(Subscription.douban_id == str(douban_id))
+            if filters:
+                result = await db.execute(
+                    select(Subscription)
+                    .where(
+                        or_(*filters),
+                        or_(
+                            Subscription.provider == "moviepilot",
+                            Subscription.external_system == "moviepilot",
+                        ),
+                    )
+                    .limit(1)
+                )
+                matched = result.scalar_one_or_none()
+                if matched:
+                    return matched
+
+        subscriptions = subscriptions if subscriptions is not None else await self._moviepilot_subscriptions(db)
+        candidates = self._candidate_texts(item)
+        for subscription in subscriptions:
+            title = self._lower_text(subscription.title)
+            if title and any(title in candidate or candidate in title for candidate in candidates):
+                return subscription
+        return None
+
+    async def sync_active_downloads(self, db: AsyncSession) -> dict[str, Any]:
+        client = self._create_client()
+        items = await client.list_downloads()
+        subscriptions = await self._moviepilot_subscriptions(db)
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+
+        for item in items:
+            if not isinstance(item, dict):
+                skipped_count += 1
+                continue
+            download_hash = self._extract_download_hash(item)
+            subscription = await self._match_subscription_for_item(db, item, subscriptions)
+            if subscription is None:
+                skipped_count += 1
+                continue
+
+            existing: DownloadRecord | None = None
+            if download_hash:
+                result = await db.execute(
+                    select(DownloadRecord)
+                    .where(DownloadRecord.offline_info_hash == download_hash)
+                    .limit(1)
+                )
+                existing = result.scalar_one_or_none()
+
+            record = existing
+            if record is None:
+                record = DownloadRecord(
+                    subscription_id=int(subscription.id),
+                    resource_name=self._extract_download_name(item),
+                    resource_url=self._extract_download_url(item, download_hash),
+                    resource_type="moviepilot",
+                    offline_info_hash=download_hash or None,
+                    offline_task_id=download_hash or None,
+                    status=MediaStatus.DOWNLOADING,
+                )
+                db.add(record)
+                created_count += 1
+            else:
+                updated_count += 1
+                record.subscription_id = int(subscription.id)
+                record.resource_name = self._extract_download_name(item)
+                record.resource_url = self._extract_download_url(item, download_hash)
+                record.resource_type = "moviepilot"
+                record.status = MediaStatus.DOWNLOADING
+                record.completed_at = None
+
+            record.offline_status = self._text(item.get("state") or item.get("status")) or "downloading"
+            record.error_message = None
+
+        if created_count or updated_count:
+            await db.commit()
+
+        return {
+            "items": items,
+            "created_count": created_count,
+            "updated_count": updated_count,
+            "skipped_count": skipped_count,
+        }
+
+    async def sync_transfer_history(
+        self,
+        db: AsyncSession,
+        *,
+        page: int = 1,
+        count: int = 100,
+    ) -> dict[str, Any]:
+        client = self._create_client()
+        payload = await client.transfer_history(page=page, count=count)
+        items = self._extract_transfer_items(payload)
+        subscriptions = await self._moviepilot_subscriptions(db)
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+
+        for item in items:
+            download_hash = self._extract_download_hash(item)
+            subscription = await self._match_subscription_for_item(db, item, subscriptions)
+
+            existing: DownloadRecord | None = None
+            if download_hash:
+                result = await db.execute(
+                    select(DownloadRecord)
+                    .where(DownloadRecord.offline_info_hash == download_hash)
+                    .limit(1)
+                )
+                existing = result.scalar_one_or_none()
+
+            if existing is None and subscription is None:
+                skipped_count += 1
+                continue
+
+            success = bool(item.get("status", True))
+            if existing is None:
+                record = DownloadRecord(
+                    subscription_id=int(subscription.id),  # type: ignore[union-attr]
+                    resource_name=self._extract_download_name(item),
+                    resource_url=self._extract_download_url(item, download_hash),
+                    resource_type="moviepilot",
+                    offline_info_hash=download_hash or None,
+                    offline_task_id=download_hash or None,
+                )
+                db.add(record)
+                created_count += 1
+            else:
+                record = existing
+                updated_count += 1
+                if subscription is not None:
+                    record.subscription_id = int(subscription.id)
+                record.resource_name = self._extract_download_name(item)
+                record.resource_url = self._extract_download_url(item, download_hash)
+                record.resource_type = "moviepilot"
+
+            if success:
+                record.status = MediaStatus.COMPLETED
+                record.offline_status = "transfer_success"
+                record.completed_at = beijing_now()
+                record.offline_completed_at = record.completed_at
+                record.error_message = None
+            else:
+                record.status = MediaStatus.FAILED
+                record.offline_status = "transfer_failed"
+                record.completed_at = None
+                record.error_message = self._text(item.get("errmsg") or item.get("message")) or "MoviePilot 转移失败"
+
+        if created_count or updated_count:
+            await db.commit()
+
+        return {
+            "items": items,
+            "created_count": created_count,
+            "updated_count": updated_count,
+            "skipped_count": skipped_count,
+        }
+
+    async def sync_execution_state(self, db: AsyncSession) -> dict[str, Any]:
+        subscription_result = await self.sync_subscriptions(db)
+        download_result = await self.sync_active_downloads(db)
+        transfer_result = await self.sync_transfer_history(db)
+        return {
+            "subscriptions": subscription_result,
+            "downloads": download_result,
+            "transfer_history": transfer_result,
+            "updated_count": int(subscription_result.get("updated_count") or 0),
+            "download_created_count": int(download_result.get("created_count") or 0),
+            "download_updated_count": int(download_result.get("updated_count") or 0),
+            "transfer_created_count": int(transfer_result.get("created_count") or 0),
+            "transfer_updated_count": int(transfer_result.get("updated_count") or 0),
+        }
 
     @staticmethod
     def _media_type_value(value: Any) -> str:

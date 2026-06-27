@@ -100,6 +100,10 @@ class RuntimeSettingsRequest(BaseModel):
     moviepilot_password: Optional[str] = None
     moviepilot_access_token: Optional[str] = None
     moviepilot_save_path: Optional[str] = None
+    twilight_enabled: Optional[bool] = None
+    twilight_base_url: Optional[str] = None
+    twilight_web_url: Optional[str] = None
+    twilight_api_key: Optional[str] = None
     subscription_enabled: Optional[bool] = None
     subscription_interval_hours: Optional[int] = None
     subscription_resource_priority: Optional[list[str]] = None

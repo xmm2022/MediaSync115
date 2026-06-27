@@ -132,6 +132,10 @@ class RuntimeSettingsService:
             "moviepilot_password_enc": "",
             "moviepilot_access_token": "",
             "moviepilot_save_path": "",
+            "twilight_enabled": False,
+            "twilight_base_url": "",
+            "twilight_web_url": "",
+            "twilight_api_key_enc": "",
             "auth_username": "admin",
             "auth_password_hash": "",
             "auth_secret": "",
@@ -841,6 +845,46 @@ class RuntimeSettingsService:
             "save_path": self.get_moviepilot_save_path(),
         }
 
+    def get_twilight_enabled(self) -> bool:
+        return bool(self._data.get("twilight_enabled", False))
+
+    def get_twilight_base_url(self) -> str:
+        return str(self._data.get("twilight_base_url") or "").strip().rstrip("/")
+
+    def get_twilight_web_url(self) -> str:
+        return str(self._data.get("twilight_web_url") or "").strip().rstrip("/")
+
+    def get_twilight_api_key_enc(self) -> str:
+        return str(self._data.get("twilight_api_key_enc") or "")
+
+    def get_twilight_api_key(self) -> str:
+        from app.utils.credential_crypto import decrypt_credential
+
+        encrypted = self.get_twilight_api_key_enc()
+        if not encrypted:
+            return ""
+        return decrypt_credential(encrypted, self.get_auth_secret())
+
+    def set_twilight_api_key(self, api_key: str) -> None:
+        from app.utils.credential_crypto import encrypt_credential
+
+        plain = str(api_key or "").strip()
+        if not plain:
+            self._data["twilight_api_key_enc"] = ""
+            return
+        self._data["twilight_api_key_enc"] = encrypt_credential(
+            plain,
+            self.get_auth_secret(),
+        )
+
+    def get_twilight_config(self) -> dict[str, Any]:
+        return {
+            "enabled": self.get_twilight_enabled(),
+            "base_url": self.get_twilight_base_url(),
+            "web_url": self.get_twilight_web_url(),
+            "api_key_configured": bool(self.get_twilight_api_key_enc()),
+        }
+
     def get_auth_username(self) -> str:
         return str(self._data.get("auth_username") or "admin").strip() or "admin"
 
@@ -1199,6 +1243,11 @@ class RuntimeSettingsService:
             normalized["moviepilot_password_enc"] = self._data.get(
                 "moviepilot_password_enc", ""
             )
+        if "twilight_api_key" in payload:
+            self.set_twilight_api_key(str(payload.get("twilight_api_key") or ""))
+            normalized["twilight_api_key_enc"] = self._data.get(
+                "twilight_api_key_enc", ""
+            )
         for key in self._defaults.keys():
             if key not in payload:
                 continue
@@ -1217,7 +1266,7 @@ class RuntimeSettingsService:
                 if not isinstance(value, str):
                     value = str(value)
                 cleaned = value.strip()
-                if key == "moviepilot_base_url":
+                if key in {"moviepilot_base_url", "twilight_base_url", "twilight_web_url"}:
                     cleaned = cleaned.rstrip("/")
                 if not cleaned:
                     if key in {"tg_bot_token", "moviepilot_access_token"}:
@@ -1441,6 +1490,10 @@ class RuntimeSettingsService:
                 self.get_moviepilot_access_token()
             ),
             "moviepilot_save_path": self.get_moviepilot_save_path(),
+            "twilight_enabled": self.get_twilight_enabled(),
+            "twilight_base_url": self.get_twilight_base_url(),
+            "twilight_web_url": self.get_twilight_web_url(),
+            "twilight_api_key_configured": bool(self.get_twilight_api_key_enc()),
             "auth_username": self.get_auth_username(),
             "subscription_enabled": bool(
                 self._data.get("subscription_enabled", False)

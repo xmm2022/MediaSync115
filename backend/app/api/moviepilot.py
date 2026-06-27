@@ -111,7 +111,7 @@ async def sync_moviepilot_subscriptions(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        return await moviepilot_provider_service.sync_subscriptions(db)
+        return await moviepilot_provider_service.sync_execution_state(db)
     except (MoviePilotClientError, MoviePilotProviderError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
