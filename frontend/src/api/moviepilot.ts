@@ -2,6 +2,7 @@ import api from './client';
 import type {
   MoviePilotConfig,
   MoviePilotHealth,
+  MoviePilotSyncResponse,
   MoviePilotSubscriptionCreatePayload,
   MoviePilotSubscriptionResponse,
 } from './types';
@@ -16,7 +17,7 @@ export const moviepilotApi = {
   createSubscription: (payload: MoviePilotSubscriptionCreatePayload) =>
     api.post<MoviePilotSubscriptionResponse>('/moviepilot/subscriptions', payload),
 
-  syncSubscriptions: () => api.post<{ items: unknown[] }>('/moviepilot/subscriptions/sync'),
+  syncSubscriptions: () => api.post<MoviePilotSyncResponse>('/moviepilot/subscriptions/sync'),
 
   searchSubscription: (externalSubscriptionId: string | number) =>
     api.post<{ result: unknown }>(

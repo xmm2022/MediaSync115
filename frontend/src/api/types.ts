@@ -191,6 +191,11 @@ export interface MoviePilotSubscriptionResponse {
   external_status?: string;
 }
 
+export interface MoviePilotSyncResponse {
+  items: unknown[];
+  updated_count: number;
+}
+
 // ---- Scheduler ----
 export interface SchedulerTask {
   id: string;

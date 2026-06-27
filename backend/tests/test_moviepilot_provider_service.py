@@ -9,10 +9,14 @@ from app.services.moviepilot_provider_service import MoviePilotProviderService
 class FakeMoviePilotClient:
     def __init__(self) -> None:
         self.created_payloads: list[dict] = []
+        self.subscribe_items: list[dict] = []
 
     async def create_subscribe(self, payload: dict) -> dict:
         self.created_payloads.append(payload)
         return {"success": True, "message": "ok", "data": {"id": 88}}
+
+    async def list_subscribes(self) -> list[dict]:
+        return self.subscribe_items
 
 
 def test_build_subscribe_payload_maps_tv_scope_to_moviepilot_schema() -> None:
@@ -87,4 +91,42 @@ async def test_create_moviepilot_subscription_persists_external_id() -> None:
         assert fake_client.created_payloads[0]["save_path"] == "/incoming/pt/movie"
 
         await db.delete(persisted)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_sync_subscriptions_updates_local_external_status() -> None:
+    await ensure_tables_exist("subscriptions")
+    await ensure_subscription_columns()
+    fake_client = FakeMoviePilotClient()
+    fake_client.subscribe_items = [
+        {"id": 88, "name": "Provider Sync Movie", "state": "R"},
+        {"id": 99, "name": "Untracked Movie", "state": "N"},
+    ]
+    service = MoviePilotProviderService(client_factory=lambda: fake_client)
+
+    async with async_session_maker() as db:
+        await db.execute(delete(Subscription).where(Subscription.tmdb_id == 7654322))
+        local = Subscription(
+            title="Provider Sync Movie",
+            media_type=MediaType.MOVIE,
+            tmdb_id=7654322,
+            provider="moviepilot",
+            external_system="moviepilot",
+            external_subscription_id="88",
+            external_status="created",
+        )
+        db.add(local)
+        await db.commit()
+
+        result = await service.sync_subscriptions(db)
+
+        assert result["updated_count"] == 1
+        assert result["items"] == fake_client.subscribe_items
+
+        refreshed = await db.get(Subscription, local.id)
+        assert refreshed is not None
+        assert refreshed.external_status == "R"
+
+        await db.delete(refreshed)
         await db.commit()

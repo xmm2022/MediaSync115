@@ -2,6 +2,7 @@ import { moviepilotApi } from "./moviepilot";
 import type {
   MoviePilotConfig,
   MoviePilotHealth,
+  MoviePilotSyncResponse,
   MoviePilotSubscriptionCreatePayload,
   MoviePilotSubscriptionResponse,
 } from "./types";
@@ -27,3 +28,5 @@ assertResponse<{ items: unknown[] }>(moviepilotApi.search("Test Movie"));
 assertResponse<MoviePilotSubscriptionResponse>(
   moviepilotApi.createSubscription(createPayload),
 );
+assertResponse<MoviePilotSyncResponse>(moviepilotApi.syncSubscriptions());
+assertResponse<{ result: unknown }>(moviepilotApi.searchSubscription(88));

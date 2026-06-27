@@ -70,3 +70,23 @@ def test_moviepilot_create_subscription_route_delegates_to_service(
         "external_subscription_id": "88",
         "external_status": "created",
     }
+
+
+def test_moviepilot_sync_route_updates_local_metadata(
+    client: TestClient, monkeypatch
+) -> None:
+    from app.api import moviepilot as moviepilot_api
+
+    async def fake_sync(db):
+        return {"items": [{"id": 88, "state": "R"}], "updated_count": 1}
+
+    monkeypatch.setattr(
+        moviepilot_api.moviepilot_provider_service,
+        "sync_subscriptions",
+        fake_sync,
+    )
+
+    response = client.post("/api/moviepilot/subscriptions/sync")
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [{"id": 88, "state": "R"}], "updated_count": 1}

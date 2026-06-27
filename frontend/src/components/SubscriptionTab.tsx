@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import type { SubscriptionItem, SubscriptionSource, DownloadRecord, MoviePilotSubscriptionCreatePayload } from "../api/types";
 import { moviepilotApi, subscriptionApi } from "../api";
 import { getApiErrorMessage } from "../api/errors";
-import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity } from "lucide-react";
+import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity, Search } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import type { SyncDirectory } from "../types";
 
@@ -98,6 +98,8 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const [moviepilotExclude, setMoviepilotExclude] = useState("");
   const [moviepilotSavePath, setMoviepilotSavePath] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMoviepilotSyncing, setIsMoviepilotSyncing] = useState(false);
+  const [moviepilotSearchingId, setMoviepilotSearchingId] = useState<string | null>(null);
 
   // ---- 缺集总览 (GET /subscriptions/missing-status/tv) ----
   type MissingOverviewItem = {
@@ -414,6 +416,37 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
     }
   };
 
+  const handleMoviePilotSync = async () => {
+    setIsMoviepilotSyncing(true);
+    setErrorMessage(null);
+    try {
+      const response = await moviepilotApi.syncSubscriptions();
+      await addLog("SUCCESS", `MoviePilot 状态同步完成，更新 ${response.data.updated_count} 个订阅`);
+      await loadSubscriptions();
+    } catch (err) {
+      console.error("MoviePilot sync failed", err);
+      setErrorMessage(`MoviePilot 状态同步失败: ${getApiErrorMessage(err)}`);
+    } finally {
+      setIsMoviepilotSyncing(false);
+    }
+  };
+
+  const handleMoviePilotSearch = async (sub: SubscriptionItem) => {
+    if (!sub.external_subscription_id) return;
+    setMoviepilotSearchingId(sub.id);
+    setErrorMessage(null);
+    try {
+      const response = await moviepilotApi.searchSubscription(sub.external_subscription_id);
+      const resultText = JSON.stringify(response.data.result ?? response.data).slice(0, 180);
+      await addLog("INFO", `MoviePilot 已触发 [${sub.title}] 手动搜索: ${resultText}`);
+    } catch (err) {
+      console.error("MoviePilot manual search failed", err);
+      setErrorMessage(`MoviePilot 手动搜索失败: ${getApiErrorMessage(err)}`);
+    } finally {
+      setMoviepilotSearchingId(null);
+    }
+  };
+
   return (
     <div id="subscription-tab-container" className="space-y-6">
 
@@ -480,6 +513,16 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
               title="后台运行全部频道扫描"
             >
               全部
+            </button>
+            <button
+              onClick={handleMoviePilotSync}
+              disabled={isMoviepilotSyncing}
+              className="px-2 py-1.5 rounded-lg text-[9px] font-black glass-hover transition-all disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+              title="同步 MoviePilot 订阅状态"
+            >
+              <RefreshCw className={`w-3 h-3 ${isMoviepilotSyncing ? "animate-spin" : ""}`} />
+              MP同步
             </button>
           </div>
           <button
@@ -918,6 +961,17 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                       </span>
 
                       <div className="flex items-center gap-1.5">
+                        {sub.external_system === "moviepilot" && sub.external_subscription_id && (
+                          <button
+                            onClick={() => handleMoviePilotSearch(sub)}
+                            disabled={moviepilotSearchingId === sub.id}
+                            className="p-1.5 rounded-lg transition-all active:scale-95 disabled:opacity-50"
+                            style={{ background: "rgba(59,130,246,0.14)", color: "#3b82f6", border: "1px solid rgba(59,130,246,0.3)" } as React.CSSProperties}
+                            title="触发 MoviePilot 手动搜索"
+                          >
+                            <Search className={`w-3.5 h-3.5 ${moviepilotSearchingId === sub.id ? "animate-pulse" : ""}`} />
+                          </button>
+                        )}
                         {/* Expand detail */}
                         <button
                           onClick={() => toggleExpand(sub)}

@@ -46,6 +46,64 @@ class MoviePilotProviderService:
         return await client.search_subscribe(subscribe_id)
 
     @staticmethod
+    def _extract_subscribe_item_id(item: dict[str, Any]) -> str | None:
+        raw_id = item.get("id") or item.get("subscribe_id")
+        if raw_id is None:
+            data = item.get("data")
+            if isinstance(data, dict):
+                raw_id = data.get("id") or data.get("subscribe_id")
+        if raw_id is None:
+            return None
+        return str(raw_id)
+
+    @staticmethod
+    def _extract_subscribe_item_status(item: dict[str, Any]) -> str:
+        for key in ("state", "status", "state_text", "status_text"):
+            value = item.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return "synced"
+
+    async def sync_subscriptions(self, db: AsyncSession) -> dict[str, Any]:
+        items = await self.list_subscribes()
+        item_by_id = {
+            external_id: item
+            for item in items
+            if isinstance(item, dict)
+            for external_id in [self._extract_subscribe_item_id(item)]
+            if external_id
+        }
+        if not item_by_id:
+            return {"items": items, "updated_count": 0}
+
+        result = await db.execute(
+            select(Subscription).where(
+                Subscription.external_subscription_id.in_(item_by_id.keys()),
+                or_(
+                    Subscription.provider == "moviepilot",
+                    Subscription.external_system == "moviepilot",
+                ),
+            )
+        )
+        subscriptions = result.scalars().all()
+        updated_count = 0
+        for subscription in subscriptions:
+            if not subscription.external_subscription_id:
+                continue
+            item = item_by_id.get(subscription.external_subscription_id)
+            if item is None:
+                continue
+            external_status = self._extract_subscribe_item_status(item)
+            if subscription.external_status != external_status:
+                subscription.external_status = external_status
+                updated_count += 1
+
+        if updated_count:
+            await db.commit()
+
+        return {"items": items, "updated_count": updated_count}
+
+    @staticmethod
     def _media_type_value(value: Any) -> str:
         if isinstance(value, MediaType):
             return value.value

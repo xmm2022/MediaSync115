@@ -107,12 +107,13 @@ async def create_moviepilot_subscription(
 
 
 @router.post("/subscriptions/sync")
-async def sync_moviepilot_subscriptions() -> dict[str, Any]:
+async def sync_moviepilot_subscriptions(
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
     try:
-        items = await moviepilot_provider_service.list_subscribes()
+        return await moviepilot_provider_service.sync_subscriptions(db)
     except (MoviePilotClientError, MoviePilotProviderError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {"items": items}
 
 
 @router.post("/subscriptions/{external_subscription_id}/search")
