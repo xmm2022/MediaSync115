@@ -1,5 +1,5 @@
 import api from './client';
-import type { SchedulerTask } from './types';
+import type { SchedulerJob, SchedulerTask } from './types';
 import { extractItems, withResponseData } from './response';
 
 export const schedulerApi = {
@@ -10,7 +10,7 @@ export const schedulerApi = {
 
   listJobs: async () => {
     const response = await api.get('/scheduler/jobs');
-    return withResponseData(response, extractItems<Record<string, unknown>>(response.data));
+    return withResponseData(response, extractItems<SchedulerJob>(response.data));
   },
 
   runJob: (jobId: string) => api.post(`/scheduler/run/${encodeURIComponent(jobId)}`),

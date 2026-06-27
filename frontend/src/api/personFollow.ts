@@ -1,12 +1,12 @@
 import api from './client';
-import type { PersonFollowItem } from './types';
+import type { PersonFollowFeedItem, PersonFollowItem } from './types';
 
 export const personFollowApi = {
   list: () => api.get<PersonFollowItem[]>('/person-follows'),
 
   getStatusMap: () => api.get('/person-follows/status-map'),
 
-  getFeed: (limit = 30) => api.get('/person-follows/feed', { params: { limit } }),
+  getFeed: (limit = 30) => api.get<PersonFollowFeedItem[]>('/person-follows/feed', { params: { limit } }),
 
   create: (data: {
     tmdb_person_id: number;

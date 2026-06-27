@@ -6,7 +6,7 @@
  */
 import React, { useEffect, useState, type CSSProperties } from "react";
 import { schedulerApi } from "../api";
-import type { SchedulerTask } from "../api/types";
+import type { SchedulerJob, SchedulerTask } from "../api/types";
 import { Clock, Play, Pause, Trash2, Plus, RefreshCw, Calendar, Save, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -16,14 +16,32 @@ const sWarnSoft: CSSProperties = { background: "rgba(245,158,11,0.14)", color: "
 const sDangerSoft: CSSProperties = { background: "rgba(239,68,68,0.14)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" };
 const sOkBadge: CSSProperties = { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" };
 const sWarnBadge: CSSProperties = { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" };
-const sPre: CSSProperties = { background: "var(--surface-subtle)", color: "var(--txt-secondary)" };
 const sInput: CSSProperties = { background: "var(--bg-elev)", color: "var(--txt)", border: "1px solid var(--border)" };
 const sModal: CSSProperties = { background: "var(--bg-elev)", border: "1px solid var(--border-strong)" };
+
+function formatSchedulerJobTime(value?: string | null) {
+  if (!value) return "未排期";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getSchedulerJobKindLabel(kind?: string | null) {
+  if (kind === "dynamic") return "自定义任务";
+  if (kind === "workflow") return "工作流";
+  if (kind === "builtin") return "内置任务";
+  return kind || "内置任务";
+}
 
 export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ERROR", m: string) => Promise<void> }) {
   const [tasks, setTasks] = useState<SchedulerTask[]>([]);
   const [jobKeys, setJobKeys] = useState<string[]>([]);
-  const [jobs, setJobs] = useState<unknown>(null);
+  const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,11 +55,11 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
       const [t, jk, jj] = await Promise.all([
         schedulerApi.listTasks(),
         schedulerApi.listJobKeys().catch(() => ({ data: [] as string[] })),
-        schedulerApi.listJobs().catch(() => ({ data: null })),
+        schedulerApi.listJobs().catch(() => ({ data: [] as SchedulerJob[] })),
       ]);
       setTasks((t.data as SchedulerTask[]) ?? []);
       setJobKeys((jk.data as string[]) ?? []);
-      setJobs(jj.data ?? null);
+      setJobs(Array.isArray(jj.data) ? jj.data : []);
     } catch (err: any) {
       setError(err?.message || "加载定时任务失败");
     } finally {
@@ -101,31 +119,66 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
 
       {/* Job Keys / Jobs 概览 */}
       <div className="glass rounded-3xl p-5">
-        <h3 className="text-sm font-black flex items-center gap-2 mb-3" style={{ color:"var(--txt)" }}>
-          <Calendar className="w-4 h-4" style={{ color:"var(--brand-primary)" }} />
-          <span>内置 Job Keys ({jobKeys.length})</span>
-        </h3>
-        {jobKeys.length === 0 ? (
-          <p className="text-xs font-semibold" style={{ color:"var(--txt-muted)" }}>无内置 job 注册</p>
-        ) : (
-          <div className="space-y-2">
-            {jobKeys.map((k) => (
-              <div key={k} className="glass flex items-center justify-between rounded-lg px-3 py-2">
-                <span className="text-xs font-bold truncate" style={{ color:"var(--txt)" }}>{k}</span>
-                <button
-                  disabled={busy === `run-${k}`}
-                  onClick={() => runBusy(`run-${k}`, `手动运行 ${k}`, () => schedulerApi.runJob(k))}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
-                >
-                  <Play className="w-3 h-3" /> {busy === `run-${k}` ? "运行中" : "手动运行"}
-                </button>
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
+          <section className="min-w-0">
+            <h3 className="text-sm font-black flex items-center gap-2 mb-3" style={{ color:"var(--txt)" }}>
+              <Calendar className="w-4 h-4" style={{ color:"var(--brand-primary)" }} />
+              <span>内置 Job Keys ({jobKeys.length})</span>
+            </h3>
+            {jobKeys.length === 0 ? (
+              <p className="text-xs font-semibold" style={{ color:"var(--txt-muted)" }}>无内置 job 注册</p>
+            ) : (
+              <div className="space-y-2">
+                {jobKeys.map((k) => (
+                  <div key={k} className="glass grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-2 rounded-lg px-3 py-2">
+                    <span className="text-xs font-bold truncate" style={{ color:"var(--txt)" }}>{k}</span>
+                    <button
+                      disabled={busy === `run-${k}`}
+                      onClick={() => runBusy(`run-${k}`, `手动运行 ${k}`, () => schedulerApi.runJob(k))}
+                      className="h-7 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 inline-flex items-center justify-center gap-1"
+                    >
+                      <Play className="w-3 h-3" /> {busy === `run-${k}` ? "运行中" : "运行"}
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-        {jobs != null && (
-          <pre className="mt-3 text-[10px] rounded-xl p-3 overflow-auto max-h-48 font-mono" style={sPre}>{JSON.stringify(jobs, null, 2)}</pre>
-        )}
+            )}
+          </section>
+
+          <section className="min-w-0">
+            <h3 className="text-sm font-black flex items-center gap-2 mb-3" style={{ color:"var(--txt)" }}>
+              <Clock className="w-4 h-4" style={{ color:"var(--accent-info)" }} />
+              <span>内置调度状态 ({jobs.length})</span>
+            </h3>
+            {jobs.length === 0 ? (
+              <p className="text-xs font-semibold" style={{ color:"var(--txt-muted)" }}>暂无运行中的调度任务</p>
+            ) : (
+              <div className="space-y-2">
+                {jobs.map((job) => (
+                  <div key={job.id} className="glass rounded-lg px-3 py-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-black truncate" style={{ color:"var(--txt)" }}>
+                          {job.name || job.id}
+                        </div>
+                        <div className="text-[10px] font-bold mt-0.5 truncate" style={{ color:"var(--txt-muted)" }}>
+                          {job.id}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded" style={job.running ? sOkBadge : sWarnBadge}>
+                        {job.running ? "运行中" : "等待"}
+                      </span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] font-bold" style={{ color:"var(--txt-muted)" }}>
+                      <div className="truncate">类型: {getSchedulerJobKindLabel(job.kind)}</div>
+                      <div className="truncate">下次: {formatSchedulerJobTime(job.next_run_time)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
 
       {/* 任务列表 */}

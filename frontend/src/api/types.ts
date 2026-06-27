@@ -148,6 +148,15 @@ export interface SchedulerTask {
   [key: string]: unknown;
 }
 
+export interface SchedulerJob {
+  id: string;
+  name?: string;
+  next_run_time?: string | null;
+  running?: boolean;
+  kind?: string | null;
+  [key: string]: unknown;
+}
+
 // ---- Workflow ----
 export interface WorkflowItem {
   id: number;
@@ -345,8 +354,27 @@ export interface PersonFollowItem {
   [key: string]: unknown;
 }
 
+export interface PersonFollowFeedItem {
+  id: string;
+  person_follow_id: string;
+  tmdb_person_id: number;
+  person_name: string;
+  person_profile_path?: string | null;
+  tmdb_id: number;
+  media_type: string;
+  title: string;
+  poster_path?: string | null;
+  credit_date?: string | null;
+  discovered_at?: string | null;
+  subscribed?: boolean;
+  [key: string]: unknown;
+}
+
 // ---- License ----
 export interface LicenseStatus {
+  tier?: string;
+  has_license_key?: boolean;
+  features?: Record<string, boolean>;
   [key: string]: unknown;
 }
 

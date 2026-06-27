@@ -155,11 +155,57 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("!tmdbSearchConfigured", search)
         self.assertIn("TMDB API Key 未配置", search)
 
+    def test_search_exposes_direct_resource_keyword_search_without_tmdb(self) -> None:
+        search = read_source("src/components/SearchTab.tsx")
+
+        self.assertIn("资源直搜", search)
+        self.assertIn("runDirectResourceSearch", search)
+        self.assertIn("getHdhivePan115ByKeyword", search)
+        self.assertIn("getTgPan115ByKeyword", search)
+        self.assertIn("getSeedhubMagnetByKeyword", search)
+        self.assertIn('searchScope === "media" && !tmdbSearchConfigured', search)
+        self.assertNotIn("disabled={isLoading || !tmdbSearchConfigured}", search)
+
+    def test_search_ignores_stale_async_results(self) -> None:
+        search = read_source("src/components/SearchTab.tsx")
+
+        self.assertIn("requestSeqRef", search)
+        self.assertGreaterEqual(search.count("requestSeqRef.current += 1"), 3)
+        self.assertIn("requestId !== requestSeqRef.current", search)
+
     def test_search_copy_matches_supported_media_servers(self) -> None:
         search = read_source("src/components/SearchTab.tsx")
 
         self.assertIn("Emby / 飞牛", search)
         self.assertNotIn("Emby / Plex", search)
+
+    def test_scheduler_jobs_are_rendered_as_user_facing_status(self) -> None:
+        scheduler = read_source("src/components/SchedulerTab.tsx")
+
+        self.assertNotIn("JSON.stringify(jobs", scheduler)
+        self.assertIn("SchedulerJob", scheduler)
+        self.assertIn("内置调度状态", scheduler)
+        self.assertIn("next_run_time", scheduler)
+
+    def test_library_person_feed_and_license_are_user_facing(self) -> None:
+        library = read_source("src/components/LibraryPlusTab.tsx")
+        types = read_source("src/api/types.ts")
+        person_api = read_source("src/api/personFollow.ts")
+
+        self.assertNotIn("JSON.stringify(feed", library)
+        self.assertNotIn("JSON.stringify(status", library)
+        self.assertIn("PersonFollowFeedItem", types)
+        self.assertIn("PersonFollowFeedItem", person_api)
+        self.assertIn("getLicenseTierLabel", library)
+        self.assertIn("许可证功能", library)
+        self.assertIn('status?.tier === "pro"', library)
+
+    def test_library_person_follow_form_is_responsive_on_mobile(self) -> None:
+        library = read_source("src/components/LibraryPlusTab.tsx")
+
+        self.assertIn("sm:grid-cols-[8rem_minmax(0,1fr)_auto]", library)
+        self.assertIn("w-full sm:w-auto", library)
+        self.assertNotIn('className="flex gap-2">\\n          <input type="number"', library)
 
 
 if __name__ == "__main__":

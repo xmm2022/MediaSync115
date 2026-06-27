@@ -6,13 +6,47 @@
  */
 import React, { useEffect, useState } from "react";
 import { watchlistApi, personFollowApi, licenseApi } from "../api";
-import type { WatchlistItem, PersonFollowItem } from "../api/types";
+import type { LicenseStatus, PersonFollowFeedItem, WatchlistItem, PersonFollowItem } from "../api/types";
 import {
   Bookmark, Users, KeyRound, Plus, Trash2, RefreshCw, Sparkles, Rss, CheckCircle2, XCircle, Heart,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 type Sub = "watchlist" | "person" | "license";
+
+function formatDateLabel(value?: string | null) {
+  if (!value) return "日期未定";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+function getMediaTypeLabel(value?: string) {
+  if (value === "movie") return "电影";
+  if (value === "tv") return "剧集";
+  return value || "作品";
+}
+
+function getLicenseTierLabel(tier?: string) {
+  if (tier === "pro") return "Pro";
+  return "Free";
+}
+
+function getLicenseFeatureLabel(feature: string) {
+  const labels: Record<string, string> = {
+    explore: "影视探索",
+    subscription: "订阅管理",
+    transfer: "资源转存",
+    scheduler: "定时任务",
+    workflow: "工作流",
+    hdhive: "HDHive",
+    telegram: "Telegram",
+    quality_preference: "画质偏好",
+    emby_sync: "Emby 同步",
+    tg_bot: "TG Bot",
+  };
+  return labels[feature] || feature;
+}
 
 export default function LibraryPlusTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ERROR", m: string) => Promise<void> }) {
   const [sub, setSub] = useState<Sub>("watchlist");
@@ -177,7 +211,7 @@ function WatchlistPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | 
 // ============ 影人 ============
 function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ERROR", m: string) => Promise<void> }) {
   const [follows, setFollows] = useState<PersonFollowItem[]>([]);
-  const [feed, setFeed] = useState<unknown>(null);
+  const [feed, setFeed] = useState<PersonFollowFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [personId, setPersonId] = useState<number | undefined>(undefined);
@@ -188,10 +222,10 @@ function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ER
     try {
       const [l, f] = await Promise.all([
         personFollowApi.list().catch(() => ({ data: [] as PersonFollowItem[] })),
-        personFollowApi.getFeed(20).catch(() => ({ data: null })),
+        personFollowApi.getFeed(20).catch(() => ({ data: [] as PersonFollowFeedItem[] })),
       ]);
       setFollows(l.data ?? []);
-      setFeed(f.data ?? null);
+      setFeed(Array.isArray(f.data) ? f.data : []);
     } catch (err: any) {
       addLog("ERROR", `加载影人关注失败: ${err?.message || err}`);
     } finally {
@@ -249,10 +283,10 @@ function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ER
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}><Users className="w-4 h-4 text-brand-primary" /> 关注影人</h3>
           <button onClick={handleSync} disabled={busy === "sync"} className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"><RefreshCw className={`w-3 h-3 ${busy === "sync" ? "animate-spin" : ""}`} /> 同步作品</button>
         </div>
-        <div className="flex gap-2">
-          <input type="number" value={personId ?? ""} onChange={(e) => setPersonId(e.target.value ? Number(e.target.value) : undefined)} placeholder="TMDB 影人 ID *" className="w-32 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" } as React.CSSProperties} />
-          <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="影人名(可选)" className="flex-1 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" } as React.CSSProperties} />
-          <button onClick={handleFollow} disabled={!personId} className="px-3 py-2 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"><Heart className="w-3.5 h-3.5" /> 关注</button>
+        <div className="grid grid-cols-1 sm:grid-cols-[8rem_minmax(0,1fr)_auto] gap-2">
+          <input type="number" value={personId ?? ""} onChange={(e) => setPersonId(e.target.value ? Number(e.target.value) : undefined)} placeholder="TMDB 影人 ID *" className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" } as React.CSSProperties} />
+          <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="影人名(可选)" className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" } as React.CSSProperties} />
+          <button onClick={handleFollow} disabled={!personId} className="w-full sm:w-auto justify-center px-3 py-2 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"><Heart className="w-3.5 h-3.5" /> 关注</button>
         </div>
       </div>
 
@@ -278,10 +312,36 @@ function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ER
         </div>
       )}
 
-      {feed != null && (
-        <div className="glass rounded-2xl p-4">
-          <h3 className="text-sm font-black flex items-center gap-2 mb-2" style={{ color: "var(--txt)" }}><Rss className="w-4 h-4 text-brand-primary" /> 影人动态 Feed</h3>
-          <pre className="text-[10px] rounded-xl p-3 overflow-auto max-h-64 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" } as React.CSSProperties}>{JSON.stringify(feed, null, 2)}</pre>
+      {!loading && (
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}><Rss className="w-4 h-4 text-brand-primary" /> 影人动态 Feed</h3>
+          {feed.length === 0 ? (
+            <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>暂无即将上线作品</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {feed.map((item) => (
+                <div key={item.id} className="glass glass-hover rounded-xl p-3 flex gap-3 min-w-0">
+                  {item.poster_path ? (
+                    <img src={`https://image.tmdb.org/t/p/w154${item.poster_path}`} alt={item.title} className="w-12 h-16 rounded-lg object-cover shrink-0" style={{ border: "1px solid var(--border)" } as React.CSSProperties} referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-12 h-16 rounded-lg shrink-0 flex items-center justify-center" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                      <Bookmark className="w-5 h-5" style={{ color: "var(--txt-muted)" }} />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" } as React.CSSProperties}>{getMediaTypeLabel(item.media_type)}</span>
+                      {item.subscribed && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" } as React.CSSProperties}>已订阅</span>}
+                    </div>
+                    <div className="text-xs font-black truncate" style={{ color: "var(--txt)" }}>{item.title}</div>
+                    <div className="text-[10px] font-bold mt-1 truncate" style={{ color: "var(--txt-muted)" }}>
+                      {item.person_name} · {formatDateLabel(item.credit_date)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -290,14 +350,14 @@ function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ER
 
 // ============ 许可证 ============
 function LicensePanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ERROR", m: string) => Promise<void> }) {
-  const [status, setStatus] = useState<Record<string, unknown> | null>(null);
+  const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [key, setKey] = useState("");
 
   const load = async () => {
     try {
       const { data } = await licenseApi.getStatus();
-      setStatus(data as Record<string, unknown>);
+      setStatus(data);
     } catch (err: any) {
       await addLog("ERROR", `加载许可证状态失败: ${err?.message || err}`);
     }
@@ -316,7 +376,9 @@ function LicensePanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "E
     } finally { setBusy(false); }
   };
 
-  const isLicensed = Boolean(status?.licensed || status?.is_licensed || status?.active);
+  const isLicensed = status?.tier === "pro";
+  const hasLicenseKey = Boolean(status?.has_license_key);
+  const features = Object.entries(status?.features ?? {});
 
   return (
     <div className="space-y-4">
@@ -328,9 +390,42 @@ function LicensePanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "E
         {isLicensed ? (
           <div className="flex items-center gap-2 text-xs font-bold" style={{ color: "var(--accent-ok)" }}><CheckCircle2 className="w-4 h-4" /> 已授权</div>
         ) : (
-          <div className="flex items-center gap-2 text-xs font-bold" style={{ color: "var(--accent-warn)" }}><XCircle className="w-4 h-4" /> 未授权 / 试用</div>
+          <div className="flex items-center gap-2 text-xs font-bold" style={{ color: "var(--accent-warn)" }}><XCircle className="w-4 h-4" /> 免费版</div>
         )}
-        {status && <pre className="text-[10px] rounded-xl p-3 overflow-auto max-h-48 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" } as React.CSSProperties}>{JSON.stringify(status, null, 2)}</pre>}
+        {status ? (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="rounded-xl p-3" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                <p className="text-[10px] font-black uppercase" style={{ color: "var(--txt-muted)" }}>当前等级</p>
+                <p className="text-sm font-black mt-1" style={{ color: "var(--txt)" }}>{getLicenseTierLabel(status.tier)}</p>
+              </div>
+              <div className="rounded-xl p-3" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                <p className="text-[10px] font-black uppercase" style={{ color: "var(--txt-muted)" }}>许可证密钥</p>
+                <p className="text-sm font-black mt-1" style={{ color: hasLicenseKey ? "var(--accent-ok)" : "var(--txt-secondary)" }}>
+                  {hasLicenseKey ? "已配置" : "未配置"}
+                </p>
+              </div>
+            </div>
+            {features.length > 0 && (
+              <div>
+                <h4 className="text-xs font-black mb-2" style={{ color: "var(--txt)" }}>许可证功能</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {features.map(([feature, enabled]) => (
+                    <span
+                      key={feature}
+                      className="text-[9px] font-bold px-2 py-1 rounded-lg"
+                      style={enabled ? { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" } : { background: "rgba(239,68,68,0.14)", color: "var(--accent-danger)" } as React.CSSProperties}
+                    >
+                      {getLicenseFeatureLabel(feature)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>正在加载许可证状态…</p>
+        )}
       </div>
 
       <div className="glass glass-hover rounded-2xl p-4 space-y-2">
