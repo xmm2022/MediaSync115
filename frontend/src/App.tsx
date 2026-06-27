@@ -77,36 +77,36 @@ export default function App() {
   const { theme, toggle: toggleTheme } = useTheme();
 
   const loadInitialData = useCallback(async (isCancelled: () => boolean = () => false) => {
-    // 1. Load directories from archive API (folders + config + tasks)
+    // 1. Load archive config + active tasks. Avoid listing 115 folders during app
+    // initialization because that requires a valid 115 session and is only needed
+    // when the user enters a 115 browsing workflow.
     try {
-      const [foldersRes, configRes, tasksRes] = await Promise.all([
-        archiveApi.listFolders("0"),
+      const [configRes, tasksRes] = await Promise.all([
         archiveApi.getConfig(),
         archiveApi.listTasks({ status: ACTIVE_ARCHIVE_TASK_STATUS, limit: 50 }).catch(() => ({ data: [] })),
       ]);
-      const folderData = foldersRes.data;
-      const configData = configRes.data;
+      const configData = configRes.data as Record<string, unknown>;
       const tasksData = (tasksRes as { data: unknown }).data;
       const tasksArr: Record<string, unknown>[] = Array.isArray(tasksData) ? tasksData as Record<string, unknown>[] : [];
       const hasActiveTask = tasksArr.length > 0;
+      const watchCid = String(configData.archive_watch_cid || "").trim();
+      const watchName = String(configData.archive_watch_name || "").trim();
 
       const dirs: SyncDirectory[] = [];
-      if (Array.isArray(folderData)) {
-        for (const f of folderData.slice(0, 20)) {
-          dirs.push({
-            id: f.cid || String((f as Record<string, string>).id || "") || `dir-${dirs.length}`,
-            name: f.name || f.cid || "未知目录",
-            localPath: String((configData as Record<string, string>).archive_watch_cid || ""),
-            folderId115: f.cid || "",
-            targetClient: "emby",
-            status: hasActiveTask ? "syncing" : "idle",
-            speed: "-",
-            progress: 0,
-            enabled: Boolean((configData as Record<string, unknown>).archive_enabled),
-            totalSize: "-",
-            itemCount: 0,
-          });
-        }
+      if (watchCid) {
+        dirs.push({
+          id: watchCid,
+          name: watchName || `115 目录 ${watchCid}`,
+          localPath: watchCid,
+          folderId115: watchCid,
+          targetClient: "emby",
+          status: hasActiveTask ? "syncing" : "idle",
+          speed: "-",
+          progress: 0,
+          enabled: Boolean(configData.archive_enabled),
+          totalSize: "-",
+          itemCount: 0,
+        });
       }
       if (!isCancelled()) setDirectories(dirs);
     } catch (err) {
@@ -229,12 +229,13 @@ export default function App() {
         username: loginUsername.trim(),
         password: loginPassword,
       });
-      const username = response.data.username || loginUsername.trim();
+      const session = await authApi.getSession();
+      const username = session.data.username || response.data.username || loginUsername.trim();
+      await loadInitialData();
       setAuthenticated(true);
       setAuthUsername(username);
       setAuthNotice("");
       setLoginPassword("");
-      await loadInitialData();
     } catch (err) {
       setLoginError(getApiErrorMessage(err, "登录失败，请检查账号密码"));
     } finally {

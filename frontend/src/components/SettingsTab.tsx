@@ -38,7 +38,9 @@ import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
 import { getApiErrorMessage } from "../api/errors";
 import {
+  buildTgBotRuntimePayload,
   buildTgRuntimePayload,
+  formatIdListInput,
   formatTgChannelsInput,
 } from "../utils/tgRuntimeSettings";
 
@@ -137,6 +139,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
   // Bot 状态
   const [botStatus, setBotStatus] = useState<unknown>(null);
+  const [tgBotToken, setTgBotToken] = useState("");
+  const [tgBotEnabled, setTgBotEnabled] = useState(false);
+  const [tgBotAllowedUsersInput, setTgBotAllowedUsersInput] = useState("");
+  const [tgBotNotifyChatIdsInput, setTgBotNotifyChatIdsInput] = useState("");
+  const [tgBotHdhiveAutoUnlock, setTgBotHdhiveAutoUnlock] = useState(false);
 
   // HDHive 登录状态
   const [hdhiveLoginStatus, setHdhiveLoginStatus] = useState<unknown>(null);
@@ -239,6 +246,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         if (!Number.isNaN(tgMaxMessages) && tgMaxMessages > 0) {
           setTgMaxMessagesPerChannel(Math.round(tgMaxMessages));
         }
+        setTgBotToken(String(rt.tg_bot_token || ""));
+        setTgBotEnabled(Boolean(rt.tg_bot_enabled));
+        setTgBotAllowedUsersInput(formatIdListInput(rt.tg_bot_allowed_users));
+        setTgBotNotifyChatIdsInput(formatIdListInput(rt.tg_bot_notify_chat_ids));
+        setTgBotHdhiveAutoUnlock(Boolean(rt.tg_bot_hdhive_auto_unlock));
         // Note: archive_watch_cid is a 115 cloud CID, separate from strm_output_dir;
         // it is not exposed in this UI tab (needs a different config UI).
       } catch (err) {
@@ -303,6 +315,13 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           searchDays: tgSearchDays,
           maxMessagesPerChannel: tgMaxMessagesPerChannel,
         }),
+        ...buildTgBotRuntimePayload({
+          token: tgBotToken,
+          enabled: tgBotEnabled,
+          allowedUsersInput: tgBotAllowedUsersInput,
+          notifyChatIdsInput: tgBotNotifyChatIdsInput,
+          hdhiveAutoUnlock: tgBotHdhiveAutoUnlock,
+        }),
       };
       await settingsApi.updateRuntime(payload);
 
@@ -339,6 +358,20 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           maxMessagesPerChannel: tgMaxMessagesPerChannel,
         }),
       ).then(() => ({ data: "已保存" })),
+    );
+
+  const saveTgBotRuntimeSettings = () =>
+    runAction("tgBotConfigSave", "保存 TG Bot 配置", () =>
+      settingsApi.updateRuntime(
+        buildTgBotRuntimePayload({
+          token: tgBotToken,
+          enabled: tgBotEnabled,
+          allowedUsersInput: tgBotAllowedUsersInput,
+          notifyChatIdsInput: tgBotNotifyChatIdsInput,
+          hdhiveAutoUnlock: tgBotHdhiveAutoUnlock,
+        }),
+      ).then(() => settingsApi.getTgBotStatus())
+        .then((r) => { setBotStatus(r.data); return { data: "已保存" }; }),
     );
 
   // Test 115 connection: if cookie changed since load, update it first, then check
@@ -730,31 +763,104 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           </div>
 
           {/* TG Bot */}
-          <div className="pt-3 flex gap-2 items-center" style={{ borderTop: "1px solid var(--border)" }}>
-            <Bot className="w-4 h-4" style={{ color: "var(--txt-secondary)" }} />
-            <button
-              disabled={isBusy("tgBotRestart")}
-              onClick={() => runAction("tgBotRestart", "重启 TG Bot", () => settingsApi.restartTgBot())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
-            >
-              <RefreshCw className="w-3 h-3" /> {isBusy("tgBotRestart") ? "重启中" : "重启 Bot"}
-            </button>
-            <button
-              disabled={isBusy("tgBotStop")}
-              onClick={() => runAction("tgBotStop", "停止 TG Bot", () => settingsApi.stopTgBot())}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
-              style={{ background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" }}
-            >
-              <StopCircle className="w-3 h-3" /> 停止 Bot
-            </button>
-            <button
-              disabled={isBusy("tgBotStatus")}
-              onClick={() => runAction("tgBotStatus", "查询 TG Bot 状态", () => settingsApi.getTgBotStatus())}
-              className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
-              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-            >
-              <Server className="w-3 h-3" /> Bot 状态
-            </button>
+          <div className="pt-3 space-y-3" style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="flex items-center gap-2">
+              <Bot className="w-4 h-4" style={{ color: "var(--txt-secondary)" }} />
+              <span className="text-xs font-black" style={{ color: "var(--txt)" }}>TG Bot</span>
+              <label className="inline-flex items-center gap-1.5 text-[10px] font-bold cursor-pointer" style={{ color: "var(--txt-secondary)" }}>
+                <input
+                  type="checkbox"
+                  checked={tgBotEnabled}
+                  onChange={(e) => setTgBotEnabled(e.target.checked)}
+                  className="accent-brand-primary"
+                />
+                启用
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-[10px] font-bold cursor-pointer" style={{ color: "var(--txt-secondary)" }}>
+                <input
+                  type="checkbox"
+                  checked={tgBotHdhiveAutoUnlock}
+                  onChange={(e) => setTgBotHdhiveAutoUnlock(e.target.checked)}
+                  className="accent-brand-primary"
+                />
+                HDHive 自动解锁
+              </label>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
+              <div className="xl:col-span-5 space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>Bot Token</label>
+                <input
+                  type="password"
+                  value={tgBotToken}
+                  onChange={(e) => setTgBotToken(e.target.value)}
+                  placeholder="123456:ABC-DEF..."
+                  className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </div>
+              <div className="xl:col-span-3 space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>允许用户 ID</label>
+                <textarea
+                  rows={2}
+                  value={tgBotAllowedUsersInput}
+                  onChange={(e) => setTgBotAllowedUsersInput(e.target.value)}
+                  placeholder={"123456789\n987654321"}
+                  className="w-full text-xs font-mono rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </div>
+              <div className="xl:col-span-3 space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>通知 Chat ID</label>
+                <textarea
+                  rows={2}
+                  value={tgBotNotifyChatIdsInput}
+                  onChange={(e) => setTgBotNotifyChatIdsInput(e.target.value)}
+                  placeholder={"-1001234567890\n123456789"}
+                  className="w-full text-xs font-mono rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </div>
+              <div className="xl:col-span-1 flex items-end">
+                <button
+                  disabled={isBusy("tgBotConfigSave")}
+                  onClick={saveTgBotRuntimeSettings}
+                  className="w-full px-3 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1 justify-center"
+                >
+                  <Save className="w-3 h-3" /> {isBusy("tgBotConfigSave") ? "保存中" : "保存"}
+                </button>
+              </div>
+            </div>
+            {resultOf("tgBotConfigSave") && (
+              <p className="text-[10px] font-bold" style={{ color: resultOf("tgBotConfigSave")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>{resultOf("tgBotConfigSave")!.msg}</p>
+            )}
+            <div className="flex flex-wrap gap-2 items-center">
+              <button
+                disabled={isBusy("tgBotRestart")}
+                onClick={() => runAction("tgBotRestart", "重启 TG Bot", () => settingsApi.restartTgBot())}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" /> {isBusy("tgBotRestart") ? "重启中" : "重启 Bot"}
+              </button>
+              <button
+                disabled={isBusy("tgBotStop")}
+                onClick={() => runAction("tgBotStop", "停止 TG Bot", () => settingsApi.stopTgBot())}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+                style={{ background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" }}
+              >
+                <StopCircle className="w-3 h-3" /> 停止 Bot
+              </button>
+              <button
+                disabled={isBusy("tgBotStatus")}
+                onClick={() => runAction("tgBotStatus", "查询 TG Bot 状态", () => settingsApi.getTgBotStatus().then((r) => { setBotStatus(r.data); return r; }))}
+                className="glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+              >
+                <Server className="w-3 h-3" /> Bot 状态
+              </button>
+            </div>
+            {botStatus != null && (
+              <pre className="text-[10px] rounded-xl p-2 overflow-auto max-h-32 font-mono" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{JSON.stringify(botStatus, null, 2)}</pre>
+            )}
           </div>
         </div>
 

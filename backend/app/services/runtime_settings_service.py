@@ -1145,6 +1145,8 @@ class RuntimeSettingsService:
                 continue
 
             if value is None:
+                if key == "tg_bot_token":
+                    normalized[key] = ""
                 continue
 
             default_value = self._defaults[key]
@@ -1153,6 +1155,8 @@ class RuntimeSettingsService:
                     value = str(value)
                 cleaned = value.strip()
                 if not cleaned:
+                    if key == "tg_bot_token":
+                        normalized[key] = ""
                     continue
                 normalized[key] = cleaned
             elif isinstance(default_value, bool):
