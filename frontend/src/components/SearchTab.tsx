@@ -4,7 +4,7 @@ import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, Ext
 import { motion, AnimatePresence } from "motion/react";
 import { searchApi } from "../api/search";
 import { pan115Api } from "../api/pan115";
-import { getExplorePosterSrc } from "../utils/runtimeDefaults";
+import { mapSearchItemToResource, normalizeSearchPosterSrc, type SearchResourceItem } from "../utils/searchResources";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 import Pan115Progress, { type Pan115ProgressState, deriveDefaultProgressState } from "./Pan115Progress";
 
@@ -13,26 +13,6 @@ interface SearchTabProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   onNavigateToDetail?: (ctx: DetailContext) => void;
-}
-
-// Item shape from GET /api/search/explore/sections → sections[].items[]
-interface ExploreItem {
-  id?: string | number;
-  title?: string;
-  name?: string;
-  poster_path?: string;
-  poster_url?: string;
-  rating?: number;
-  vote_average?: number;
-  year?: number;
-  release_date?: string;
-  media_type?: "movie" | "tv" | "collection";
-  tmdb_id?: number;
-  douban_id?: string;
-  overview?: string;
-  genres?: string[];
-  genre_ids?: number[];
-  tags?: string[];
 }
 
 // Link shape from GET /api/search/{media_type}/{tmdb_id}/resources
@@ -80,15 +60,6 @@ const RESOURCE_SOURCES: { key: ResourceSourceKey; label: string; desc: string }[
   { key: "magnet_butailing", label: "磁力·不淘", desc: "不淘磁力搜索" },
 ];
 
-function normalizePosterSrc(rawPoster?: string): string {
-  const value = String(rawPoster || "").trim();
-  if (!value) return "";
-  if (value.startsWith("/") && !value.startsWith("/api/")) {
-    return getExplorePosterSrc(`https://image.tmdb.org/t/p/w200${value}`);
-  }
-  return getExplorePosterSrc(value);
-}
-
 export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavigateToDetail }: SearchTabProps) {
   const [resources, setResources] = useState<MediaResource[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<"All" | "Movie" | "TV" | "Anime">("All");
@@ -98,6 +69,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   const [isLoading, setIsLoading] = useState(true);
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<"discover" | "keyword">("discover");
   const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
   const [activeSource, setActiveSource] = useState<ResourceSourceKey>("unified");
   const [unlockingSlug, setUnlockingSlug] = useState<string | null>(null);
@@ -108,38 +80,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   const [imdbId, setImdbId] = useState("");
   const [imdbMediaType, setImdbMediaType] = useState<"movie" | "tv">("movie");
   const [imdbSearching, setImdbSearching] = useState(false);
-
-  // ---- Helper: map explore item → MediaResource ----
-  const mapExploreItem = (item: ExploreItem, sectionTag?: string): MediaResource => {
-    const mediaType = item.media_type || "movie";
-    // category: backend media_type "movie"/"tv"/"collection" → UI "Movie"/"TV"
-    const category: "Movie" | "TV" | "Anime" =
-      mediaType === "movie" ? "Movie" : "TV"; // collection also maps to TV for now
-
-    const year =
-      item.year ||
-      (item.release_date ? new Date(item.release_date).getFullYear() : undefined) ||
-      0;
-
-    const tags: string[] = [
-      ...(item.genres || []),
-      ...(sectionTag ? [sectionTag] : []),
-    ].slice(0, 5);
-
-    return {
-      id: String(item.tmdb_id || item.douban_id || item.id || Math.random()),
-      title: item.title || item.name || "未命名",
-      poster: normalizePosterSrc(item.poster_path || item.poster_url),
-      rating: item.rating || item.vote_average || 0,
-      year,
-      category,
-      description: item.overview || "",
-      tags,
-      links: [],
-      tmdb_id: item.tmdb_id,
-      media_type: mediaType,
-    };
-  };
 
   // ---- Load explore sections (browse / discovery) ----
   // Rationale: SearchTab UI shows "热搜影视精品推荐" — a browse/discovery view
@@ -152,12 +92,13 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     };
     setIsLoading(true);
     setLoadError(null);
+    setSearchMode("discover");
     setIsLoadingReset();
     try {
       const response = await searchApi.getExploreSections("douban", 24, false);
       const data = response.data as {
         source: string;
-        sections?: { key: string; title: string; tag?: string; items?: ExploreItem[] }[];
+        sections?: { key: string; title: string; tag?: string; items?: SearchResourceItem[] }[];
         emby_status_map?: Record<string, unknown>;
         feiniu_status_map?: Record<string, unknown>;
       };
@@ -168,7 +109,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
       for (const section of sections) {
         const items = section.items || [];
         for (const item of items) {
-          allItems.push(mapExploreItem(item, section.tag || section.title));
+          allItems.push(mapSearchItemToResource(item, section.tag || section.title));
         }
       }
 
@@ -198,6 +139,47 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
       setIsLoading(false);
     }
   }, []);
+
+  const runKeywordSearch = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    const keyword = searchQuery.trim();
+    if (!keyword) {
+      await loadResources();
+      return;
+    }
+
+    setIsLoading(true);
+    setLoadError(null);
+    setSearchMode("keyword");
+    setStatusMap({});
+    setSelectedResource(null);
+    try {
+      const response = await searchApi.search(keyword, 1);
+      const data = response.data as {
+        items?: SearchResourceItem[];
+        results?: SearchResourceItem[];
+        emby_status_map?: Record<string, unknown>;
+        feiniu_status_map?: Record<string, unknown>;
+      };
+      const items = Array.isArray(data.items) ? data.items : Array.isArray(data.results) ? data.results : [];
+      setResources(items.map((item) => mapSearchItemToResource(item)));
+
+      const agg: Record<string, BadgeStatus> = {};
+      mergeStatusMap(agg, data.emby_status_map, "emby");
+      mergeStatusMap(agg, data.feiniu_status_map, "feiniu");
+      setStatusMap(agg);
+
+      if (items.length === 0) {
+        setLoadError(`未搜索到「${keyword}」相关影视`);
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || String(err);
+      setResources([]);
+      setLoadError(`搜索失败: ${msg}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // ---- Fetch resource links for detail panel ----
   // ---- Fetch resource links (multi-source) ----
@@ -452,7 +434,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
         const resource: MediaResource = {
           id: String(data.tmdb_id),
           title: data.title || data.name || "IMDB 匹配",
-          poster: normalizePosterSrc(data.poster_path),
+          poster: normalizeSearchPosterSrc(data.poster_path),
           rating: data.vote_average || 0,
           year: data.year || 0,
           category: data.media_type === "tv" ? "TV" : "Movie",
@@ -532,16 +514,28 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
         {/* Search Bar Input */}
         <div className="w-full md:max-w-md relative">
-          <input
-            id="search-input-field"
-            type="text"
-            placeholder="搜索电影、电视剧、动漫、或资源标签..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full glass rounded-2xl py-3 pl-11 pr-4 text-sm font-semibold outline-none transition-all placeholder:text-[var(--txt-muted)]"
-            style={{ color: "var(--txt)" }}
-          />
-          <Search className="w-5 h-5 absolute left-4 top-3.5" style={{ color: "var(--txt-muted)" }} />
+          <form onSubmit={runKeywordSearch} className="relative flex gap-2">
+            <div className="relative flex-1">
+              <input
+                id="search-input-field"
+                type="text"
+                placeholder="搜索电影、电视剧、动漫、或资源标签..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full glass rounded-2xl py-3 pl-11 pr-4 text-sm font-semibold outline-none transition-all placeholder:text-[var(--txt-muted)]"
+                style={{ color: "var(--txt)" }}
+              />
+              <Search className="w-5 h-5 absolute left-4 top-3.5" style={{ color: "var(--txt-muted)" }} />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="px-4 py-3 rounded-2xl text-xs font-black text-white transition-all disabled:opacity-60"
+              style={{ background: "var(--brand-primary)" }}
+            >
+              搜索
+            </button>
+          </form>
         </div>
 
         {/* Category Filters */}
@@ -616,7 +610,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
         <div className="lg:col-span-7 space-y-4">
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Flame className="w-4 h-4" style={{ color: "var(--brand-primary-light)" }} />
-            <span>热搜影视精品推荐</span>
+            <span>{searchMode === "keyword" ? "关键词搜索结果" : "热搜影视精品推荐"}</span>
             <span className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>({filteredResources.length} 个结果)</span>
           </h3>
 
@@ -700,6 +694,9 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                         const bKey = buildBadgeKey(res.media_type, res.tmdb_id);
                         return bKey ? <LibraryBadge status={statusMap[bKey]} /> : null;
                       })()}
+                      <span className="ml-auto text-[9px] font-black px-2 py-1 rounded-lg" style={{ background: "rgba(139,92,246,0.12)", color: "var(--brand-primary)" }}>
+                        查看资源
+                      </span>
                     </div>
                   </div>
                 </div>
