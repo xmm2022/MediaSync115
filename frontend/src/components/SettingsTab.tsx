@@ -37,6 +37,10 @@ import { pansouApi } from "../api/pansou";
 import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
 import { getApiErrorMessage } from "../api/errors";
+import {
+  buildTgRuntimePayload,
+  formatTgChannelsInput,
+} from "../utils/tgRuntimeSettings";
 
 interface SettingsTabProps {
   logs: SyncLog[];
@@ -124,6 +128,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
   // TG 登录状态
   const [tgLoginStatus, setTgLoginStatus] = useState<unknown>(null);
+  const [tgApiId, setTgApiId] = useState("");
+  const [tgApiHash, setTgApiHash] = useState("");
+  const [tgPhone, setTgPhone] = useState("");
+  const [tgChannelsInput, setTgChannelsInput] = useState("");
+  const [tgSearchDays, setTgSearchDays] = useState(30);
+  const [tgMaxMessagesPerChannel, setTgMaxMessagesPerChannel] = useState(200);
 
   // Bot 状态
   const [botStatus, setBotStatus] = useState<unknown>(null);
@@ -219,6 +229,16 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         if (!Number.isNaN(intervalHours) && intervalHours > 0) {
           setRefreshInterval(Math.round(intervalHours * 60)); // hours → minutes for the minute slider
         }
+        setTgApiId(String(rt.tg_api_id || ""));
+        setTgApiHash(String(rt.tg_api_hash || ""));
+        setTgPhone(String(rt.tg_phone || ""));
+        setTgChannelsInput(formatTgChannelsInput(rt.tg_channel_usernames));
+        const tgDays = Number(rt.tg_search_days);
+        if (!Number.isNaN(tgDays) && tgDays > 0) setTgSearchDays(Math.round(tgDays));
+        const tgMaxMessages = Number(rt.tg_max_messages_per_channel);
+        if (!Number.isNaN(tgMaxMessages) && tgMaxMessages > 0) {
+          setTgMaxMessagesPerChannel(Math.round(tgMaxMessages));
+        }
         // Note: archive_watch_cid is a 115 cloud CID, separate from strm_output_dir;
         // it is not exposed in this UI tab (needs a different config UI).
       } catch (err) {
@@ -275,6 +295,14 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         subscription_interval_hours: refreshInterval
           ? Math.max(1, Math.round(refreshInterval / 60)) // minutes → hours (backend unit)
           : undefined,
+        ...buildTgRuntimePayload({
+          apiId: tgApiId,
+          apiHash: tgApiHash,
+          phone: tgPhone,
+          channelsInput: tgChannelsInput,
+          searchDays: tgSearchDays,
+          maxMessagesPerChannel: tgMaxMessagesPerChannel,
+        }),
       };
       await settingsApi.updateRuntime(payload);
 
@@ -298,6 +326,20 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       setIsSaving(false);
     }
   };
+
+  const saveTgRuntimeSettings = () =>
+    runAction("tgConfigSave", "保存 TG 配置", () =>
+      settingsApi.updateRuntime(
+        buildTgRuntimePayload({
+          apiId: tgApiId,
+          apiHash: tgApiHash,
+          phone: tgPhone,
+          channelsInput: tgChannelsInput,
+          searchDays: tgSearchDays,
+          maxMessagesPerChannel: tgMaxMessagesPerChannel,
+        }),
+      ).then(() => ({ data: "已保存" })),
+    );
 
   // Test 115 connection: if cookie changed since load, update it first, then check
   const test115Connection = async () => {
@@ -500,6 +542,85 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             <Send className="w-5 h-5 text-sky-500" />
             Telegram 集成
           </h3>
+
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
+            <div className="xl:col-span-3 space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>API ID</label>
+              <input
+                value={tgApiId}
+                onChange={(e) => setTgApiId(e.target.value)}
+                placeholder="Telegram API ID"
+                className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+              />
+            </div>
+            <div className="xl:col-span-4 space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>API HASH</label>
+              <input
+                type="password"
+                value={tgApiHash}
+                onChange={(e) => setTgApiHash(e.target.value)}
+                placeholder="Telegram API HASH"
+                className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+              />
+            </div>
+            <div className="xl:col-span-3 space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>手机号</label>
+              <input
+                value={tgPhone}
+                onChange={(e) => setTgPhone(e.target.value)}
+                placeholder="+8613800000000"
+                className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+              />
+            </div>
+            <div className="xl:col-span-2 space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>检索天数</label>
+              <input
+                type="number"
+                min={1}
+                value={tgSearchDays}
+                onChange={(e) => setTgSearchDays(Number(e.target.value))}
+                className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+              />
+            </div>
+            <div className="xl:col-span-8 space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>资源频道</label>
+              <textarea
+                rows={3}
+                value={tgChannelsInput}
+                onChange={(e) => setTgChannelsInput(e.target.value)}
+                placeholder={"@channel_one\n@channel_two"}
+                className="w-full text-xs font-mono rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+              />
+            </div>
+            <div className="xl:col-span-2 space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>单频道消息</label>
+              <input
+                type="number"
+                min={1}
+                value={tgMaxMessagesPerChannel}
+                onChange={(e) => setTgMaxMessagesPerChannel(Number(e.target.value))}
+                className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+              />
+            </div>
+            <div className="xl:col-span-2 flex items-end">
+              <button
+                disabled={isBusy("tgConfigSave")}
+                onClick={saveTgRuntimeSettings}
+                className="w-full px-3 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1 justify-center"
+              >
+                <Save className="w-3 h-3" /> {isBusy("tgConfigSave") ? "保存中" : "保存 TG 配置"}
+              </button>
+            </div>
+          </div>
+          {resultOf("tgConfigSave") && (
+            <p className="text-[10px] font-bold" style={{ color: resultOf("tgConfigSave")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>{resultOf("tgConfigSave")!.msg}</p>
+          )}
 
           {/* TG 连通检测 */}
           <div className="flex flex-wrap gap-2 items-center">
