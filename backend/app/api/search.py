@@ -1412,6 +1412,29 @@ def _find_tmdb_source(section_key: str):
     )
 
 
+def _summarize_explore_error(exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            message = str(
+                payload.get("status_message")
+                or payload.get("message")
+                or payload.get("detail")
+                or ""
+            ).strip()
+            if message:
+                return f"HTTP {response.status_code}: {message}"
+        text = response.text.strip()
+        if text:
+            return f"HTTP {response.status_code}: {text[:300]}"
+        return f"HTTP {response.status_code}"
+    return str(exc)
+
+
 # 「更多」页首屏与分页的 TMDB 同步解析上限
 # 首屏同步解析前 6 条用于角标（平衡首屏速度与角标可用性），分页不同步解析
 _DOUBAN_EXPLORE_PAGINATION_SYNC_PRIME_CAP = 0
@@ -1677,7 +1700,9 @@ async def get_explore_sections(
         errors = []
         for section, result in zip(TMDB_SECTION_SOURCES, results):
             if isinstance(result, Exception):
-                errors.append({"key": section["key"], "error": str(result)})
+                errors.append(
+                    {"key": section["key"], "error": _summarize_explore_error(result)}
+                )
                 continue
             if not isinstance(result, dict):
                 errors.append(
@@ -1701,6 +1726,11 @@ async def get_explore_sections(
                 first_error = str(errors[0].get("error") or "")
                 if "TMDB_API_KEY is not configured" in first_error:
                     raise HTTPException(status_code=400, detail="TMDB API Key 未配置")
+                logger.warning("TMDB explore sections failed: %s", errors)
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"TMDB 榜单获取失败: {first_error}",
+                )
             raise HTTPException(
                 status_code=502, detail="Failed to fetch TMDB explore sections"
             )

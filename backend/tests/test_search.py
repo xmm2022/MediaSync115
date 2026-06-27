@@ -87,3 +87,21 @@ class TestSearch:
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data["sections"], list)
+
+    def test_tmdb_explore_sections_returns_upstream_error_detail(
+        self, client: TestClient, monkeypatch
+    ) -> None:
+        """TMDB 全部 section 失败时应把上游原因返回给前端"""
+        from app.api import search as search_api
+
+        async def fake_fetch_tmdb_section(source, limit, refresh, client=None):
+            raise RuntimeError(
+                "Server error '502 Bad Gateway': Couldn't connect to the backend server"
+            )
+
+        monkeypatch.setattr(search_api, "fetch_tmdb_section", fake_fetch_tmdb_section)
+
+        response = client.get("/api/search/explore/sections?source=tmdb")
+
+        assert response.status_code == 502
+        assert "Couldn't connect to the backend server" in response.json()["detail"]

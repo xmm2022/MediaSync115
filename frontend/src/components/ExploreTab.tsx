@@ -29,13 +29,12 @@ interface ExploreTabProps {
  * Tab 标题已据实标注来源名，不虚构 Netflix/Anime 榜单。
  */
 
-// 电影类豆瓣 section key 列表
-const DOUBAN_MOVIE_SECTION_KEYS = new Set([
+const DOUBAN_MOVIE_SECTION_KEYS = [
   "movie_hot",
   "movie_showing",
   "movie_latest",
   "movie_top250",
-]);
+] as const;
 
 // 动画 section key
 const DOUBAN_ANIME_SECTION_KEY = "tv_animation";
@@ -43,6 +42,32 @@ const DOUBAN_ANIME_SECTION_KEY = "tv_animation";
 // poster_url 占位图：后端可能返回空 poster_url
 const FALLBACK_POSTER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='176' viewBox='0 0 120 176'%3E%3Crect fill='%23e2e8f0' width='120' height='176'/%3E%3Ctext x='60' y='92' text-anchor='middle' fill='%2394a3b8' font-size='12'%3ENo Poster%3C/text%3E%3C/svg%3E";
+
+type ExploreSectionPayload = {
+  section?: {
+    key?: string;
+    title?: string;
+    items?: ExploreItem[];
+  };
+  key?: string;
+  title?: string;
+  items?: ExploreItem[];
+  emby_status_map?: Record<string, unknown>;
+  feiniu_status_map?: Record<string, unknown>;
+};
+
+function normalizeSectionPayload(data: unknown) {
+  const payload = data as ExploreSectionPayload;
+  const section = payload.section ?? payload;
+  const items = Array.isArray(section?.items) ? section.items : [];
+  return {
+    key: section?.key,
+    title: section?.title,
+    items,
+    embyStatusMap: payload.emby_status_map,
+    feiniuStatusMap: payload.feiniu_status_map,
+  };
+}
 
 export default function ExploreTab({ onSearchQuery, onAddSubscription }: ExploreTabProps) {
   const [activeBoard, setActiveBoard] = useState<ExploreBoardKey>(DEFAULT_EXPLORE_BOARD);
@@ -79,21 +104,22 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
         mergeStatusMap(agg, data?.feiniu_status_map as Record<string, unknown> | undefined, "feiniu");
       } else if (board === "douban") {
         // 豆瓣电影榜单：仅电影类 section
-        const { data } = await searchApi.getExploreSections("douban", 24, false);
+        const responses = await Promise.all(
+          DOUBAN_MOVIE_SECTION_KEYS.map((key) =>
+            searchApi.getExploreDoubanSection(key, 24, false, 0),
+          ),
+        );
         const allItems: ExploreItem[] = [];
-        const sections = data?.sections ?? [];
-        for (const sec of sections) {
-          if (!DOUBAN_MOVIE_SECTION_KEYS.has(sec.key)) continue;
-          if (sec.items && Array.isArray(sec.items)) {
-            for (const it of sec.items) {
-              allItems.push(it as ExploreItem);
-            }
+        for (const response of responses) {
+          const section = normalizeSectionPayload(response.data);
+          for (const item of section.items) {
+            allItems.push(item);
           }
+          mergeStatusMap(agg, section.embyStatusMap, "emby");
+          mergeStatusMap(agg, section.feiniuStatusMap, "feiniu");
         }
         setItems(allItems);
         setSectionTitle("豆瓣电影榜单");
-        mergeStatusMap(agg, data?.emby_status_map as Record<string, unknown> | undefined, "emby");
-        mergeStatusMap(agg, data?.feiniu_status_map as Record<string, unknown> | undefined, "feiniu");
       } else {
         // 豆瓣动画：仅 tv_animation section
         const { data } = await searchApi.getExploreDoubanSection(
@@ -102,26 +128,11 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
           false,
           0,
         );
-        const responsePayload = data as unknown as {
-          section?: {
-            key?: string;
-            title?: string;
-            items?: ExploreItem[];
-            emby_status_map?: Record<string, unknown>;
-            feiniu_status_map?: Record<string, unknown>;
-          };
-          key?: string;
-          title?: string;
-          items?: ExploreItem[];
-          emby_status_map?: Record<string, unknown>;
-          feiniu_status_map?: Record<string, unknown>;
-        };
-        const section = responsePayload.section ?? responsePayload;
-        const secItems = section?.items ?? [];
-        setItems(Array.isArray(secItems) ? secItems : []);
+        const section = normalizeSectionPayload(data);
+        setItems(section.items);
         setSectionTitle(section?.title || "豆瓣动画");
-        mergeStatusMap(agg, section?.emby_status_map, "emby");
-        mergeStatusMap(agg, section?.feiniu_status_map, "feiniu");
+        mergeStatusMap(agg, section.embyStatusMap, "emby");
+        mergeStatusMap(agg, section.feiniuStatusMap, "feiniu");
       }
       setStatusMap(agg);
     } catch (err: unknown) {

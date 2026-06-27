@@ -165,6 +165,13 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("tmdb_api_key", advanced)
         self.assertIn("TMDB API Key", advanced)
 
+    def test_douban_movie_board_uses_movie_section_endpoints(self) -> None:
+        explore = read_source("src/components/ExploreTab.tsx")
+
+        self.assertNotIn('getExploreSections("douban"', explore)
+        self.assertIn("getExploreDoubanSection", explore)
+        self.assertIn("DOUBAN_MOVIE_SECTION_KEYS.map", explore)
+
     def test_search_exposes_direct_resource_keyword_search_without_tmdb(self) -> None:
         search = read_source("src/components/SearchTab.tsx")
 
