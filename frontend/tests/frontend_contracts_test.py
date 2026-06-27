@@ -155,6 +155,14 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("!tmdbSearchConfigured", search)
         self.assertIn("TMDB API Key 未配置", search)
 
+    def test_settings_primary_save_includes_tmdb_key(self) -> None:
+        settings = read_source("src/components/SettingsTab.tsx")
+
+        self.assertIn("tmdbApiKey", settings)
+        self.assertIn("tmdb_api_key", settings)
+        self.assertIn("tmdbApiKeyConfigured", settings)
+        self.assertIn("TMDB API Key", settings)
+
     def test_search_exposes_direct_resource_keyword_search_without_tmdb(self) -> None:
         search = read_source("src/components/SearchTab.tsx")
 

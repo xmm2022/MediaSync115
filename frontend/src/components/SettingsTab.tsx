@@ -77,6 +77,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
   const [embyUrl, setEmbyUrl] = useState("");
   const [embyKey, setEmbyKey] = useState("");
+  const [tmdbApiKey, setTmdbApiKey] = useState("");
+  const [tmdbApiKeyConfigured, setTmdbApiKeyConfigured] = useState(false);
 
   // refreshInterval maps to backend subscription_interval_hours
   const [refreshInterval, setRefreshInterval] = useState(15);
@@ -285,6 +287,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
         setEmbyUrl(String(rt.emby_url || ""));
         setEmbyKey(String(rt.emby_api_key || ""));
+        setTmdbApiKeyConfigured(Boolean(rt.tmdb_api_key));
         // localMountPath maps to strm_output_dir (the "strm 保存点" in the UI label)
         setLocalMountPath(String(rt.strm_output_dir || ""));
         // refreshInterval maps to subscription_interval_hours
@@ -435,6 +438,9 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         twilight_base_url: twilightBaseUrl.trim() || undefined,
         twilight_web_url: twilightWebUrl.trim() || undefined,
       };
+      if (tmdbApiKey.trim()) {
+        payload.tmdb_api_key = tmdbApiKey.trim();
+      }
       if (moviepilotPassword.trim()) {
         payload.moviepilot_password = moviepilotPassword;
       }
@@ -445,6 +451,10 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       if (moviepilotPassword.trim()) {
         setMoviepilotPassword("");
         setMoviepilotPasswordConfigured(true);
+      }
+      if (tmdbApiKey.trim()) {
+        setTmdbApiKey("");
+        setTmdbApiKeyConfigured(true);
       }
       if (twilightApiKey.trim()) {
         setTwilightApiKey("");
@@ -1573,6 +1583,38 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 </span>
               )}
             </div>
+          </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection icon={<Search className="w-4 h-4" />} title="TMDB 搜索配置" badge={tmdbApiKeyConfigured ? "已配置" : "未配置"} defaultOpen={!tmdbApiKeyConfigured}>
+          <div className="space-y-5 pt-3">
+            <h3 className="font-headline text-lg font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
+              <Search className="w-5 h-5 text-brand-primary" />
+              TMDB API Key
+            </h3>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>API Key</label>
+              <input
+                type="password"
+                placeholder={tmdbApiKeyConfigured ? "已保存，留空不更新" : "请输入 TMDB API Key"}
+                value={tmdbApiKey}
+                onChange={(e) => setTmdbApiKey(e.target.value)}
+                className="w-full text-xs font-mono px-3 py-2 rounded focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+              />
+            </div>
+
+            <button
+              type="button"
+              disabled={isBusy("tmdb")}
+              onClick={() => runAction("tmdb", "TMDB 检测", () => settingsApi.checkTmdb())}
+              className="glass-hover w-full py-2.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              style={{ background: "var(--surface-subtle)", color: "var(--brand-primary)", border: "1px solid var(--border)" }}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isBusy("tmdb") ? "animate-spin" : ""}`} />
+              <span>{isBusy("tmdb") ? "正在检测 TMDB 连通状态..." : "测试 TMDB API Key"}</span>
+            </button>
           </div>
           </CollapsibleSection>
 

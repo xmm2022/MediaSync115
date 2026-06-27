@@ -28,3 +28,26 @@ class TestExploreMeta:
         assert response.status_code == 200
         payload = response.json()
         assert payload.get("tmdb_configured") is False
+
+    def test_runtime_tmdb_key_update_is_reflected_in_search_meta(
+        self, client, monkeypatch
+    ) -> None:
+        """运行时保存 TMDB Key 后，搜索页配置状态应立即生效。"""
+        monkeypatch.delenv("TMDB_API_KEY", raising=False)
+        from app.core.config import settings
+
+        settings.TMDB_API_KEY = None
+
+        before = client.get("/api/search/explore/meta", params={"source": "tmdb"})
+        assert before.status_code == 200
+        assert before.json().get("tmdb_configured") is False
+
+        update = client.put(
+            "/api/settings/runtime",
+            json={"tmdb_api_key": "runtime-test-key"},
+        )
+        assert update.status_code == 200
+
+        after = client.get("/api/search/explore/meta", params={"source": "tmdb"})
+        assert after.status_code == 200
+        assert after.json().get("tmdb_configured") is True
