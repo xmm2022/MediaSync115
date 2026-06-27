@@ -92,6 +92,31 @@ class TestSettings:
         assert "valid" in data
         assert "message" in data
 
+    def test_check_tmdb_credentials_masks_api_key(
+        self, client: TestClient, monkeypatch
+    ) -> None:
+        """TMDB 检测错误不应把 api_key 回显到前端"""
+        from app.api import settings as settings_api
+
+        async def fake_check_connection():
+            raise RuntimeError(
+                "Server error for url "
+                "'https://api.themoviedb.org/3/configuration?api_key=secret-key&language=zh-CN'"
+            )
+
+        monkeypatch.setattr(
+            settings_api.tmdb_service,
+            "check_connection",
+            fake_check_connection,
+        )
+
+        response = client.get("/api/settings/tmdb/check")
+
+        assert response.status_code == 200
+        message = response.json()["message"]
+        assert "secret-key" not in message
+        assert "api_key=***" in message
+
     def test_proxy_config(self, client: TestClient) -> None:
         """测试代理配置"""
         response = client.get("/api/settings/proxy")

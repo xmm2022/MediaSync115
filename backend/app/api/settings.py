@@ -685,11 +685,15 @@ async def _perform_tmdb_check() -> dict[str, Any]:
     except Exception as exc:
         return {
             "valid": False,
-            "message": str(exc),
+            "message": _sanitize_external_error_message(str(exc)),
             "configuration": None,
             "images_configured": False,
             "change_keys_count": 0,
         }
+
+
+def _sanitize_external_error_message(message: str) -> str:
+    return re.sub(r"([?&]api_key=)[^&'\"\s]+", r"\1***", message)
 
 
 def _validate_update_source_settings(merged_settings: dict[str, Any]) -> None:
