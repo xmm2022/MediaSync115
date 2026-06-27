@@ -34,6 +34,47 @@ class TestSettings:
         data = response.json()
         assert data["success"] is True
 
+    def test_update_runtime_tmdb_does_not_require_disabled_subscription_sources(
+        self, client: TestClient
+    ) -> None:
+        """订阅扫描关闭时，保存 TMDB 不应被 HDHive/TG 优先级凭据校验拦截。"""
+        from app.services.runtime_settings_service import runtime_settings_service
+
+        original = runtime_settings_service.get_all()
+        try:
+            runtime_settings_service.update_bulk(
+                {
+                    "subscription_enabled": False,
+                    "subscription_resource_priority": ["hdhive", "pansou", "tg"],
+                    "hdhive_cookie": None,
+                    "hdhive_login_username": None,
+                    "tg_api_id": None,
+                    "tg_api_hash": None,
+                    "tg_session": None,
+                    "tg_channel_usernames": [],
+                }
+            )
+
+            response = client.put(
+                "/api/settings/runtime",
+                json={
+                    "subscription_enabled": False,
+                    "subscription_resource_priority": ["hdhive", "pansou", "tg"],
+                    "tmdb_api_key": "tmdb-runtime-key",
+                    "tmdb_base_url": "https://api.themoviedb.org/3",
+                    "tmdb_image_base_url": "https://image.tmdb.org/t/p/w500",
+                    "tmdb_language": "zh-CN",
+                    "tmdb_region": "CN",
+                },
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["settings"]["tmdb_api_key"] == "tmdb-runtime-key"
+        finally:
+            runtime_settings_service.update_bulk(original)
+
     def test_health_check_all(self, client: TestClient) -> None:
         """测试所有服务健康检查"""
         response = client.get("/api/settings/health/all")

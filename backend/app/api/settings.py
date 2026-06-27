@@ -711,7 +711,10 @@ async def update_runtime_settings(
     payload = request.model_dump(exclude_unset=True)
     merged_settings = runtime_settings_service.get_all()
     merged_settings.update(payload)
-    if "subscription_resource_priority" in payload:
+    if (
+        any(key in payload for key in {"subscription_resource_priority", "subscription_enabled"})
+        and bool(merged_settings.get("subscription_enabled", False))
+    ):
         await _validate_priority_source_config(merged_settings)
     unlock_keys = {
         "subscription_hdhive_auto_unlock_enabled",
