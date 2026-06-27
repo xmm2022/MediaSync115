@@ -24,6 +24,13 @@ interface RuntimeAdvancedSettingsPanelProps {
 }
 
 interface AdvancedRuntimeForm {
+  hdhiveCookie: string;
+  hdhiveBaseUrl: string;
+  hdhiveLoginUsername: string;
+  hdhiveAutoCheckinEnabled: boolean;
+  hdhiveAutoCheckinMode: string;
+  hdhiveAutoCheckinMethod: string;
+  hdhiveAutoCheckinRunTime: string;
   httpProxy: string;
   httpsProxy: string;
   allProxy: string;
@@ -35,6 +42,7 @@ interface AdvancedRuntimeForm {
   tmdbRegion: string;
   pansouBaseUrl: string;
   tgIndexEnabled: boolean;
+  tgSession: string;
   tgIndexRealtimeFallbackEnabled: boolean;
   tgIndexQueryLimitPerChannel: number;
   tgBackfillBatchSize: number;
@@ -70,6 +78,9 @@ interface AdvancedRuntimeForm {
   personFollowEnabled: boolean;
   personFollowIntervalHours: number;
   personFollowAutoSubscribe: boolean;
+  updateSourceType: string;
+  updateRepository: string;
+  detailVisibleTabs: string[];
 }
 
 const SOURCE_OPTIONS = [
@@ -78,7 +89,28 @@ const SOURCE_OPTIONS = [
   { key: "tg", label: "TG" },
 ];
 
+const DETAIL_TAB_OPTIONS = [
+  { key: "pan115", label: "115 聚合" },
+  { key: "pan115_pansou", label: "115 Pansou" },
+  { key: "pan115_hdhive", label: "115 HDHive" },
+  { key: "pan115_tg", label: "115 TG" },
+  { key: "quark", label: "夸克聚合" },
+  { key: "quark_pansou", label: "夸克 Pansou" },
+  { key: "quark_hdhive", label: "夸克 HDHive" },
+  { key: "quark_tg", label: "夸克 TG" },
+  { key: "magnet", label: "磁力聚合" },
+  { key: "magnet_seedhub", label: "SeedHub" },
+  { key: "magnet_butailing", label: "不太灵" },
+];
+
 const DEFAULT_FORM: AdvancedRuntimeForm = {
+  hdhiveCookie: "",
+  hdhiveBaseUrl: "https://hdhive.com/",
+  hdhiveLoginUsername: "",
+  hdhiveAutoCheckinEnabled: false,
+  hdhiveAutoCheckinMode: "normal",
+  hdhiveAutoCheckinMethod: "cookie",
+  hdhiveAutoCheckinRunTime: "09:00",
   httpProxy: "",
   httpsProxy: "",
   allProxy: "",
@@ -90,6 +122,7 @@ const DEFAULT_FORM: AdvancedRuntimeForm = {
   tmdbRegion: "CN",
   pansouBaseUrl: "",
   tgIndexEnabled: true,
+  tgSession: "",
   tgIndexRealtimeFallbackEnabled: true,
   tgIndexQueryLimitPerChannel: 120,
   tgBackfillBatchSize: 200,
@@ -125,6 +158,9 @@ const DEFAULT_FORM: AdvancedRuntimeForm = {
   personFollowEnabled: false,
   personFollowIntervalHours: 24,
   personFollowAutoSubscribe: true,
+  updateSourceType: "official",
+  updateRepository: "wangsy1007/mediasync115",
+  detailVisibleTabs: DETAIL_TAB_OPTIONS.map((item) => item.key),
 };
 
 function stringValue(value: unknown, fallback = ""): string {
@@ -171,6 +207,13 @@ function normalizePriority(value: unknown): string[] {
   return normalized.length > 0 ? normalized : DEFAULT_FORM.subscriptionResourcePriority;
 }
 
+function normalizeDetailTabs(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : DEFAULT_FORM.detailVisibleTabs;
+  const allowed = DETAIL_TAB_OPTIONS.map((item) => item.key);
+  const normalized = raw.map((item) => String(item || "").trim()).filter((item) => allowed.includes(item));
+  return normalized.length > 0 ? normalized : DEFAULT_FORM.detailVisibleTabs;
+}
+
 function formatJsonInput(value: unknown): string {
   if (!Array.isArray(value) || value.length === 0) return "";
   return JSON.stringify(value, null, 2);
@@ -188,6 +231,13 @@ function parseChartSources(value: string): unknown[] {
 
 function formFromRuntime(rt: RuntimeSettings): AdvancedRuntimeForm {
   return {
+    hdhiveCookie: stringValue(rt.hdhive_cookie),
+    hdhiveBaseUrl: stringValue(rt.hdhive_base_url, DEFAULT_FORM.hdhiveBaseUrl),
+    hdhiveLoginUsername: stringValue(rt.hdhive_login_username),
+    hdhiveAutoCheckinEnabled: Boolean(rt.hdhive_auto_checkin_enabled),
+    hdhiveAutoCheckinMode: stringValue(rt.hdhive_auto_checkin_mode, DEFAULT_FORM.hdhiveAutoCheckinMode),
+    hdhiveAutoCheckinMethod: stringValue(rt.hdhive_auto_checkin_method, DEFAULT_FORM.hdhiveAutoCheckinMethod),
+    hdhiveAutoCheckinRunTime: stringValue(rt.hdhive_auto_checkin_run_time, DEFAULT_FORM.hdhiveAutoCheckinRunTime),
     httpProxy: stringValue(rt.http_proxy),
     httpsProxy: stringValue(rt.https_proxy),
     allProxy: stringValue(rt.all_proxy),
@@ -199,6 +249,7 @@ function formFromRuntime(rt: RuntimeSettings): AdvancedRuntimeForm {
     tmdbRegion: stringValue(rt.tmdb_region, DEFAULT_FORM.tmdbRegion),
     pansouBaseUrl: stringValue(rt.pansou_base_url),
     tgIndexEnabled: Boolean(rt.tg_index_enabled ?? DEFAULT_FORM.tgIndexEnabled),
+    tgSession: stringValue(rt.tg_session),
     tgIndexRealtimeFallbackEnabled: Boolean(
       rt.tg_index_realtime_fallback_enabled ?? DEFAULT_FORM.tgIndexRealtimeFallbackEnabled,
     ),
@@ -254,6 +305,9 @@ function formFromRuntime(rt: RuntimeSettings): AdvancedRuntimeForm {
     personFollowEnabled: Boolean(rt.person_follow_enabled),
     personFollowIntervalHours: numberValue(rt.person_follow_interval_hours, DEFAULT_FORM.personFollowIntervalHours),
     personFollowAutoSubscribe: Boolean(rt.person_follow_auto_subscribe ?? true),
+    updateSourceType: stringValue(rt.update_source_type, DEFAULT_FORM.updateSourceType),
+    updateRepository: stringValue(rt.update_repository, DEFAULT_FORM.updateRepository),
+    detailVisibleTabs: normalizeDetailTabs(rt.detail_visible_tabs),
   };
 }
 
@@ -324,6 +378,34 @@ function NumberField({
         className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
         style={inputStyle}
       />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label className="space-y-1.5 block">
+      <span className="text-[10px] font-black uppercase tracking-wide" style={labelStyle()}>{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+        style={inputStyle}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -419,6 +501,13 @@ export default function RuntimeAdvancedSettingsPanel({ addLog }: RuntimeAdvanced
     updateField("subscriptionResourcePriority", normalizePriority(next));
   };
 
+  const toggleDetailTab = (tab: string, checked: boolean) => {
+    const next = checked
+      ? [...form.detailVisibleTabs, tab]
+      : form.detailVisibleTabs.filter((item) => item !== tab);
+    updateField("detailVisibleTabs", normalizeDetailTabs(next));
+  };
+
   const buildPayload = (): Record<string, unknown> => {
     const chartSources = parseChartSources(form.chartSubscriptionSourcesInput);
     if (!form.pansouBaseUrl.trim()) {
@@ -427,7 +516,20 @@ export default function RuntimeAdvancedSettingsPanel({ addLog }: RuntimeAdvanced
     if (!form.tmdbBaseUrl.trim() || !form.tmdbImageBaseUrl.trim()) {
       throw new Error("TMDB Base URL 与图片 Base URL 不能为空");
     }
+    if (!form.hdhiveBaseUrl.trim()) {
+      throw new Error("HDHive Base URL 不能为空");
+    }
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(form.hdhiveAutoCheckinRunTime.trim())) {
+      throw new Error("HDHive 自动签到时间必须为 HH:mm");
+    }
     return {
+      hdhive_cookie: form.hdhiveCookie.trim() || null,
+      hdhive_base_url: form.hdhiveBaseUrl.trim(),
+      hdhive_login_username: form.hdhiveLoginUsername.trim() || null,
+      hdhive_auto_checkin_enabled: form.hdhiveAutoCheckinEnabled,
+      hdhive_auto_checkin_mode: form.hdhiveAutoCheckinMode,
+      hdhive_auto_checkin_method: form.hdhiveAutoCheckinMethod,
+      hdhive_auto_checkin_run_time: form.hdhiveAutoCheckinRunTime.trim(),
       http_proxy: form.httpProxy.trim() || null,
       https_proxy: form.httpsProxy.trim() || null,
       all_proxy: form.allProxy.trim() || null,
@@ -439,17 +541,20 @@ export default function RuntimeAdvancedSettingsPanel({ addLog }: RuntimeAdvanced
       tmdb_region: form.tmdbRegion.trim() || "CN",
       pansou_base_url: form.pansouBaseUrl.trim(),
       tg_index_enabled: form.tgIndexEnabled,
+      tg_session: form.tgSession.trim() || null,
       tg_index_realtime_fallback_enabled: form.tgIndexRealtimeFallbackEnabled,
       tg_index_query_limit_per_channel: Math.max(20, Math.round(form.tgIndexQueryLimitPerChannel || 120)),
       tg_backfill_batch_size: Math.max(50, Math.round(form.tgBackfillBatchSize || 200)),
       tg_incremental_interval_minutes: Math.max(15, Math.round(form.tgIncrementalIntervalMinutes || 30)),
       emby_sync_enabled: form.embySyncEnabled,
       emby_sync_interval_minutes: Math.max(15, Math.round(form.embySyncIntervalMinutes || 1440)),
+      emby_sync_interval_hours: Math.max(1, Math.round((form.embySyncIntervalMinutes || 1440) / 60)),
       feiniu_url: form.feiniuUrl.trim() || null,
       feiniu_api_key: form.feiniuApiKey.trim() || null,
       feiniu_session_token: form.feiniuSessionToken.trim() || null,
       feiniu_sync_enabled: form.feiniuSyncEnabled,
       feiniu_sync_interval_minutes: Math.max(15, Math.round(form.feiniuSyncIntervalMinutes || 1440)),
+      feiniu_sync_interval_hours: Math.max(1, Math.round((form.feiniuSyncIntervalMinutes || 1440) / 60)),
       subscription_enabled: form.subscriptionEnabled,
       subscription_interval_hours: Math.max(1, Math.round(form.subscriptionIntervalHours || 24)),
       subscription_resource_priority: form.subscriptionResourcePriority,
@@ -480,6 +585,9 @@ export default function RuntimeAdvancedSettingsPanel({ addLog }: RuntimeAdvanced
       person_follow_enabled: form.personFollowEnabled,
       person_follow_interval_hours: Math.max(1, Math.round(form.personFollowIntervalHours || 24)),
       person_follow_auto_subscribe: form.personFollowAutoSubscribe,
+      update_source_type: form.updateSourceType,
+      update_repository: form.updateRepository.trim() || DEFAULT_FORM.updateRepository,
+      detail_visible_tabs: form.detailVisibleTabs,
     };
   };
 
@@ -588,6 +696,42 @@ export default function RuntimeAdvancedSettingsPanel({ addLog }: RuntimeAdvanced
 
           <section className="rounded-2xl p-4 space-y-3" style={panelStyle()}>
             <h4 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+              <Cloud className="w-4 h-4 text-indigo-500" />
+              HDHive 基础与签到
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <TextField label="HDHive Base URL" value={form.hdhiveBaseUrl} onChange={(value) => updateField("hdhiveBaseUrl", value)} placeholder="https://hdhive.com/" />
+              <TextField label="HDHive 登录用户名" value={form.hdhiveLoginUsername} onChange={(value) => updateField("hdhiveLoginUsername", value)} />
+              <div className="md:col-span-2">
+                <TextAreaField label="HDHive Cookie" rows={3} value={form.hdhiveCookie} onChange={(value) => updateField("hdhiveCookie", value)} />
+              </div>
+              <SelectField
+                label="签到模式"
+                value={form.hdhiveAutoCheckinMode}
+                onChange={(value) => updateField("hdhiveAutoCheckinMode", value)}
+                options={[
+                  { value: "normal", label: "普通签到" },
+                  { value: "gamble", label: "魔法签到" },
+                ]}
+              />
+              <SelectField
+                label="签到方式"
+                value={form.hdhiveAutoCheckinMethod}
+                onChange={(value) => updateField("hdhiveAutoCheckinMethod", value)}
+                options={[
+                  { value: "cookie", label: "Cookie" },
+                  { value: "web", label: "网页登录" },
+                ]}
+              />
+              <TextField label="执行时间" value={form.hdhiveAutoCheckinRunTime} onChange={(value) => updateField("hdhiveAutoCheckinRunTime", value)} placeholder="09:00" />
+              <div className="flex items-end">
+                <ToggleField label="启用自动签到" checked={form.hdhiveAutoCheckinEnabled} onChange={(value) => updateField("hdhiveAutoCheckinEnabled", value)} />
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl p-4 space-y-3" style={panelStyle()}>
+            <h4 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <Search className="w-4 h-4 text-sky-500" />
               资源检索筛选
             </h4>
@@ -617,6 +761,7 @@ export default function RuntimeAdvancedSettingsPanel({ addLog }: RuntimeAdvanced
               <NumberField label="回灌批量大小" min={50} value={form.tgBackfillBatchSize} onChange={(value) => updateField("tgBackfillBatchSize", value)} />
               <NumberField label="增量间隔(分钟)" min={15} value={form.tgIncrementalIntervalMinutes} onChange={(value) => updateField("tgIncrementalIntervalMinutes", value)} />
             </div>
+            <TextField label="TG Session" value={form.tgSession} onChange={(value) => updateField("tgSession", value)} type="password" />
           </section>
 
           <section className="rounded-2xl p-4 space-y-3" style={panelStyle()}>
@@ -666,6 +811,42 @@ export default function RuntimeAdvancedSettingsPanel({ addLog }: RuntimeAdvanced
               <TextField label="HTTPS_PROXY" value={form.httpsProxy} onChange={(value) => updateField("httpsProxy", value)} />
               <TextField label="ALL_PROXY" value={form.allProxy} onChange={(value) => updateField("allProxy", value)} />
               <TextField label="SOCKS_PROXY" value={form.socksProxy} onChange={(value) => updateField("socksProxy", value)} />
+            </div>
+          </section>
+
+          <section className="rounded-2xl p-4 space-y-3" style={panelStyle()}>
+            <h4 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+              <RefreshCw className="w-4 h-4 text-teal-500" />
+              更新源
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <SelectField
+                label="来源类型"
+                value={form.updateSourceType}
+                onChange={(value) => updateField("updateSourceType", value)}
+                options={[
+                  { value: "official", label: "官方仓库" },
+                  { value: "custom_dockerhub", label: "自定义 DockerHub" },
+                ]}
+              />
+              <TextField label="仓库" value={form.updateRepository} onChange={(value) => updateField("updateRepository", value)} placeholder="wangsy1007/mediasync115" />
+            </div>
+          </section>
+
+          <section className="rounded-2xl p-4 space-y-3" style={panelStyle()}>
+            <h4 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+              <BarChart3 className="w-4 h-4 text-lime-500" />
+              详情页资源 Tab
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {DETAIL_TAB_OPTIONS.map((tab) => (
+                <ToggleField
+                  key={tab.key}
+                  label={tab.label}
+                  checked={form.detailVisibleTabs.includes(tab.key)}
+                  onChange={(checked) => toggleDetailTab(tab.key, checked)}
+                />
+              ))}
             </div>
           </section>
 

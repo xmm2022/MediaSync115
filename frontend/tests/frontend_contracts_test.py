@@ -85,6 +85,39 @@ class FrontendContractsTest(unittest.TestCase):
         ):
             self.assertIn(key, advanced)
 
+    def test_settings_exposes_remaining_runtime_settings_gaps(self) -> None:
+        advanced = read_source("src/components/RuntimeAdvancedSettingsPanel.tsx")
+
+        for key in (
+            "hdhive_cookie",
+            "hdhive_base_url",
+            "hdhive_login_username",
+            "hdhive_auto_checkin_enabled",
+            "hdhive_auto_checkin_mode",
+            "hdhive_auto_checkin_method",
+            "hdhive_auto_checkin_run_time",
+            "update_source_type",
+            "update_repository",
+            "detail_visible_tabs",
+        ):
+            self.assertIn(key, advanced)
+
+    def test_settings_exposes_archive_quark_and_auth_configuration(self) -> None:
+        settings = read_source("src/components/SettingsTab.tsx")
+
+        for key in (
+            "archive_interval_minutes",
+            "archive_auto_on_transfer",
+            "archive_auto_on_offline",
+            "offline_monitor_interval_minutes",
+            "archive_subdirs",
+            "archive_naming",
+            "quarkApi.getDefaultFolder",
+            "quarkApi.setDefaultFolder",
+            "authApi.changeCredentials",
+        ):
+            self.assertIn(key, settings)
+
     def test_pan115_page_does_not_eager_load_protected_api_without_valid_cookie(self) -> None:
         pan115 = read_source("src/components/Pan115FilesTab.tsx")
 

@@ -34,6 +34,7 @@ import RuntimeAdvancedSettingsPanel from "./RuntimeAdvancedSettingsPanel";
 import { settingsApi } from "../api/settings";
 import { pan115Api } from "../api/pan115";
 import { quarkApi } from "../api/quark";
+import { authApi } from "../api/auth";
 import { pansouApi } from "../api/pansou";
 import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
@@ -49,6 +50,21 @@ interface SettingsTabProps {
   logs: SyncLog[];
   setLogs: React.Dispatch<React.SetStateAction<SyncLog[]>>;
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => void;
+}
+
+function formatJsonConfig(value: unknown): string {
+  if (value == null) return "";
+  return JSON.stringify(value, null, 2);
+}
+
+function parseJsonConfig(value: string, label: string): Record<string, unknown> | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = JSON.parse(trimmed) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} 必须是 JSON 对象`);
+  }
+  return parsed as Record<string, unknown>;
 }
 
 export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps) {
@@ -119,6 +135,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
   // 夸克 cookie
   const [quarkCookie, setQuarkCookie] = useState("");
+  const [quarkDefaultFolderId, setQuarkDefaultFolderId] = useState("0");
+  const [quarkDefaultFolderName, setQuarkDefaultFolderName] = useState("根目录");
 
   // pansou 配置
   const [pansouConfig, setPansouConfig] = useState<Record<string, unknown> | null>(null);
@@ -151,6 +169,25 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
   // 可用榜单
   const [availableCharts, setAvailableCharts] = useState<unknown>(null);
+
+  // 归档高级配置
+  const [archiveEnabled, setArchiveEnabled] = useState(false);
+  const [archiveWatchCid, setArchiveWatchCid] = useState("");
+  const [archiveWatchName, setArchiveWatchName] = useState("");
+  const [archiveOutputCid, setArchiveOutputCid] = useState("");
+  const [archiveOutputName, setArchiveOutputName] = useState("");
+  const [archiveIntervalMinutes, setArchiveIntervalMinutes] = useState(10);
+  const [archiveAutoOnTransfer, setArchiveAutoOnTransfer] = useState(true);
+  const [archiveAutoOnOffline, setArchiveAutoOnOffline] = useState(true);
+  const [offlineMonitorIntervalMinutes, setOfflineMonitorIntervalMinutes] = useState(3);
+  const [archiveSubdirsInput, setArchiveSubdirsInput] = useState("");
+  const [archiveNamingInput, setArchiveNamingInput] = useState("");
+
+  // 当前登录账号
+  const [accountUsername, setAccountUsername] = useState("admin");
+  const [accountCurrentPassword, setAccountCurrentPassword] = useState("");
+  const [accountNewPassword, setAccountNewPassword] = useState("");
+  const [accountNewPasswordConfirm, setAccountNewPasswordConfirm] = useState("");
 
   // HDHive 登录凭据
   const [hdhiveUser, setHdhiveUser] = useState("");
@@ -252,8 +289,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setTgBotAllowedUsersInput(formatIdListInput(rt.tg_bot_allowed_users));
         setTgBotNotifyChatIdsInput(formatIdListInput(rt.tg_bot_notify_chat_ids));
         setTgBotHdhiveAutoUnlock(Boolean(rt.tg_bot_hdhive_auto_unlock));
-        // Note: archive_watch_cid is a 115 cloud CID, separate from strm_output_dir;
-        // it is not exposed in this UI tab (needs a different config UI).
+        setAccountUsername(String(rt.auth_username || "admin"));
+        // archive_watch_cid is a 115 cloud CID, separate from strm_output_dir.
       } catch (err) {
         console.error("Failed to load runtime settings:", err);
         addLog("ERROR", "加载运行时设置失败: " + getApiErrorMessage(err));
@@ -269,15 +306,35 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         console.error("Failed to load 115 cookie info:", err);
         addLog("ERROR", "加载115 Cookie信息失败: " + getApiErrorMessage(err));
       }
+
+      try {
+        const archiveResp = await archiveApi.getConfig();
+        const archive = archiveResp.data as Record<string, unknown>;
+        setArchiveEnabled(Boolean(archive.archive_enabled));
+        setArchiveWatchCid(String(archive.archive_watch_cid || ""));
+        setArchiveWatchName(String(archive.archive_watch_name || ""));
+        setArchiveOutputCid(String(archive.archive_output_cid || ""));
+        setArchiveOutputName(String(archive.archive_output_name || ""));
+        setArchiveIntervalMinutes(Math.max(1, Math.round(Number(archive.archive_interval_minutes || 10))));
+        setArchiveAutoOnTransfer(Boolean(archive.archive_auto_on_transfer ?? true));
+        setArchiveAutoOnOffline(Boolean(archive.archive_auto_on_offline ?? true));
+        setOfflineMonitorIntervalMinutes(Math.max(1, Math.round(Number(archive.offline_monitor_interval_minutes || 3))));
+        setArchiveSubdirsInput(formatJsonConfig(archive.archive_subdirs));
+        setArchiveNamingInput(formatJsonConfig(archive.archive_naming));
+      } catch (err) {
+        console.error("Failed to load archive config:", err);
+        addLog("ERROR", "加载归档高级配置失败: " + getApiErrorMessage(err));
+      }
     };
     loadConfig();
 
     // Auto-load service integration data (fire-and-forget, non-blocking)
     const loadServices = async () => {
       const safe = <T,>(p: Promise<T>) => p.catch(() => null);
-      const [health, quarkInfo, pansouCfg, proxyCfg, botStatus, hdhiveStatus, charts] = await Promise.all([
+      const [health, quarkInfo, quarkDefault, pansouCfg, proxyCfg, botStatus, hdhiveStatus, charts] = await Promise.all([
         safe(settingsApi.checkAllHealth()),
         safe(quarkApi.getCookieInfo()),
+        safe(quarkApi.getDefaultFolder()),
         safe(pansouApi.getConfig()),
         safe(settingsApi.getProxy()),
         safe(settingsApi.getTgBotStatus()),
@@ -286,6 +343,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       ]);
       if (health) setHealthAll(health.data);
       if (quarkInfo) setQuarkCookie(String((quarkInfo.data as Record<string, unknown>)?.cookie || ""));
+      if (quarkDefault) {
+        const folder = quarkDefault.data as Record<string, unknown>;
+        setQuarkDefaultFolderId(String(folder.folder_id || "0"));
+        setQuarkDefaultFolderName(String(folder.folder_name || "根目录"));
+      }
       if (pansouCfg) setPansouConfig(pansouCfg.data as Record<string, unknown>);
       if (proxyCfg) setProxyInfo(proxyCfg.data);
       if (botStatus) setBotStatus(botStatus.data);
@@ -374,6 +436,46 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       ).then(() => settingsApi.getTgBotStatus())
         .then((r) => { setBotStatus(r.data); return { data: "已保存" }; }),
     );
+
+  const saveArchiveConfig = () =>
+    runAction("archiveConfigSave", "保存归档高级配置", async () => {
+      const payload = {
+        archive_enabled: archiveEnabled,
+        archive_watch_cid: archiveWatchCid.trim(),
+        archive_watch_name: archiveWatchName.trim(),
+        archive_output_cid: archiveOutputCid.trim(),
+        archive_output_name: archiveOutputName.trim(),
+        archive_interval_minutes: Math.max(1, Math.round(archiveIntervalMinutes || 10)),
+        archive_auto_on_transfer: archiveAutoOnTransfer,
+        archive_auto_on_offline: archiveAutoOnOffline,
+        offline_monitor_interval_minutes: Math.max(1, Math.round(offlineMonitorIntervalMinutes || 3)),
+        archive_subdirs: parseJsonConfig(archiveSubdirsInput, "归档二级目录规则"),
+        archive_naming: parseJsonConfig(archiveNamingInput, "归档命名规则"),
+      };
+      const response = await archiveApi.updateConfig(payload);
+      const updated = response.data as Record<string, unknown>;
+      setArchiveSubdirsInput(formatJsonConfig(updated.archive_subdirs));
+      setArchiveNamingInput(formatJsonConfig(updated.archive_naming));
+      return response;
+    });
+
+  const saveAccountCredentials = () =>
+    runAction("authCredentialsSave", "保存登录账号", async () => {
+      if (accountNewPassword || accountNewPasswordConfirm) {
+        if (accountNewPassword !== accountNewPasswordConfirm) {
+          throw new Error("两次输入的新密码不一致");
+        }
+      }
+      const response = await authApi.changeCredentials({
+        current_password: accountCurrentPassword,
+        username: accountUsername.trim() || undefined,
+        new_password: accountNewPassword ? accountNewPassword : undefined,
+      });
+      setAccountCurrentPassword("");
+      setAccountNewPassword("");
+      setAccountNewPasswordConfirm("");
+      return response;
+    });
 
   // Test 115 connection: if cookie changed since load, update it first, then check
   const test115Connection = async () => {
@@ -917,6 +1019,29 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             className="w-full text-xs font-mono p-3 rounded-lg resize-none"
             style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
           />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input
+              value={quarkDefaultFolderId}
+              onChange={(e) => setQuarkDefaultFolderId(e.target.value)}
+              placeholder="默认转存目录 ID"
+              className="text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+              style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+            />
+            <input
+              value={quarkDefaultFolderName}
+              onChange={(e) => setQuarkDefaultFolderName(e.target.value)}
+              placeholder="默认目录名称"
+              className="text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+              style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+            />
+            <button
+              disabled={isBusy("quarkDefaultFolder")}
+              onClick={() => runAction("quarkDefaultFolder", "设置夸克默认目录", () => quarkApi.setDefaultFolder(quarkDefaultFolderId.trim(), quarkDefaultFolderName.trim()))}
+              className="px-3 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1 justify-center"
+            >
+              <Save className="w-3 h-3" /> {isBusy("quarkDefaultFolder") ? "保存中" : "保存默认目录"}
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2 items-center">
             <button
               disabled={isBusy("quarkUpdate")}
@@ -944,6 +1069,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             {(resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn")) && (
               <span className="text-[10px] font-bold" style={{ color: (resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn"))!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
                 {(resultOf("quarkCheck") || resultOf("quarkUpdate") || resultOf("quarkConn"))!.msg}
+              </span>
+            )}
+            {resultOf("quarkDefaultFolder") && (
+              <span className="text-[10px] font-bold" style={{ color: resultOf("quarkDefaultFolder")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
+                {resultOf("quarkDefaultFolder")!.msg}
               </span>
             )}
           </div>
@@ -1068,6 +1198,89 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       {/* ===== 服务集成面板结束 ===== */}
 
       <RuntimeAdvancedSettingsPanel addLog={addLog} />
+
+      <CollapsibleSection icon={<Database className="w-4 h-4" />} title="归档高级配置" subtitle="监听目录、自动触发、二级目录与命名规则" badge="archive" defaultOpen={false}>
+        <div className="space-y-5 pt-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-4">
+                <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer" style={{ color: "var(--txt-secondary)" }}>
+                  <input type="checkbox" checked={archiveEnabled} onChange={(e) => setArchiveEnabled(e.target.checked)} className="accent-brand-primary" />
+                  启用归档扫描
+                </label>
+                <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer" style={{ color: "var(--txt-secondary)" }}>
+                  <input type="checkbox" checked={archiveAutoOnTransfer} onChange={(e) => setArchiveAutoOnTransfer(e.target.checked)} className="accent-brand-primary" />
+                  转存后自动归档
+                </label>
+                <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer" style={{ color: "var(--txt-secondary)" }}>
+                  <input type="checkbox" checked={archiveAutoOnOffline} onChange={(e) => setArchiveAutoOnOffline(e.target.checked)} className="accent-brand-primary" />
+                  离线完成自动归档
+                </label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="space-y-1.5 block">
+                  <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>监听目录 CID</span>
+                  <input value={archiveWatchCid} onChange={(e) => setArchiveWatchCid(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+                </label>
+                <label className="space-y-1.5 block">
+                  <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>监听目录名称</span>
+                  <input value={archiveWatchName} onChange={(e) => setArchiveWatchName(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+                </label>
+                <label className="space-y-1.5 block">
+                  <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>输出目录 CID</span>
+                  <input value={archiveOutputCid} onChange={(e) => setArchiveOutputCid(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+                </label>
+                <label className="space-y-1.5 block">
+                  <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>输出目录名称</span>
+                  <input value={archiveOutputName} onChange={(e) => setArchiveOutputName(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+                </label>
+                <label className="space-y-1.5 block">
+                  <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>扫描间隔(分钟)</span>
+                  <input type="number" min={1} value={archiveIntervalMinutes} onChange={(e) => setArchiveIntervalMinutes(Number(e.target.value))} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+                </label>
+                <label className="space-y-1.5 block">
+                  <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>离线监控间隔(分钟)</span>
+                  <input type="number" min={1} value={offlineMonitorIntervalMinutes} onChange={(e) => setOfflineMonitorIntervalMinutes(Number(e.target.value))} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+                </label>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <label className="space-y-1.5 block">
+                <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>archive_subdirs JSON</span>
+                <textarea rows={7} value={archiveSubdirsInput} onChange={(e) => setArchiveSubdirsInput(e.target.value)} className="w-full text-xs font-mono rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+              </label>
+              <label className="space-y-1.5 block">
+                <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>archive_naming JSON</span>
+                <textarea rows={5} value={archiveNamingInput} onChange={(e) => setArchiveNamingInput(e.target.value)} className="w-full text-xs font-mono rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-brand-primary" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }} />
+              </label>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={isBusy("archiveConfigSave")}
+              onClick={saveArchiveConfig}
+              className="px-4 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1"
+            >
+              <Save className="w-3 h-3" /> {isBusy("archiveConfigSave") ? "保存中" : "保存归档配置"}
+            </button>
+            <button
+              type="button"
+              disabled={isBusy("archiveScan")}
+              onClick={() => runAction("archiveScan", "触发归档扫描", () => archiveApi.runScan())}
+              className="glass-hover px-4 py-2 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+            >
+              <Play className="w-3 h-3" /> 立即扫描
+            </button>
+            {resultOf("archiveConfigSave") && (
+              <span className="text-[10px] font-bold self-center" style={{ color: resultOf("archiveConfigSave")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
+                {resultOf("archiveConfigSave")!.msg}
+              </span>
+            )}
+          </div>
+        </div>
+      </CollapsibleSection>
 
       <form onSubmit={handleSaveSettings} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left column forms: Standard Configurations */}
@@ -1223,7 +1436,67 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           </CollapsibleSection>
         </div>
 
-        {/* Right column: Debug Log terminal */}
+        {/* Right column: account controls and debug log terminal */}
+        <div className="lg:col-span-5 space-y-8">
+        <CollapsibleSection icon={<Key className="w-4 h-4" />} title="登录账号安全" badge="auth" defaultOpen={false}>
+          <div className="space-y-4 pt-3">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>登录账号</label>
+              <input
+                value={accountUsername}
+                onChange={(e) => setAccountUsername(e.target.value)}
+                className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>当前密码</label>
+              <input
+                type="password"
+                value={accountCurrentPassword}
+                onChange={(e) => setAccountCurrentPassword(e.target.value)}
+                className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>新密码</label>
+                <input
+                  type="password"
+                  value={accountNewPassword}
+                  onChange={(e) => setAccountNewPassword(e.target.value)}
+                  className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>确认新密码</label>
+                <input
+                  type="password"
+                  value={accountNewPasswordConfirm}
+                  onChange={(e) => setAccountNewPasswordConfirm(e.target.value)}
+                  className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary"
+                  style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={isBusy("authCredentialsSave")}
+              onClick={saveAccountCredentials}
+              className="w-full px-4 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center gap-1 justify-center"
+            >
+              <Save className="w-3 h-3" /> {isBusy("authCredentialsSave") ? "保存中" : "保存账号凭证"}
+            </button>
+            {resultOf("authCredentialsSave") && (
+              <p className="text-[10px] font-bold" style={{ color: resultOf("authCredentialsSave")!.ok ? "var(--accent-ok)" : "var(--accent-danger)" }}>
+                {resultOf("authCredentialsSave")!.msg}
+              </p>
+            )}
+          </div>
+        </CollapsibleSection>
+
         <CollapsibleSection icon={<Terminal className="w-4 h-4" />} title="实时操作日志" badge={`${logs.length}`} defaultOpen={false}>
         <div className="bg-slate-900/80 backdrop-blur-xl text-gray-200 rounded-2xl p-6 shadow-xl flex flex-col justify-between h-[640px] border border-slate-800/60 font-mono select-none">
           <div className="space-y-4 h-full flex flex-col justify-between">
@@ -1299,6 +1572,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           </div>
         </div>
         </CollapsibleSection>
+        </div>
       </form>
     </div>
   );
