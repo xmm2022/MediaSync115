@@ -22,6 +22,10 @@ export interface SearchResourceItem {
   tags?: string[];
 }
 
+export interface SearchResourceMapOptions {
+  allowIdAsTmdb?: boolean;
+}
+
 export function normalizeSearchPosterSrc(rawPoster?: string): string {
   const value = String(rawPoster || "").trim();
   if (!value) return "";
@@ -31,8 +35,8 @@ export function normalizeSearchPosterSrc(rawPoster?: string): string {
   return getExplorePosterSrc(value);
 }
 
-function normalizeTmdbId(item: SearchResourceItem): number | undefined {
-  const value = item.tmdb_id ?? item.id;
+function normalizeTmdbId(item: SearchResourceItem, options: SearchResourceMapOptions): number | undefined {
+  const value = item.tmdb_id ?? (options.allowIdAsTmdb ? item.id : undefined);
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
@@ -47,11 +51,12 @@ function normalizeYear(item: SearchResourceItem): number {
 export function mapSearchItemToResource(
   item: SearchResourceItem,
   sectionTag?: string,
+  options: SearchResourceMapOptions = {},
 ): MediaResource {
   const rawMediaType = String(item.media_type || "movie").toLowerCase();
   const mediaType: "movie" | "tv" | "collection" =
     rawMediaType === "tv" ? "tv" : rawMediaType === "collection" ? "collection" : "movie";
-  const tmdbId = normalizeTmdbId(item);
+  const tmdbId = normalizeTmdbId(item, options);
   const category: "Movie" | "TV" | "Anime" = mediaType === "movie" ? "Movie" : "TV";
   const tags = [
     ...(item.genres || []),

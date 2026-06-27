@@ -162,7 +162,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
         feiniu_status_map?: Record<string, unknown>;
       };
       const items = Array.isArray(data.items) ? data.items : Array.isArray(data.results) ? data.results : [];
-      setResources(items.map((item) => mapSearchItemToResource(item)));
+      setResources(items.map((item) => mapSearchItemToResource(item, undefined, { allowIdAsTmdb: true })));
 
       const agg: Record<string, BadgeStatus> = {};
       mergeStatusMap(agg, data.emby_status_map, "emby");
