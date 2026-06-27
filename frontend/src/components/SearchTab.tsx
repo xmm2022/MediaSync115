@@ -538,7 +538,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
           <span>全网磁力 & 云端资源秒传检索</span>
         </h2>
         <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color: "var(--txt-secondary)" }}>
-          聚合海量磁力、BT、RSS发布站以及 115 官方云端转存通道。在这里搜索您的心仪影视，点击一键即可瞬间挂载至您的 Emby / Plex 服务器中，无需本地耗时下载。
+          聚合海量磁力、BT、RSS发布站以及 115 官方云端转存通道。在这里搜索您的心仪影视，点击一键即可瞬间挂载至您的 Emby / 飞牛服务器中，无需本地耗时下载。
         </p>
       </div>
 

@@ -154,6 +154,12 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("!tmdbSearchConfigured", search)
         self.assertIn("TMDB API Key 未配置", search)
 
+    def test_search_copy_matches_supported_media_servers(self) -> None:
+        search = read_source("src/components/SearchTab.tsx")
+
+        self.assertIn("Emby / 飞牛", search)
+        self.assertNotIn("Emby / Plex", search)
+
 
 if __name__ == "__main__":
     unittest.main()
