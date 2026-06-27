@@ -42,7 +42,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
   const [strmEnabled, setStrmEnabled] = useState(false);
   const [outputDir, setOutputDir] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
-  const [redirectMode, setRedirectMode] = useState("302");
+  const [redirectMode, setRedirectMode] = useState("auto");
   const [refreshEmby, setRefreshEmby] = useState(false);
   const [refreshFeiniu, setRefreshFeiniu] = useState(false);
   const [proxyEnabled, setProxyEnabled] = useState(false);
@@ -61,7 +61,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
       setStrmEnabled(Boolean(c.strm_enabled));
       setOutputDir((c.strm_output_dir as string) || "");
       setBaseUrl((c.strm_base_url as string) || (c.suggested_base_url as string) || "");
-      setRedirectMode((c.strm_redirect_mode as string) || "302");
+      setRedirectMode((c.strm_redirect_mode as string) || "auto");
       setRefreshEmby(Boolean(c.strm_refresh_emby_after_generate));
       setRefreshFeiniu(Boolean(c.strm_refresh_feiniu_after_generate));
       setProxyEnabled(Boolean(c.strm_proxy_enabled));
@@ -242,7 +242,8 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
           <div className="space-y-1">
             <label className="text-xs font-bold" style={LABEL_STYLE}>重定向模式 (strm_redirect_mode)</label>
             <select value={redirectMode} onChange={(e) => setRedirectMode(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={INPUT_STYLE}>
-              <option value="302">302 重定向</option>
+              <option value="auto">自动选择</option>
+              <option value="redirect">302 重定向</option>
               <option value="proxy">代理回源</option>
             </select>
           </div>

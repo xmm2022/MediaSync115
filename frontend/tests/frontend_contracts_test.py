@@ -124,6 +124,28 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("loadInitialPan115Data", pan115)
         self.assertNotIn('loadFiles("0");\n    loadOfflineTasks();', pan115)
 
+    def test_dashboard_uses_real_pan115_cookie_status(self) -> None:
+        dashboard = read_source("src/components/DashboardTab.tsx")
+
+        self.assertIn("pan115Api", dashboard)
+        self.assertIn("checkCookie", dashboard)
+        self.assertNotIn(">已连接</span>", dashboard)
+        self.assertNotIn(">Cookie 会话有效</span>", dashboard)
+
+    def test_strm_redirect_mode_matches_backend_contract(self) -> None:
+        strm = read_source("src/components/StrmTab.tsx")
+
+        self.assertIn('useState("auto")', strm)
+        self.assertIn('value="auto"', strm)
+        self.assertIn('value="redirect"', strm)
+        self.assertIn('value="proxy"', strm)
+        self.assertNotIn('value="302"', strm)
+
+    def test_pan115_mobile_setting_buttons_keep_readable_width(self) -> None:
+        pan115 = read_source("src/components/Pan115FilesTab.tsx")
+
+        self.assertGreaterEqual(pan115.count("shrink-0 min-w-[3.5rem]"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

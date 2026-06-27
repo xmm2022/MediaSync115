@@ -1172,7 +1172,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                 className="w-24 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
                 style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }} />
               <button onClick={handleSetTransferDefault} disabled={!transferDefaultFolder.trim()}
-                className="px-3 py-1.5 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50">设置</button>
+                className="shrink-0 min-w-[3.5rem] px-3 py-1.5 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50">设置</button>
             </div>
           </div>
 
@@ -1210,7 +1210,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
               <button
                 onClick={handleSetDefaultFolder}
                 disabled={!defaultFolderId.trim()}
-                className="px-3 py-1.5 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50"
+                className="shrink-0 min-w-[3.5rem] px-3 py-1.5 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50"
               >
                 设置
               </button>

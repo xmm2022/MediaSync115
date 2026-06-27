@@ -20,7 +20,7 @@
 
 import React, { useState, useEffect } from "react";
 import { SyncDirectory } from "../types";
-import { archiveApi } from "../api";
+import { archiveApi, pan115Api } from "../api";
 import { getApiErrorMessage } from "../api/errors";
 import type { ArchiveTask } from "../api/types";
 import { ACTIVE_ARCHIVE_TASK_STATUS } from "../utils/runtimeDefaults";
@@ -51,6 +51,11 @@ interface DashboardTabProps {
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => void;
 }
 
+type Pan115CookieStatus = {
+  state: "checking" | "valid" | "invalid" | "error";
+  message: string;
+};
+
 export default function DashboardTab({
   directories,
   setDirectories,
@@ -67,6 +72,10 @@ export default function DashboardTab({
 
   // 归档任务列表 — 用于派生目录状态
   const [archiveTasks, setArchiveTasks] = useState<ArchiveTask[]>([]);
+  const [pan115CookieStatus, setPan115CookieStatus] = useState<Pan115CookieStatus>({
+    state: "checking",
+    message: "正在检查 115 Cookie",
+  });
 
   // 挂载时拉取归档任务，周期性更新目录状态
   useEffect(() => {
@@ -82,6 +91,38 @@ export default function DashboardTab({
     loadTasks();
   }, [directories]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPan115CookieStatus = async () => {
+      setPan115CookieStatus({ state: "checking", message: "正在检查 115 Cookie" });
+      try {
+        const res = await pan115Api.checkCookie();
+        const data = res.data as Record<string, unknown>;
+        if (cancelled) return;
+        const valid = Boolean(data.valid || data.success || data.ok);
+        setPan115CookieStatus({
+          state: valid ? "valid" : "invalid",
+          message: valid
+            ? String(data.message || "Cookie 会话有效")
+            : String(data.message || "115 Cookie 未配置或已失效"),
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setPan115CookieStatus({
+          state: "error",
+          message: getApiErrorMessage(err, "无法检查 115 Cookie 状态"),
+        });
+      }
+    };
+
+    void loadPan115CookieStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // 从全局归档任务派生目录状态：有活跃任务→syncing，否则→idle
   // 注意：后端 ArchiveTask 无 per-folder 关联，这是全局推导
   const hasActiveTask = archiveTasks.length > 0;
@@ -91,6 +132,19 @@ export default function DashboardTab({
   // 后端无实时速度字段，恒定显示 0
   const currentSpeedMB = "0";
   const totalFiles = directories.reduce((sum, d) => sum + d.itemCount, 0);
+  const pan115Ready = pan115CookieStatus.state === "valid";
+  const pan115Checking = pan115CookieStatus.state === "checking";
+  const pan115StatusLabel = pan115Checking ? "检查中" : pan115Ready ? "已连接" : "未配置";
+  const pan115StatusColor = pan115Checking
+    ? "var(--accent-info)"
+    : pan115Ready
+    ? "var(--accent-ok)"
+    : "var(--accent-danger)";
+  const pan115StatusDot = pan115Checking
+    ? "bg-sky-400 animate-pulse"
+    : pan115Ready
+    ? "bg-teal-500 animate-pulse"
+    : "bg-red-500";
 
   // Toggle directory sync
   // 后端 archive_enabled 是全局开关，非按目录。此处切换全局归档开关。
@@ -356,10 +410,10 @@ export default function DashboardTab({
           <div className="glass glass-hover p-4 rounded-xl flex flex-col justify-start space-y-1 text-right transition-all">
             <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>115 挂载状态</span>
             <div className="flex items-center justify-end gap-1.5">
-              <span className="font-headline text-xl font-bold" style={{ color: "var(--txt)" } as React.CSSProperties}>已连接</span>
-              <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
+              <span className="font-headline text-xl font-bold" style={{ color: pan115Ready ? "var(--txt)" : pan115StatusColor } as React.CSSProperties}>{pan115StatusLabel}</span>
+              <div className={`w-2 h-2 rounded-full ${pan115StatusDot}`} />
             </div>
-            <span className="text-[10px]" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>Cookie 会话有效</span>
+            <span className="text-[10px]" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>{pan115CookieStatus.message}</span>
           </div>
         </div>
       </section>
@@ -529,15 +583,20 @@ export default function DashboardTab({
         </div>
 
         {/* Right smaller block: Token Watchdog / Error Prevention */}
-        <div className="p-8 rounded-2xl bg-brand-primary text-white flex flex-col justify-between shadow-lg shadow-brand-primary/10 relative overflow-hidden">
+        <div
+          className="p-8 rounded-2xl text-white flex flex-col justify-between shadow-lg shadow-brand-primary/10 relative overflow-hidden"
+          style={{ background: pan115Ready ? "var(--brand-primary)" : "rgba(239,68,68,0.86)" } as React.CSSProperties}
+        >
           <div className="relative z-10">
             <div className="flex justify-between items-center mb-4">
               <ShieldCheck className="w-8 h-8 text-brand-primary-light" />
-              <span className="font-headline text-2xl font-bold">在线</span>
+              <span className="font-headline text-2xl font-bold">{pan115Checking ? "检查中" : pan115Ready ? "在线" : "需配置"}</span>
             </div>
             <h4 className="font-headline text-lg font-bold">Cookies 凭证侦守</h4>
             <p className="text-xs text-green-100 mt-2 leading-relaxed">
-              已全自动侦守 115 安全验证网关，当前账户 UID 及 API 请求会话极其安全，无速率拦截、降速或账号过载预警。
+              {pan115Ready
+                ? "已确认 115 Cookie 会话有效，转存、离线下载与目录访问可继续使用。"
+                : `${pan115CookieStatus.message}。请前往配置与终端更新 115 Cookie 或使用扫码登录。`}
             </p>
           </div>
 
