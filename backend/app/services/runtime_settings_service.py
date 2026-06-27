@@ -174,6 +174,7 @@ class RuntimeSettingsService:
                 "magnet",
                 "magnet_seedhub",
                 "magnet_butailing",
+                "moviepilot_pt",
             ],
             "license_key": "",
             "subscription_offline_transfer_enabled": False,
@@ -218,18 +219,22 @@ class RuntimeSettingsService:
         if not isinstance(current, list) or not current:
             return
         quark_keys = ["quark", "quark_pansou", "quark_hdhive", "quark_tg"]
-        if any(k in current for k in quark_keys):
+        moviepilot_keys = ["moviepilot_pt"]
+        if all(k in current for k in quark_keys + moviepilot_keys):
             return
         # 把 quark 系列插入到 magnet 之前；找不到 magnet 就追加到末尾
         new_list = []
         inserted = False
         for key in current:
-            if key == "magnet" and not inserted:
+            if key == "magnet" and not inserted and not any(k in current for k in quark_keys):
                 new_list.extend(quark_keys)
                 inserted = True
             new_list.append(key)
-        if not inserted:
+        if not inserted and not any(k in current for k in quark_keys):
             new_list.extend(quark_keys)
+        for key in moviepilot_keys:
+            if key not in new_list:
+                new_list.append(key)
         self._data["detail_visible_tabs"] = new_list
         try:
             self._save()

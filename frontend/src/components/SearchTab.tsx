@@ -74,6 +74,40 @@ const DIRECT_RESOURCE_SOURCES: { key: DirectResourceSourceKey; label: string }[]
   { key: "magnet_seedhub", label: "磁力·SeedHub" },
 ];
 
+const DOUBAN_DISCOVER_SECTION_KEYS = [
+  "movie_hot",
+  "movie_showing",
+  "movie_latest",
+  "movie_top250",
+] as const;
+
+type ExploreSectionPayload = {
+  section?: {
+    key?: string;
+    title?: string;
+    tag?: string;
+    items?: SearchResourceItem[];
+  };
+  key?: string;
+  title?: string;
+  tag?: string;
+  items?: SearchResourceItem[];
+  emby_status_map?: Record<string, unknown>;
+  feiniu_status_map?: Record<string, unknown>;
+};
+
+function normalizeExploreSectionPayload(data: unknown) {
+  const payload = data as ExploreSectionPayload;
+  const section = payload.section ?? payload;
+  return {
+    title: section?.title || "",
+    tag: section?.tag,
+    items: Array.isArray(section?.items) ? section.items : [],
+    embyStatusMap: payload.emby_status_map,
+    feiniuStatusMap: payload.feiniu_status_map,
+  };
+}
+
 function formatSize(bytes: number): string {
   if (bytes >= 1 << 40) return (bytes / (1 << 40)).toFixed(1) + " TB";
   if (bytes >= 1 << 30) return (bytes / (1 << 30)).toFixed(1) + " GB";
@@ -163,10 +197,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   const [imdbSearching, setImdbSearching] = useState(false);
 
   // ---- Load explore sections (browse / discovery) ----
-  // Rationale: SearchTab UI shows "热搜影视精品推荐" — a browse/discovery view
-  // without mandatory keyword input. The most natural backend endpoint is
-  // GET /api/search/explore/sections (douban rankings), which returns curated
-  // sections of media items. This matches the existing card-grid UX.
   const loadResources = useCallback(async () => {
     const requestId = requestSeqRef.current += 1;
     const setIsLoadingReset = () => {
@@ -177,30 +207,26 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     setSearchMode("discover");
     setIsLoadingReset();
     try {
-      const response = await searchApi.getExploreSections("douban", 24, false);
-      const data = response.data as {
-        source: string;
-        sections?: { key: string; title: string; tag?: string; items?: SearchResourceItem[] }[];
-        emby_status_map?: Record<string, unknown>;
-        feiniu_status_map?: Record<string, unknown>;
-      };
-
-      const sections = data.sections || [];
+      const responses = await Promise.all(
+        DOUBAN_DISCOVER_SECTION_KEYS.map((key) =>
+          searchApi.getExploreDoubanSection(key, 24, false, 0),
+        ),
+      );
       const allItems: MediaResource[] = [];
+      const agg: Record<string, BadgeStatus> = {};
 
-      for (const section of sections) {
+      for (const response of responses) {
+        const section = normalizeExploreSectionPayload(response.data);
         const items = section.items || [];
         for (const item of items) {
           allItems.push(mapSearchItemToResource(item, section.tag || section.title));
         }
+        mergeStatusMap(agg, section.embyStatusMap, "emby");
+        mergeStatusMap(agg, section.feiniuStatusMap, "feiniu");
       }
 
       if (requestId !== requestSeqRef.current) return;
 
-      // 合并后端内嵌的 Emby/飞牛入库状态
-      const agg: Record<string, BadgeStatus> = {};
-      mergeStatusMap(agg, data.emby_status_map, "emby");
-      mergeStatusMap(agg, data.feiniu_status_map, "feiniu");
       setStatusMap(agg);
 
       // Deduplicate by id

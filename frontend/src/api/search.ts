@@ -164,7 +164,7 @@ export const searchApi = {
 
   // ---- 统一资源 ----
   getMediaResources: (tmdbId: number, mediaType: string, season: number | null = null, refresh = false) =>
-    api.get(`/search/${mediaType}/${tmdbId}/resources`, { params: { season, refresh } }),
+    api.get(`/search/${mediaType}/${tmdbId}/resources`, { params: { season, refresh }, timeout: 120000 }),
 
   // ---- 磁力任务 ----
   getSeedhubMagnetTask: (taskId: string) =>

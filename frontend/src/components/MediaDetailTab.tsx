@@ -20,6 +20,8 @@ import { motion } from "motion/react";
 import { searchApi } from "../api/search";
 import { pan115Api } from "../api/pan115";
 import { subscriptionApi } from "../api/subscription";
+import { settingsApi } from "../api/settings";
+import { moviepilotApi } from "../api/moviepilot";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 import Pan115Progress, { type Pan115ProgressState, deriveDefaultProgressState } from "./Pan115Progress";
 import type { MediaResourceLink } from "../types";
@@ -74,20 +76,30 @@ interface TvSeasonDetail {
 interface ResourceLinkRaw {
   title?: string;
   name?: string;
+  torrent_name?: string;
+  subtitle?: string;
   size?: string | number;
+  size_text?: string;
   seeds?: number;
+  seeders?: number;
   pick_code?: string;
   pickcode?: string;
   share_link?: string;
   share_url?: string;
   url?: string;
+  link?: string;
+  download_url?: string;
+  torrent_url?: string;
   receive_code?: string;
   access_code?: string;
   source_service?: string;
+  site?: string;
+  site_name?: string;
   resolution?: string;
   slug?: string;
   unlocked?: boolean;
   magnet?: string;
+  magnet_url?: string;
   info_hash?: string;
 }
 
@@ -101,7 +113,7 @@ interface SeedhubTaskState {
 type ResourceSourceKey =
   | "unified" | "115_pansou" | "115_hdhive" | "115_tg"
   | "quark_pansou" | "quark_hdhive" | "quark_tg"
-  | "magnet_seedhub" | "magnet_butailing";
+  | "magnet_seedhub" | "magnet_butailing" | "moviepilot_pt";
 
 const RESOURCE_SOURCES: { key: ResourceSourceKey; label: string }[] = [
   { key: "unified", label: "统一" },
@@ -113,7 +125,30 @@ const RESOURCE_SOURCES: { key: ResourceSourceKey; label: string }[] = [
   { key: "quark_tg", label: "夸克·TG" },
   { key: "magnet_seedhub", label: "磁力·SeedHub" },
   { key: "magnet_butailing", label: "磁力·不淘" },
+  { key: "moviepilot_pt", label: "PT·MoviePilot" },
 ];
+
+const DETAIL_TAB_SOURCE_MAP: Record<string, ResourceSourceKey> = {
+  pan115: "unified",
+  pan115_pansou: "115_pansou",
+  pan115_hdhive: "115_hdhive",
+  pan115_tg: "115_tg",
+  quark_pansou: "quark_pansou",
+  quark_hdhive: "quark_hdhive",
+  quark_tg: "quark_tg",
+  magnet_seedhub: "magnet_seedhub",
+  magnet_butailing: "magnet_butailing",
+  moviepilot_pt: "moviepilot_pt",
+};
+
+function normalizeVisibleResourceSources(detailVisibleTabs: unknown): ResourceSourceKey[] {
+  const rawTabs = Array.isArray(detailVisibleTabs) ? detailVisibleTabs : [];
+  const mapped = rawTabs
+    .map((item) => DETAIL_TAB_SOURCE_MAP[String(item)])
+    .filter((item): item is ResourceSourceKey => Boolean(item));
+  const unique = Array.from(new Set(mapped));
+  return unique.length > 0 ? unique : RESOURCE_SOURCES.map((item) => item.key);
+}
 
 function formatSize(bytes: number): string {
   if (bytes >= 1 << 40) return (bytes / (1 << 40)).toFixed(1) + " TB";
@@ -142,24 +177,31 @@ function extractResourceLinks(rawData: unknown): ResourceLinkRaw[] {
 
 function mapResourceLinks(rawData: unknown): MediaResourceLink[] {
   return extractResourceLinks(rawData).map((rl) => {
-    const shareUrl = rl.share_link || rl.share_url || rl.url || "";
-    const magnetUrl = rl.magnet || (rl.info_hash ? `magnet:?xt=urn:btih:${rl.info_hash}` : "");
+    const shareUrl = rl.share_link || rl.share_url || rl.url || rl.link || "";
+    const magnetUrl = rl.magnet || rl.magnet_url || (rl.info_hash ? `magnet:?xt=urn:btih:${rl.info_hash}` : "");
     const m = shareUrl.match(/[?&](?:password|pwd|receive_code)=([^&#]+)/i);
     return {
-      name: rl.title || rl.name || "未命名资源",
-      size: typeof rl.size === "number" ? formatSize(rl.size) : String(rl.size || "未知"),
-      seeds: rl.seeds,
+      name: rl.title || rl.name || rl.torrent_name || rl.subtitle || "未命名资源",
+      size: typeof rl.size === "number" ? formatSize(rl.size) : String(rl.size_text || rl.size || "未知"),
+      seeds: rl.seeds ?? rl.seeders,
       pickcode: rl.pick_code || rl.pickcode,
-      url: shareUrl || magnetUrl || "",
+      url: shareUrl || magnetUrl || rl.download_url || rl.torrent_url || "",
       shareUrl,
       receiveCode: rl.receive_code || rl.access_code || (m ? m[1] : ""),
-      sourceService: rl.source_service,
+      sourceService: rl.source_service || rl.site_name || rl.site,
       resolution: rl.resolution,
       slug: rl.slug,
       unlocked: rl.unlocked,
       magnetUrl,
     };
   });
+}
+
+function mapMoviePilotResourceLinks(rawData: unknown): MediaResourceLink[] {
+  return mapResourceLinks(rawData).map((link) => ({
+    ...link,
+    sourceService: link.sourceService || "PT·MoviePilot",
+  }));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -176,6 +218,9 @@ export default function MediaDetailTab({
 
   // Status
   const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
+  const [visibleResourceSources, setVisibleResourceSources] = useState<ResourceSourceKey[]>(
+    RESOURCE_SOURCES.map((item) => item.key),
+  );
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
 
@@ -345,6 +390,9 @@ export default function MediaDetailTab({
             ? await searchApi.getMovieMagnetButailing(tmdbId)
             : await searchApi.getTvMagnetButailing(tmdbId, selectedSeason);
           break;
+        case "moviepilot_pt":
+          response = await moviepilotApi.search(title || defaultTitle);
+          return mapMoviePilotResourceLinks(response.data);
         default:
           response = await searchApi.getMediaResources(tmdbId, mediaType, selectedSeason, false);
       }
@@ -435,6 +483,30 @@ export default function MediaDetailTab({
     if (mediaType === "tv") void loadEpisodes(selectedSeason);
     void handleSwitchSource("unified");
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tmdbId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadRuntimeResourceTabs = async () => {
+      try {
+        const response = await settingsApi.getRuntime();
+        const runtime = response.data as { detail_visible_tabs?: unknown };
+        const nextSources = normalizeVisibleResourceSources(runtime.detail_visible_tabs);
+        if (cancelled) return;
+        setVisibleResourceSources(nextSources);
+        if (!nextSources.includes(activeSource)) {
+          void handleSwitchSource(nextSources[0] || "unified");
+        }
+      } catch {
+        if (!cancelled) {
+          setVisibleResourceSources(RESOURCE_SOURCES.map((item) => item.key));
+        }
+      }
+    };
+    void loadRuntimeResourceTabs();
+    return () => {
+      cancelled = true;
+    };
   }, [tmdbId]);
 
   // ---- Derived ----
@@ -652,7 +724,7 @@ export default function MediaDetailTab({
 
             {/* Source tabs */}
             <div className="flex flex-wrap gap-1.5">
-              {RESOURCE_SOURCES.map((s) => (
+              {RESOURCE_SOURCES.filter((source) => visibleResourceSources.includes(source.key)).map((s) => (
                 <button
                   key={s.key}
                   onClick={() => handleSwitchSource(s.key)}

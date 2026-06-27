@@ -172,6 +172,27 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("getExploreDoubanSection", explore)
         self.assertIn("DOUBAN_MOVIE_SECTION_KEYS.map", explore)
 
+    def test_search_discover_uses_douban_section_endpoints(self) -> None:
+        search = read_source("src/components/SearchTab.tsx")
+
+        self.assertNotIn('getExploreSections("douban"', search)
+        self.assertIn("getExploreDoubanSection", search)
+        self.assertIn("DOUBAN_DISCOVER_SECTION_KEYS.map", search)
+
+    def test_media_detail_honors_runtime_resource_tabs_and_pt_source(self) -> None:
+        detail = read_source("src/components/MediaDetailTab.tsx")
+        advanced = read_source("src/components/RuntimeAdvancedSettingsPanel.tsx")
+        runtime = read_source("../backend/app/services/runtime_settings_service.py")
+
+        self.assertIn("settingsApi.getRuntime", detail)
+        self.assertIn("detail_visible_tabs", detail)
+        self.assertIn('"moviepilot_pt"', detail)
+        self.assertIn("PT·MoviePilot", detail)
+        self.assertIn("moviepilotApi.search", detail)
+        self.assertIn('key: "moviepilot_pt"', advanced)
+        self.assertIn('"moviepilot_pt"', runtime)
+        self.assertEqual(detail.count('{ key: "115_tg"'), 1)
+
     def test_search_exposes_direct_resource_keyword_search_without_tmdb(self) -> None:
         search = read_source("src/components/SearchTab.tsx")
 

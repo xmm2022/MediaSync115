@@ -101,6 +101,7 @@ const DETAIL_TAB_OPTIONS = [
   { key: "magnet", label: "磁力聚合" },
   { key: "magnet_seedhub", label: "SeedHub" },
   { key: "magnet_butailing", label: "不太灵" },
+  { key: "moviepilot_pt", label: "PT·MoviePilot" },
 ];
 
 const DEFAULT_FORM: AdvancedRuntimeForm = {
