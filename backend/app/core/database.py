@@ -62,6 +62,10 @@ SUBSCRIPTION_COLUMN_SQL = {
     "exclude_tags": "ALTER TABLE subscriptions ADD COLUMN exclude_tags TEXT",
     "min_size_gb": "ALTER TABLE subscriptions ADD COLUMN min_size_gb REAL",
     "max_size_gb": "ALTER TABLE subscriptions ADD COLUMN max_size_gb REAL",
+    "provider": "ALTER TABLE subscriptions ADD COLUMN provider VARCHAR(50) NOT NULL DEFAULT 'mediasync115'",
+    "external_system": "ALTER TABLE subscriptions ADD COLUMN external_system VARCHAR(50)",
+    "external_subscription_id": "ALTER TABLE subscriptions ADD COLUMN external_subscription_id VARCHAR(100)",
+    "external_status": "ALTER TABLE subscriptions ADD COLUMN external_status VARCHAR(50)",
 }
 
 
@@ -164,6 +168,12 @@ async def ensure_subscription_columns() -> None:
         for column_name, ddl in SUBSCRIPTION_COLUMN_SQL.items():
             if column_name not in existing_columns:
                 await conn.execute(text(ddl))
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_subscriptions_external_subscription_id "
+                "ON subscriptions (external_subscription_id)"
+            )
+        )
 
 
 async def ensure_download_record_columns() -> None:

@@ -17,6 +17,7 @@ from app.api import (
     auth as auth_api,
     license as license_api,
     logs as logs_api,
+    moviepilot,
     pan115,
     pansou,
     quark,
@@ -438,6 +439,7 @@ app.include_router(scheduler.router, prefix="/api")
 app.include_router(workflow.router, prefix="/api")
 app.include_router(logs_api.router, prefix="/api")
 app.include_router(license_api.router, prefix="/api")
+app.include_router(moviepilot.router, prefix="/api")
 
 
 @app.get("/")

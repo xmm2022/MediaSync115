@@ -94,6 +94,12 @@ class RuntimeSettingsRequest(BaseModel):
     feiniu_sync_enabled: Optional[bool] = None
     feiniu_sync_interval_hours: Optional[int] = None
     feiniu_sync_interval_minutes: Optional[int] = None
+    moviepilot_enabled: Optional[bool] = None
+    moviepilot_base_url: Optional[str] = None
+    moviepilot_username: Optional[str] = None
+    moviepilot_password: Optional[str] = None
+    moviepilot_access_token: Optional[str] = None
+    moviepilot_save_path: Optional[str] = None
     subscription_enabled: Optional[bool] = None
     subscription_interval_hours: Optional[int] = None
     subscription_resource_priority: Optional[list[str]] = None

@@ -67,6 +67,12 @@ class Subscription(Base):
     tv_episode_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tv_follow_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="missing")
     tv_include_specials: Mapped[bool] = mapped_column(Boolean, default=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="mediasync115")
+    external_system: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    external_subscription_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, index=True
+    )
+    external_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_download: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)

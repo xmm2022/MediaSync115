@@ -126,6 +126,12 @@ class RuntimeSettingsService:
             "feiniu_sync_enabled": False,
             "feiniu_sync_interval_hours": 24,
             "feiniu_sync_interval_minutes": 1440,
+            "moviepilot_enabled": False,
+            "moviepilot_base_url": "",
+            "moviepilot_username": "",
+            "moviepilot_password_enc": "",
+            "moviepilot_access_token": "",
+            "moviepilot_save_path": "",
             "auth_username": "admin",
             "auth_password_hash": "",
             "auth_secret": "",
@@ -783,6 +789,58 @@ class RuntimeSettingsService:
     def get_feiniu_sync_interval_hours(self) -> int:
         return max(1, self.get_feiniu_sync_interval_minutes() // 60)
 
+    def get_moviepilot_enabled(self) -> bool:
+        return bool(self._data.get("moviepilot_enabled", False))
+
+    def get_moviepilot_base_url(self) -> str:
+        return str(self._data.get("moviepilot_base_url") or "").strip().rstrip("/")
+
+    def get_moviepilot_username(self) -> str:
+        return str(self._data.get("moviepilot_username") or "").strip()
+
+    def get_moviepilot_password_enc(self) -> str:
+        return str(self._data.get("moviepilot_password_enc") or "")
+
+    def get_moviepilot_password(self) -> str:
+        from app.utils.credential_crypto import decrypt_credential
+
+        encrypted = self.get_moviepilot_password_enc()
+        if not encrypted:
+            return ""
+        return decrypt_credential(encrypted, self.get_auth_secret())
+
+    def set_moviepilot_password(self, password: str) -> None:
+        from app.utils.credential_crypto import encrypt_credential
+
+        plain = str(password or "")
+        if not plain:
+            self._data["moviepilot_password_enc"] = ""
+            return
+        self._data["moviepilot_password_enc"] = encrypt_credential(
+            plain,
+            self.get_auth_secret(),
+        )
+
+    def get_moviepilot_access_token(self) -> str:
+        return str(self._data.get("moviepilot_access_token") or "").strip()
+
+    def update_moviepilot_access_token(self, token: str) -> None:
+        self._data["moviepilot_access_token"] = str(token or "").strip()
+        self._save()
+
+    def get_moviepilot_save_path(self) -> str:
+        return str(self._data.get("moviepilot_save_path") or "").strip()
+
+    def get_moviepilot_config(self) -> dict[str, Any]:
+        return {
+            "enabled": self.get_moviepilot_enabled(),
+            "base_url": self.get_moviepilot_base_url(),
+            "username": self.get_moviepilot_username(),
+            "password_configured": bool(self.get_moviepilot_password_enc()),
+            "access_token_configured": bool(self.get_moviepilot_access_token()),
+            "save_path": self.get_moviepilot_save_path(),
+        }
+
     def get_auth_username(self) -> str:
         return str(self._data.get("auth_username") or "admin").strip() or "admin"
 
@@ -1136,6 +1194,11 @@ class RuntimeSettingsService:
 
         normalized = dict(self._data)
         env_updates: dict[str, Any] = {}
+        if "moviepilot_password" in payload:
+            self.set_moviepilot_password(str(payload.get("moviepilot_password") or ""))
+            normalized["moviepilot_password_enc"] = self._data.get(
+                "moviepilot_password_enc", ""
+            )
         for key in self._defaults.keys():
             if key not in payload:
                 continue
@@ -1154,8 +1217,10 @@ class RuntimeSettingsService:
                 if not isinstance(value, str):
                     value = str(value)
                 cleaned = value.strip()
+                if key == "moviepilot_base_url":
+                    cleaned = cleaned.rstrip("/")
                 if not cleaned:
-                    if key == "tg_bot_token":
+                    if key in {"tg_bot_token", "moviepilot_access_token"}:
                         normalized[key] = ""
                     continue
                 normalized[key] = cleaned
@@ -1368,6 +1433,14 @@ class RuntimeSettingsService:
             "feiniu_sync_enabled": self.get_feiniu_sync_enabled(),
             "feiniu_sync_interval_hours": self.get_feiniu_sync_interval_hours(),
             "feiniu_sync_interval_minutes": self.get_feiniu_sync_interval_minutes(),
+            "moviepilot_enabled": self.get_moviepilot_enabled(),
+            "moviepilot_base_url": self.get_moviepilot_base_url(),
+            "moviepilot_username": self.get_moviepilot_username(),
+            "moviepilot_password_configured": bool(self.get_moviepilot_password_enc()),
+            "moviepilot_access_token_configured": bool(
+                self.get_moviepilot_access_token()
+            ),
+            "moviepilot_save_path": self.get_moviepilot_save_path(),
             "auth_username": self.get_auth_username(),
             "subscription_enabled": bool(
                 self._data.get("subscription_enabled", False)
