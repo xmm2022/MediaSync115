@@ -36,6 +36,12 @@ interface ResourceLinkRaw {
   info_hash?: string;
 }
 
+interface SeedhubTaskState {
+  taskId: string;
+  status: string;
+  message: string;
+}
+
 /** 资源来源选项（多源资源浏览） */
 type ResourceSourceKey =
   | "unified"
@@ -125,6 +131,10 @@ function isDirectResourceResult(resource: MediaResource) {
   return resource.id.startsWith("direct-resource:");
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavigateToDetail }: SearchTabProps) {
   const [resources, setResources] = useState<MediaResource[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<"All" | "Movie" | "TV" | "Anime">("All");
@@ -140,6 +150,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   const [directMediaType, setDirectMediaType] = useState<"movie" | "tv">("movie");
   const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
   const [activeSource, setActiveSource] = useState<ResourceSourceKey>("unified");
+  const [seedhubTask, setSeedhubTask] = useState<SeedhubTaskState | null>(null);
   const [unlockingSlug, setUnlockingSlug] = useState<string | null>(null);
   const [progress, setProgress] = useState<Pan115ProgressState>(deriveDefaultProgressState());
   const [tmdbSearchConfigured, setTmdbSearchConfigured] = useState<boolean | null>(null);
@@ -331,6 +342,57 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     }
   };
 
+  const fetchSeedhubTaskLinks = async (resource: MediaResource): Promise<MediaResourceLink[]> => {
+    if (!resource.tmdb_id || !resource.media_type) return [];
+    const isMovie = (resource.media_type || "movie") === "movie";
+    const startResponse = isMovie
+      ? await searchApi.createMovieSeedhubMagnetTask(resource.tmdb_id, 40, false)
+      : await searchApi.createTvSeedhubMagnetTask(resource.tmdb_id, null, 40, false);
+    const startTask = startResponse.data as Record<string, unknown>;
+    const taskId = String(startTask.task_id || "");
+    if (!taskId) throw new Error("SeedHub 后台任务未返回 task_id");
+
+    setSeedhubTask({
+      taskId,
+      status: String(startTask.status || "queued"),
+      message: String(startTask.message || "SeedHub 任务已排队"),
+    });
+
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const response = await searchApi.getSeedhubMagnetTask(taskId);
+      const task = response.data as Record<string, unknown>;
+      const status = String(task.status || "");
+      setSeedhubTask({
+        taskId,
+        status,
+        message: String(task.message || "SeedHub 后台检索中"),
+      });
+
+      if (["success", "partial_success"].includes(status)) {
+        return mapResourceLinks(extractResourceLinks(task.items || []));
+      }
+      if (status === "cancelled") return [];
+      if (status === "failed") {
+        throw new Error(String(task.error || task.message || "SeedHub 检索失败"));
+      }
+      await sleep(1500);
+    }
+
+    throw new Error("SeedHub 后台检索超时");
+  };
+
+  const cancelSeedhubTask = async () => {
+    if (!seedhubTask?.taskId) return;
+    const taskId = seedhubTask.taskId;
+    try {
+      await searchApi.cancelSeedhubMagnetTask(taskId);
+      setSeedhubTask({ taskId, status: "cancelled", message: "SeedHub 后台任务已取消" });
+      setLoadingLinks(false);
+    } catch (err) {
+      await addLog("ERROR", `取消 SeedHub 任务失败: ${String(err)}`);
+    }
+  };
+
   // ---- Fetch resource links for detail panel ----
   // ---- Fetch resource links (multi-source) ----
   const fetchResourceLinks = async (
@@ -379,10 +441,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
             : await searchApi.getTvQuarkTg(resource.tmdb_id);
           break;
         case "magnet_seedhub":
-          response = isMovie
-            ? await searchApi.getMovieMagnetSeedhub(resource.tmdb_id)
-            : await searchApi.getTvMagnetSeedhub(resource.tmdb_id);
-          break;
+          return await fetchSeedhubTaskLinks(resource);
         case "magnet_butailing":
           response = isMovie
             ? await searchApi.getMovieMagnetButailing(resource.tmdb_id)
@@ -401,6 +460,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
 
   // ---- Handle resource selection (lazy-load links) ----
   const handleSelectResource = async (resource: MediaResource) => {
+    setSeedhubTask(null);
     if (isDirectResourceResult(resource)) {
       setSelectedResource(resource);
       setLoadingLinks(false);
@@ -419,6 +479,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     if (!selectedResource) return;
     setActiveSource(source);
     setLoadingLinks(true);
+    if (source !== "magnet_seedhub") setSeedhubTask(null);
     setSelectedResource((prev) => (prev ? { ...prev, links: [] } : null));
     const links = await fetchResourceLinks(selectedResource, source);
     setSelectedResource((prev) => (prev ? { ...prev, links } : null));
@@ -991,7 +1052,21 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                   {loadingLinks ? (
                     <div className="text-center py-6">
                       <div className="w-6 h-6 rounded-full animate-spin mx-auto" style={{ borderWidth: 3, borderColor: "var(--brand-primary)", borderTopColor: "transparent" }} />
-                      <p className="text-[10px] mt-2 font-semibold" style={{ color: "var(--txt-muted)" }}>正在拉取资源链接...</p>
+                      <p className="text-[10px] mt-2 font-semibold" style={{ color: "var(--txt-muted)" }}>
+                        {activeSource === "magnet_seedhub" && seedhubTask
+                          ? `${seedhubTask.message} (${seedhubTask.status})`
+                          : "正在拉取资源链接..."}
+                      </p>
+                      {activeSource === "magnet_seedhub" && seedhubTask?.taskId && (
+                        <button
+                          type="button"
+                          onClick={cancelSeedhubTask}
+                          className="mt-3 px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover"
+                          style={{ color: "var(--accent-danger)", border: "1px solid var(--border)", background: "var(--surface)" }}
+                        >
+                          取消 SeedHub 任务
+                        </button>
+                      )}
                     </div>
                   ) : selectedResource.links.length === 0 ? (
                     <div className="text-center py-6 rounded-xl" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>

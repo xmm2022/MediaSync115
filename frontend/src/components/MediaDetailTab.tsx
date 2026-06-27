@@ -71,6 +71,32 @@ interface TvSeasonDetail {
   [key: string]: unknown;
 }
 
+interface ResourceLinkRaw {
+  title?: string;
+  name?: string;
+  size?: string | number;
+  seeds?: number;
+  pick_code?: string;
+  pickcode?: string;
+  share_link?: string;
+  share_url?: string;
+  url?: string;
+  receive_code?: string;
+  access_code?: string;
+  source_service?: string;
+  resolution?: string;
+  slug?: string;
+  unlocked?: boolean;
+  magnet?: string;
+  info_hash?: string;
+}
+
+interface SeedhubTaskState {
+  taskId: string;
+  status: string;
+  message: string;
+}
+
 // Resource source keys (same as SearchTab)
 type ResourceSourceKey =
   | "unified" | "115_pansou" | "115_hdhive" | "115_tg"
@@ -102,6 +128,44 @@ function posterUrl(path: string | undefined, size = "w300"): string {
   return `https://image.tmdb.org/t/p/${size}${path}`;
 }
 
+function extractResourceLinks(rawData: unknown): ResourceLinkRaw[] {
+  if (Array.isArray(rawData)) return rawData as ResourceLinkRaw[];
+  if (!rawData || typeof rawData !== "object") return [];
+  const payload = rawData as Record<string, unknown>;
+  return (payload.list as ResourceLinkRaw[])
+    || (payload.items as ResourceLinkRaw[])
+    || (payload.resources as ResourceLinkRaw[])
+    || (payload.links as ResourceLinkRaw[])
+    || (payload.magnets as ResourceLinkRaw[])
+    || [];
+}
+
+function mapResourceLinks(rawData: unknown): MediaResourceLink[] {
+  return extractResourceLinks(rawData).map((rl) => {
+    const shareUrl = rl.share_link || rl.share_url || rl.url || "";
+    const magnetUrl = rl.magnet || (rl.info_hash ? `magnet:?xt=urn:btih:${rl.info_hash}` : "");
+    const m = shareUrl.match(/[?&](?:password|pwd|receive_code)=([^&#]+)/i);
+    return {
+      name: rl.title || rl.name || "未命名资源",
+      size: typeof rl.size === "number" ? formatSize(rl.size) : String(rl.size || "未知"),
+      seeds: rl.seeds,
+      pickcode: rl.pick_code || rl.pickcode,
+      url: shareUrl || magnetUrl || "",
+      shareUrl,
+      receiveCode: rl.receive_code || rl.access_code || (m ? m[1] : ""),
+      sourceService: rl.source_service,
+      resolution: rl.resolution,
+      slug: rl.slug,
+      unlocked: rl.unlocked,
+      magnetUrl,
+    };
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function MediaDetailTab({
   tmdbId, mediaType, defaultTitle, defaultPoster, onBack, addLog,
 }: MediaDetailTabProps) {
@@ -124,6 +188,7 @@ export default function MediaDetailTab({
   const [resources, setResources] = useState<MediaResourceLink[]>([]);
   const [resourcesLoading, setResourcesLoading] = useState(false);
   const [activeSource, setActiveSource] = useState<ResourceSourceKey>("unified");
+  const [seedhubTask, setSeedhubTask] = useState<SeedhubTaskState | null>(null);
 
   // Transfer
   const [transferringId, setTransferringId] = useState<string | null>(null);
@@ -186,6 +251,54 @@ export default function MediaDetailTab({
     }
   };
 
+  const fetchSeedhubTaskLinks = async (): Promise<MediaResourceLink[]> => {
+    const startResponse = mediaType === "movie"
+      ? await searchApi.createMovieSeedhubMagnetTask(tmdbId, 40, false)
+      : await searchApi.createTvSeedhubMagnetTask(tmdbId, selectedSeason, 40, false);
+    const startTask = startResponse.data as Record<string, unknown>;
+    const taskId = String(startTask.task_id || "");
+    if (!taskId) throw new Error("SeedHub 后台任务未返回 task_id");
+
+    setSeedhubTask({
+      taskId,
+      status: String(startTask.status || "queued"),
+      message: String(startTask.message || "SeedHub 任务已排队"),
+    });
+
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const response = await searchApi.getSeedhubMagnetTask(taskId);
+      const task = response.data as Record<string, unknown>;
+      const status = String(task.status || "");
+      setSeedhubTask({
+        taskId,
+        status,
+        message: String(task.message || "SeedHub 后台检索中"),
+      });
+      if (["success", "partial_success"].includes(status)) {
+        return mapResourceLinks(task.items || []);
+      }
+      if (status === "cancelled") return [];
+      if (status === "failed") {
+        throw new Error(String(task.error || task.message || "SeedHub 检索失败"));
+      }
+      await sleep(1500);
+    }
+
+    throw new Error("SeedHub 后台检索超时");
+  };
+
+  const cancelSeedhubTask = async () => {
+    if (!seedhubTask?.taskId) return;
+    const taskId = seedhubTask.taskId;
+    try {
+      await searchApi.cancelSeedhubMagnetTask(taskId);
+      setSeedhubTask({ taskId, status: "cancelled", message: "SeedHub 后台任务已取消" });
+      setResourcesLoading(false);
+    } catch (err) {
+      await addLog("ERROR", `取消 SeedHub 任务失败: ${String(err)}`);
+    }
+  };
+
   // ---- Fetch resource links (multi-source) ----
   const fetchResourceLinks = async (source: ResourceSourceKey): Promise<MediaResourceLink[]> => {
     const isMovie = mediaType === "movie";
@@ -226,10 +339,7 @@ export default function MediaDetailTab({
             : await searchApi.getTvQuarkTg(tmdbId, selectedSeason);
           break;
         case "magnet_seedhub":
-          response = isMovie
-            ? await searchApi.getMovieMagnetSeedhub(tmdbId)
-            : await searchApi.getTvMagnetSeedhub(tmdbId, selectedSeason);
-          break;
+          return await fetchSeedhubTaskLinks();
         case "magnet_butailing":
           response = isMovie
             ? await searchApi.getMovieMagnetButailing(tmdbId)
@@ -239,41 +349,7 @@ export default function MediaDetailTab({
           response = await searchApi.getMediaResources(tmdbId, mediaType, selectedSeason, false);
       }
 
-      interface ResourceLinkRaw {
-        title?: string; name?: string; size?: string | number; seeds?: number;
-        pick_code?: string; pickcode?: string; share_link?: string; share_url?: string;
-        url?: string; receive_code?: string; access_code?: string;
-        source_service?: string; resolution?: string; slug?: string; unlocked?: boolean;
-        magnet?: string; info_hash?: string;
-      }
-      const rawData = response.data;
-      const rawLinks: ResourceLinkRaw[] = Array.isArray(rawData)
-        ? (rawData as ResourceLinkRaw[])
-        : ((rawData as Record<string, unknown>)?.items as ResourceLinkRaw[])
-          || ((rawData as Record<string, unknown>)?.resources as ResourceLinkRaw[])
-          || ((rawData as Record<string, unknown>)?.links as ResourceLinkRaw[])
-          || ((rawData as Record<string, unknown>)?.magnets as ResourceLinkRaw[])
-          || [];
-
-      return rawLinks.map((rl) => {
-        const shareUrl = rl.share_link || rl.share_url || rl.url || "";
-        const magnetUrl = rl.magnet || (rl.info_hash ? `magnet:?xt=urn:btih:${rl.info_hash}` : "");
-        const m = shareUrl.match(/[?&](?:password|pwd|receive_code)=([^&#]+)/i);
-        return {
-          name: rl.title || rl.name || "未命名资源",
-          size: typeof rl.size === "number" ? formatSize(rl.size) : String(rl.size || "未知"),
-          seeds: rl.seeds,
-          pickcode: rl.pick_code || rl.pickcode,
-          url: shareUrl || magnetUrl || "",
-          shareUrl,
-          receiveCode: rl.receive_code || rl.access_code || (m ? m[1] : ""),
-          sourceService: rl.source_service,
-          resolution: rl.resolution,
-          slug: rl.slug,
-          unlocked: rl.unlocked,
-          magnetUrl,
-        };
-      });
+      return mapResourceLinks(response.data);
     } catch (err: unknown) {
       console.error("Failed to fetch resource links:", err);
       return [];
@@ -283,6 +359,7 @@ export default function MediaDetailTab({
   const handleSwitchSource = async (source: ResourceSourceKey) => {
     setActiveSource(source);
     setResourcesLoading(true);
+    if (source !== "magnet_seedhub") setSeedhubTask(null);
     setResources([]);
     const links = await fetchResourceLinks(source);
     setResources(links);
@@ -594,7 +671,21 @@ export default function MediaDetailTab({
             {resourcesLoading ? (
               <div className="text-center py-8">
                 <div className="w-6 h-6 border-[3px] rounded-full animate-spin mx-auto" style={{ borderColor: "var(--brand-primary)", borderTopColor: "transparent" }} />
-                <p className="text-[10px] mt-2 font-semibold" style={{ color: "var(--txt-muted)" }}>拉取资源链接…</p>
+                <p className="text-[10px] mt-2 font-semibold" style={{ color: "var(--txt-muted)" }}>
+                  {activeSource === "magnet_seedhub" && seedhubTask
+                    ? `${seedhubTask.message} (${seedhubTask.status})`
+                    : "拉取资源链接…"}
+                </p>
+                {activeSource === "magnet_seedhub" && seedhubTask?.taskId && (
+                  <button
+                    type="button"
+                    onClick={cancelSeedhubTask}
+                    className="mt-3 px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover"
+                    style={{ color: "var(--accent-danger)", border: "1px solid var(--border)", background: "var(--surface)" }}
+                  >
+                    取消 SeedHub 任务
+                  </button>
+                )}
               </div>
             ) : resources.length === 0 ? (
               <div className="text-center py-8 rounded-xl" style={{ background: "var(--surface-subtle)", border: "1px dashed var(--border)" }}>

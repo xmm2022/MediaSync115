@@ -159,8 +159,8 @@ export const searchApi = {
   getTvMagnetButailing: (tmdbId: number, season: number | null = null) =>
     api.get(`/search/tv/${tmdbId}/magnet/butailing`, { params: { season } }),
 
-  createTvSeedhubMagnetTask: (tmdbId: number, limit = 40, forceRefresh = false) =>
-    api.post(`/search/tv/${tmdbId}/magnet/seedhub/tasks`, null, { params: { limit, force_refresh: forceRefresh } }),
+  createTvSeedhubMagnetTask: (tmdbId: number, season: number | null = null, limit = 40, forceRefresh = false) =>
+    api.post(`/search/tv/${tmdbId}/magnet/seedhub/tasks`, null, { params: { season, limit, force_refresh: forceRefresh } }),
 
   // ---- 统一资源 ----
   getMediaResources: (tmdbId: number, mediaType: string, season: number | null = null, refresh = false) =>

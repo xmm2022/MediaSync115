@@ -240,10 +240,24 @@ class SeedhubTaskService:
                         }
                         await self._append_item(task_id, item, limit)
 
-                    await asyncio.gather(
-                        *(resolve_entry(entry) for entry in entries),
-                        return_exceptions=True,
-                    )
+                    cursor = 0
+                    while cursor < len(entries):
+                        current = await self.get(task_id)
+                        if (
+                            not current
+                            or current.get("status") == "cancelled"
+                            or len(current.get("items") or []) >= limit
+                        ):
+                            break
+
+                        remaining = limit - len(current.get("items") or [])
+                        batch_size = min(4, max(1, remaining), len(entries) - cursor)
+                        batch = entries[cursor : cursor + batch_size]
+                        cursor += batch_size
+                        await asyncio.gather(
+                            *(resolve_entry(entry) for entry in batch),
+                            return_exceptions=True,
+                        )
 
                     current = await self.get(task_id)
                     if current and len(current.get("items") or []) >= limit:

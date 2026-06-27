@@ -2753,6 +2753,7 @@ async def create_seedhub_magnet_task(
     tmdb_id: int,
     limit: int = Query(40, ge=1, le=80, description="结果上限"),
     force_refresh: bool = Query(False, description="是否绕过缓存"),
+    season: int | None = Query(None, ge=0, description="剧集季号"),
 ):
     normalized_media_type = str(media_type or "").strip().lower()
     if normalized_media_type not in {"movie", "tv"}:
@@ -2760,7 +2761,7 @@ async def create_seedhub_magnet_task(
 
     media_payload = await _load_media_payload(tmdb_id, normalized_media_type)
     keyword_candidates = _build_seedhub_keyword_candidates(
-        media_payload, normalized_media_type, tmdb_id
+        media_payload, normalized_media_type, tmdb_id, season
     )
 
     task = await seedhub_task_service.start(
