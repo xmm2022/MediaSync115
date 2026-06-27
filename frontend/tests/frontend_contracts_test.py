@@ -145,6 +145,7 @@ class FrontendContractsTest(unittest.TestCase):
         pan115 = read_source("src/components/Pan115FilesTab.tsx")
 
         self.assertGreaterEqual(pan115.count("shrink-0 min-w-[3.5rem]"), 2)
+        self.assertGreaterEqual(pan115.count("grid-cols-[minmax(0,1fr)_5.5rem_3.5rem]"), 2)
 
     def test_search_disables_keyword_search_without_tmdb_key(self) -> None:
         search = read_source("src/components/SearchTab.tsx")

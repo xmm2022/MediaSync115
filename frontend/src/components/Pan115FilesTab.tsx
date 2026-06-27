@@ -1164,12 +1164,12 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
             {transferDefaultName ? (
               <p className="text-[11px] font-bold" style={{ color: "var(--txt-secondary)" }}>当前: {transferDefaultName}</p>
             ) : null}
-            <div className="flex gap-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_3.5rem] gap-2">
               <input type="text" placeholder="文件夹 ID" value={transferDefaultFolder} onChange={e => setTransferDefaultFolder(e.target.value)}
-                className="flex-1 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
+                className="min-w-0 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
                 style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }} />
               <input type="text" placeholder="名称" value={transferDefaultName} onChange={e => setTransferDefaultName(e.target.value)}
-                className="w-24 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
+                className="min-w-0 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
                 style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }} />
               <button onClick={handleSetTransferDefault} disabled={!transferDefaultFolder.trim()}
                 className="shrink-0 min-w-[3.5rem] px-3 py-1.5 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50">设置</button>
@@ -1190,13 +1190,13 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
             ) : (
               <p className="text-[11px] font-semibold" style={{ color: "var(--txt-muted)" }}>未设置</p>
             )}
-            <div className="flex gap-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_3.5rem] gap-2">
               <input
                 type="text"
                 placeholder="文件夹 ID"
                 value={defaultFolderId}
                 onChange={(e) => setDefaultFolderId(e.target.value)}
-                className="flex-1 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
+                className="min-w-0 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
                 style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
               />
               <input
@@ -1204,7 +1204,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                 placeholder="名称"
                 value={defaultFolderName}
                 onChange={(e) => setDefaultFolderName(e.target.value)}
-                className="w-24 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
+                className="min-w-0 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
                 style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
               />
               <button
