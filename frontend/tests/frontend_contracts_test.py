@@ -146,6 +146,14 @@ class FrontendContractsTest(unittest.TestCase):
 
         self.assertGreaterEqual(pan115.count("shrink-0 min-w-[3.5rem]"), 2)
 
+    def test_search_disables_keyword_search_without_tmdb_key(self) -> None:
+        search = read_source("src/components/SearchTab.tsx")
+
+        self.assertIn('getExploreMeta("tmdb")', search)
+        self.assertIn("tmdbSearchConfigured", search)
+        self.assertIn("!tmdbSearchConfigured", search)
+        self.assertIn("TMDB API Key 未配置", search)
+
 
 if __name__ == "__main__":
     unittest.main()

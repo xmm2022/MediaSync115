@@ -74,6 +74,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   const [activeSource, setActiveSource] = useState<ResourceSourceKey>("unified");
   const [unlockingSlug, setUnlockingSlug] = useState<string | null>(null);
   const [progress, setProgress] = useState<Pan115ProgressState>(deriveDefaultProgressState());
+  const [tmdbSearchConfigured, setTmdbSearchConfigured] = useState<boolean | null>(null);
 
   // IMDB 桥接
   const [showImdbBridge, setShowImdbBridge] = useState(false);
@@ -145,6 +146,14 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     const keyword = searchQuery.trim();
     if (!keyword) {
       await loadResources();
+      return;
+    }
+    if (tmdbSearchConfigured === null) {
+      setLoadError("正在检查 TMDB 搜索配置，请稍后重试。");
+      return;
+    }
+    if (!tmdbSearchConfigured) {
+      setLoadError("TMDB API Key 未配置，关键词搜索暂不可用；请前往配置与终端补充后重试。");
       return;
     }
 
@@ -469,6 +478,29 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     loadResources();
   }, [loadResources]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTmdbSearchStatus = async () => {
+      try {
+        const response = await searchApi.getExploreMeta("tmdb");
+        if (!cancelled) {
+          setTmdbSearchConfigured(Boolean(response.data.tmdb_configured));
+        }
+      } catch {
+        if (!cancelled) {
+          setTmdbSearchConfigured(true);
+        }
+      }
+    };
+
+    void loadTmdbSearchStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ---- Filtered list ----
   const filteredResources = resources.filter((res) => {
     const matchesSearch =
@@ -529,13 +561,19 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
             </div>
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || !tmdbSearchConfigured}
               className="px-4 py-3 rounded-2xl text-xs font-black text-white transition-all disabled:opacity-60"
               style={{ background: "var(--brand-primary)" }}
+              title={tmdbSearchConfigured === null ? "正在检查 TMDB 搜索配置" : tmdbSearchConfigured ? "搜索" : "TMDB API Key 未配置"}
             >
               搜索
             </button>
           </form>
+          {tmdbSearchConfigured === false && (
+            <p className="mt-2 text-[10px] font-bold" style={{ color: "var(--accent-warn)" }}>
+              TMDB API Key 未配置，关键词搜索暂不可用；仍可浏览下方榜单。
+            </p>
+          )}
         </div>
 
         {/* Category Filters */}

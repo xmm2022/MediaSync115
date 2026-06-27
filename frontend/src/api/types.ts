@@ -201,6 +201,7 @@ export interface ExploreMeta {
   source: string;
   fetched_at?: string;
   sections: ExploreSection[];
+  tmdb_configured?: boolean;
 }
 
 export interface ExploreHomeResponse {
