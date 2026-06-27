@@ -106,8 +106,7 @@ async def diagnose_strm(request: Request):
         _raise_strm_error(exc)
 
 
-@router.api_route("/play/{token}", methods=["GET", "HEAD"])
-async def play_strm(token: str, request: Request):
+async def _play_strm(token: str, request: Request):
     try:
         return await strm_service.resolve_play_response_with_headers(
             token=token,
@@ -116,3 +115,13 @@ async def play_strm(token: str, request: Request):
         )
     except Exception as exc:
         _raise_strm_error(exc)
+
+
+@router.get("/play/{token}", operation_id="get_strm_play")
+async def play_strm(token: str, request: Request):
+    return await _play_strm(token, request)
+
+
+@router.head("/play/{token}", operation_id="head_strm_play")
+async def head_strm(token: str, request: Request):
+    return await _play_strm(token, request)

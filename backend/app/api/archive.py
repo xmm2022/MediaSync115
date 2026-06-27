@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.archive_scheduler_service import archive_scheduler_service
 from app.services.archive_service import archive_service
@@ -40,6 +40,8 @@ def _raise_archive_115_error(exc: Exception) -> None:
 
 
 class ArchiveConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     archive_enabled: Optional[bool] = None
     archive_watch_cid: Optional[str] = None
     archive_watch_name: Optional[str] = None
@@ -57,9 +59,6 @@ class ArchiveConfigRequest(BaseModel):
         default=None,
         description="归档命名格式配置（文件名/文件夹名模板）",
     )
-
-    class Config:
-        extra = "allow"
 
 
 @router.get("/subdir-options")
