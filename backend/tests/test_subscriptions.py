@@ -13,7 +13,10 @@ class TestSubscriptions:
         response = client.get("/api/subscriptions")
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
+        assert isinstance(data, dict)
+        assert isinstance(data["items"], list)
+        assert isinstance(data["douban_id_map"], dict)
+        assert isinstance(data["imdb_id_map"], dict)
 
     def test_create_subscription_validation(self, client: TestClient) -> None:
         """测试创建订阅参数验证"""

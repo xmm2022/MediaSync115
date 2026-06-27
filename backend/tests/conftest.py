@@ -38,9 +38,27 @@ async def async_client() -> AsyncGenerator[AsyncClient, None]:
         yield client
 
 
+def _login_test_client(test_client: TestClient) -> None:
+    response = test_client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "password"},
+    )
+    assert response.status_code == 200
+
+
 @pytest.fixture(scope="session")
 def client() -> Generator[TestClient, None, None]:
-    """创建同步 HTTP 客户端"""
+    """创建已登录的同步 HTTP 客户端"""
+    from main import app
+
+    with TestClient(app) as test_client:
+        _login_test_client(test_client)
+        yield test_client
+
+
+@pytest.fixture()
+def unauthenticated_client() -> Generator[TestClient, None, None]:
+    """创建未登录的同步 HTTP 客户端"""
     from main import app
 
     with TestClient(app) as test_client:

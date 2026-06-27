@@ -168,7 +168,11 @@ class TestSettings:
         assert stop_result["job"]["status"] == "cancelling"
         assert fake_task.cancelled_with == "TG 索引重建停止中"
 
-    def test_stop_tg_index_job_requires_auth(self, client: TestClient) -> None:
+    def test_stop_tg_index_job_requires_auth(
+        self, unauthenticated_client: TestClient
+    ) -> None:
         """停止 TG 索引任务接口已注册，未登录时应走统一鉴权。"""
-        response = client.post("/api/settings/tg/index/stop", json={"job_type": "backfill"})
+        response = unauthenticated_client.post(
+            "/api/settings/tg/index/stop", json={"job_type": "backfill"}
+        )
         assert response.status_code == 401

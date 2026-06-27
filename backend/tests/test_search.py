@@ -1,7 +1,6 @@
 """
 搜索 API 测试
 """
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -13,8 +12,25 @@ class TestSearch:
         response = client.get("/api/search")
         assert response.status_code == 422
 
-    def test_search_with_query(self, client: TestClient) -> None:
+    def test_search_with_query(self, client: TestClient, monkeypatch) -> None:
         """测试正常搜索"""
+        from app.api import search as search_api
+
+        async def fake_search_multi(query: str, page: int = 1):
+            return {
+                "page": page,
+                "total_results": 1,
+                "items": [
+                    {
+                        "id": 1,
+                        "tmdb_id": 1,
+                        "media_type": "movie",
+                        "title": query,
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(search_api.tmdb_service, "search_multi", fake_search_multi)
         response = client.get("/api/search?query=batman")
         assert response.status_code == 200
         data = response.json()
@@ -22,8 +38,18 @@ class TestSearch:
         assert "total_results" in data
         assert isinstance(data["items"], list)
 
-    def test_search_pagination(self, client: TestClient) -> None:
+    def test_search_pagination(self, client: TestClient, monkeypatch) -> None:
         """测试搜索分页"""
+        from app.api import search as search_api
+
+        async def fake_search_multi(query: str, page: int = 1):
+            return {
+                "page": page,
+                "total_results": 0,
+                "items": [],
+            }
+
+        monkeypatch.setattr(search_api.tmdb_service, "search_multi", fake_search_multi)
         response = client.get("/api/search?query=batman&page=1")
         assert response.status_code == 200
         data = response.json()
@@ -37,9 +63,27 @@ class TestSearch:
         assert "items" in data
         assert isinstance(data["items"], list)
 
-    def test_explore_sections(self, client: TestClient) -> None:
+    def test_explore_sections(self, client: TestClient, monkeypatch) -> None:
         """测试探索分类"""
+        from app.api import search as search_api
+
+        async def fake_fetch_douban_section(source, limit, refresh, client=None):
+            return {
+                "key": source["key"],
+                "title": source["title"],
+                "tag": source["tag"],
+                "source_url": source["url"],
+                "fetched_at": "2026-06-27T00:00:00+08:00",
+                "total": 0,
+                "items": [],
+            }
+
+        monkeypatch.setattr(
+            search_api,
+            "fetch_douban_section",
+            fake_fetch_douban_section,
+        )
         response = client.get("/api/search/explore/sections?source=douban")
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
+        assert isinstance(data["sections"], list)

@@ -49,6 +49,7 @@ def test_proxy_manager_uses_socks_fallback_for_httpx_clients(monkeypatch) -> Non
         Client=DummySyncClient,
     )
     monkeypatch.setattr(proxy_module, "_get_httpx", lambda: fake_httpx)
+    monkeypatch.setattr(manager, "_is_proxy_endpoint_reachable", lambda _url: True)
 
     try:
         async_client = manager.create_httpx_client(timeout=5.0)

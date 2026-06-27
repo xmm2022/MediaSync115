@@ -589,9 +589,12 @@ class ExploreActionQueueService:
                 logger.exception("save worker loop error: %s", exc)
                 await asyncio.sleep(0.5)
 
-    async def _resolve_route(self, payload: dict[str, Any]) -> dict[str, Any]:
+    @staticmethod
+    async def _resolve_route(payload: dict[str, Any]) -> dict[str, Any]:
         source = str(payload.get("source") or "douban").strip().lower()
-        media_type = self._normalize_media_type(payload.get("media_type"))
+        media_type = ExploreActionQueueService._normalize_media_type(
+            payload.get("media_type")
+        )
         raw_tmdb_id = payload.get("tmdb_id")
         tmdb_id: int | None = None
         try:
@@ -632,7 +635,7 @@ class ExploreActionQueueService:
             aliases = [aliases_payload.strip()]
 
         douban_id = str(payload.get("douban_id") or payload.get("id") or "").strip()
-        year = self._normalize_year(payload.get("year")) or None
+        year = ExploreActionQueueService._normalize_year(payload.get("year")) or None
 
         resolve_result = await resolve_douban_explore_item(
             douban_id=douban_id,
@@ -656,7 +659,9 @@ class ExploreActionQueueService:
             raise ValueError("未能匹配到有效 TMDB 条目")
 
         return {
-            "media_type": self._normalize_media_type(resolve_result.get("media_type")),
+            "media_type": ExploreActionQueueService._normalize_media_type(
+                resolve_result.get("media_type")
+            ),
             "tmdb_id": resolved_tmdb_id,
             "douban_id": douban_id,
         }

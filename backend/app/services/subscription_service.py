@@ -1645,9 +1645,12 @@ class SubscriptionService:
                         )
                         attempt_info["status"] = "empty"
                         attempt_info["count"] = 0
-                        continue
-                attempt_info["count"] = len(source_resources)
-                primary_resources.extend(source_resources)
+                    else:
+                        attempt_info["count"] = len(source_resources)
+                        primary_resources.extend(source_resources)
+                else:
+                    attempt_info["count"] = len(source_resources)
+                    primary_resources.extend(source_resources)
 
             source_attempts.append(attempt_info)
 

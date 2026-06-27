@@ -39,6 +39,7 @@ class TestResourceQualityPreference:
     def test_size_range_still_filter_resources(self) -> None:
         resources = [
             {"resource_name": "Movie.1080p.WEB-DL 2.5GB"},
+            {"resource_name": "Movie.1080p.WEB-DL 4.0GB"},
             {"resource_name": "Movie.1080p.WEB-DL 8.0GB"},
         ]
 
@@ -50,4 +51,4 @@ class TestResourceQualityPreference:
         )
 
         assert len(result) == 1
-        assert "2.5GB" in result[0]["resource_name"]
+        assert "4.0GB" in result[0]["resource_name"]
