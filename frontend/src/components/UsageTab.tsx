@@ -16,7 +16,9 @@ import { SyncDirectory } from "../types";
 import { subscriptionApi, archiveApi, schedulerApi, logsApi } from "../api";
 import { LOG_TOTAL_LIST_PARAMS } from "../utils/runtimeDefaults";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { Rss, Archive, Clock, FileText, HardDrive, Activity, AlertCircle, FolderOpen, RefreshCw } from "lucide-react";
+import { Rss, Archive, Clock, FileText, HardDrive, Activity, AlertCircle, FolderOpen } from "lucide-react";
+import ErrorBanner from "./ui/ErrorBanner";
+import EmptyState from "./ui/EmptyState";
 
 interface UsageTabProps { directories: SyncDirectory[]; }
 
@@ -92,23 +94,12 @@ export default function UsageTab({ directories }: UsageTabProps) {
   );
   if (error) return (
     <div className="flex items-center justify-center h-80">
-      <div className="flex flex-col items-center gap-3" style={{ color: "var(--accent-danger)" }}>
-        <AlertCircle className="w-8 h-8" />
-        <span className="text-sm font-bold">{error}</span>
-        <button onClick={() => loadStats()} className="px-4 py-2 text-xs font-bold rounded-lg glass-hover flex items-center gap-1.5" style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}>
-          <RefreshCw className="w-3.5 h-3.5" />
-          重试
-        </button>
-      </div>
+      <ErrorBanner variant="block" icon={<AlertCircle className="w-8 h-8" style={{ color: "var(--accent-danger)" }} />} message={error} onRetry={() => loadStats()} />
     </div>
   );
   if (!stats) return (
     <div className="flex items-center justify-center h-80">
-      <div className="flex flex-col items-center gap-3" style={{ color: "var(--txt-muted)" }}>
-        <FolderOpen className="w-10 h-10" />
-        <span className="text-sm font-bold">暂无用量数据</span>
-        <span className="text-xs" style={{ color: "var(--txt-muted)" }}>后端尚未返回任何统计信息，请确认服务已启动</span>
-      </div>
+      <EmptyState icon={<FolderOpen className="w-10 h-10" style={{ color: "var(--txt-muted)" }} />} text="暂无用量数据" subtext="后端尚未返回任何统计信息，请确认服务已启动" />
     </div>
   );
 

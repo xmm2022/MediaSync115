@@ -8,9 +8,11 @@ import React, { useEffect, useState } from "react";
 import { watchlistApi, personFollowApi, licenseApi } from "../api";
 import type { LicenseStatus, PersonFollowFeedItem, WatchlistItem, PersonFollowItem } from "../api/types";
 import {
-  Bookmark, Users, KeyRound, Plus, Trash2, RefreshCw, Sparkles, Rss, CheckCircle2, XCircle, Heart, AlertTriangle,
+  Bookmark, Users, KeyRound, Plus, Trash2, RefreshCw, Sparkles, Rss, CheckCircle2, XCircle, Heart,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import ErrorBanner from "./ui/ErrorBanner";
+import EmptyState from "./ui/EmptyState";
 
 type Sub = "watchlist" | "person" | "license";
 
@@ -199,16 +201,12 @@ function WatchlistPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | 
           ))}
         </div>
       ) : loadError ? (
-        <div className="glass rounded-2xl p-6 text-center space-y-3">
-          <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
-          <p className="text-xs font-semibold" style={{ color: "var(--accent-danger)" }}>{loadError}</p>
-          <button onClick={load} className="px-4 py-2 text-xs font-bold rounded-lg glass-hover" style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}>重试</button>
+        <div className="glass rounded-2xl p-6 text-center">
+          <ErrorBanner variant="block" message={loadError} onRetry={load} />
         </div>
       ) : lists.length === 0 ? (
-        <div className="glass rounded-2xl p-6 text-center space-y-1">
-          <Bookmark className="w-7 h-7 mx-auto mb-1" style={{ color: "var(--txt-muted)" }} />
-          <p className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>暂无片单</p>
-          <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>在上方填入名称即可创建你的第一个片单。</p>
+        <div className="glass rounded-2xl p-6 text-center">
+          <EmptyState icon={<Bookmark className="w-7 h-7" style={{ color: "var(--txt-muted)" }} />} text="暂无片单" subtext="在上方填入名称即可创建你的第一个片单。" />
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -331,16 +329,12 @@ function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ER
           ))}
         </div>
       ) : loadError ? (
-        <div className="glass rounded-2xl p-6 text-center space-y-3">
-          <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
-          <p className="text-xs font-semibold" style={{ color: "var(--accent-danger)" }}>{loadError}</p>
-          <button onClick={load} className="px-4 py-2 text-xs font-bold rounded-lg glass-hover" style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}>重试</button>
+        <div className="glass rounded-2xl p-6 text-center">
+          <ErrorBanner variant="block" message={loadError} onRetry={load} />
         </div>
       ) : follows.length === 0 ? (
-        <div className="glass rounded-2xl p-6 text-center space-y-1">
-          <Users className="w-7 h-7 mx-auto mb-1" style={{ color: "var(--txt-muted)" }} />
-          <p className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>暂无关注的影人</p>
-          <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>在上方填入 TMDB 影人 ID 即可关注，追踪其新作动态。</p>
+        <div className="glass rounded-2xl p-6 text-center">
+          <EmptyState icon={<Users className="w-7 h-7" style={{ color: "var(--txt-muted)" }} />} text="暂无关注的影人" subtext="在上方填入 TMDB 影人 ID 即可关注，追踪其新作动态。" />
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
