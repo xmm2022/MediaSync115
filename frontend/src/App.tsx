@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
+import { toast, Toaster } from "sonner";
 import { PageName, SyncDirectory, SyncLog, type DetailContext } from "./types";
 import { logsApi, archiveApi, workflowApi, authApi, subscriptionApi } from "./api";
 import type { WorkflowItem } from "./api/types";
@@ -218,6 +219,12 @@ export default function App() {
         message,
       },
     ]);
+    // 同步弹出 transient toast，作为终端日志的轻量提示层。持久
+    // 日志仍保留在 setLogs 终端，toast 不取代它。INFO 太嘈杂不上 toast；
+    // SUCCESS/ERROR/WARN 给出瞬时反馈。
+    if (level === "SUCCESS") toast.success(message);
+    else if (level === "ERROR") toast.error(message);
+    else if (level === "WARN") toast.warning(message);
   };
 
   const handleLogin = async (event: React.FormEvent) => {
@@ -817,6 +824,7 @@ export default function App() {
           </span>
         </button>
       </div>
+      <Toaster position="top-right" richColors closeButton toastOptions={{ duration: 4000 }} />
     </div>
   );
 }
