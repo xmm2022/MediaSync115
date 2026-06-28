@@ -11,12 +11,12 @@
  *   - GET /api/logs?limit=1     → 操作日志总条数
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { SyncDirectory } from "../types";
 import { subscriptionApi, archiveApi, schedulerApi, logsApi } from "../api";
 import { LOG_TOTAL_LIST_PARAMS } from "../utils/runtimeDefaults";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { Rss, Archive, Clock, FileText, HardDrive, Activity, AlertCircle, FolderOpen } from "lucide-react";
+import { Rss, Archive, Clock, FileText, HardDrive, Activity, AlertCircle, FolderOpen, RefreshCw } from "lucide-react";
 
 interface UsageTabProps { directories: SyncDirectory[]; }
 
@@ -44,45 +44,43 @@ export default function UsageTab({ directories }: UsageTabProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadStats() {
-      try {
-        setLoading(true); setError(null);
-        const [subsRes, archiveTasksRes, schedulerRes, logsRes] = await Promise.all([
-          subscriptionApi.list().catch(() => ({ data: [] as unknown[] })),
-          archiveApi.listTasks().catch(() => ({ data: [] as unknown[] })),
-          schedulerApi.listTasks().catch(() => ({ data: [] as unknown[] })),
-          logsApi.list(LOG_TOTAL_LIST_PARAMS).catch(() => ({ data: { total: 0 } })),
-        ]);
-        if (cancelled) return;
-        const subs = Array.isArray(subsRes.data) ? subsRes.data : [];
-        const archTasks = Array.isArray(archiveTasksRes.data) ? archiveTasksRes.data : [];
-        const schedTasks = Array.isArray(schedulerRes.data) ? schedulerRes.data : [];
-        const totalSubscriptions = subs.length;
-        const activeSubscriptions = subs.filter((s: Record<string, unknown>) => s.is_active).length;
-        const subsByType = [
-          { name: "电影", count: subs.filter((s: Record<string, unknown>) => s.media_type === "movie").length },
-          { name: "剧集", count: subs.filter((s: Record<string, unknown>) => s.media_type === "tv").length },
-          { name: "合集", count: subs.filter((s: Record<string, unknown>) => s.media_type === "collection").length },
-        ].filter(g => g.count > 0);
-        const statusMap: Record<string, number> = {};
-        for (const t of archTasks) {
-          const s = formatStatusLabel((t as Record<string, string>).status || "unknown");
-          statusMap[s] = (statusMap[s] || 0) + 1;
-        }
-        const archiveTasksByStatus = Object.entries(statusMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
-        const enabledSchedulerTasks = schedTasks.filter((t: Record<string, unknown>) => t.enabled).length;
-        setStats({ totalSubscriptions, activeSubscriptions, subsByType, archiveTasksByStatus, totalArchiveTasks: archTasks.length, totalSchedulerTasks: schedTasks.length, enabledSchedulerTasks, totalLogs: (logsRes.data as Record<string, unknown>)?.total as number || 0 });
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "加载失败");
-      } finally {
-        if (!cancelled) setLoading(false);
+  const loadStats = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const [subsRes, archiveTasksRes, schedulerRes, logsRes] = await Promise.all([
+        subscriptionApi.list().catch(() => ({ data: [] as unknown[] })),
+        archiveApi.listTasks().catch(() => ({ data: [] as unknown[] })),
+        schedulerApi.listTasks().catch(() => ({ data: [] as unknown[] })),
+        logsApi.list(LOG_TOTAL_LIST_PARAMS).catch(() => ({ data: { total: 0 } })),
+      ]);
+      const subs = Array.isArray(subsRes.data) ? subsRes.data : [];
+      const archTasks = Array.isArray(archiveTasksRes.data) ? archiveTasksRes.data : [];
+      const schedTasks = Array.isArray(schedulerRes.data) ? schedulerRes.data : [];
+      const totalSubscriptions = subs.length;
+      const activeSubscriptions = subs.filter((s: Record<string, unknown>) => s.is_active).length;
+      const subsByType = [
+        { name: "电影", count: subs.filter((s: Record<string, unknown>) => s.media_type === "movie").length },
+        { name: "剧集", count: subs.filter((s: Record<string, unknown>) => s.media_type === "tv").length },
+        { name: "合集", count: subs.filter((s: Record<string, unknown>) => s.media_type === "collection").length },
+      ].filter(g => g.count > 0);
+      const statusMap: Record<string, number> = {};
+      for (const t of archTasks) {
+        const s = formatStatusLabel((t as Record<string, string>).status || "unknown");
+        statusMap[s] = (statusMap[s] || 0) + 1;
       }
+      const archiveTasksByStatus = Object.entries(statusMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+      const enabledSchedulerTasks = schedTasks.filter((t: Record<string, unknown>) => t.enabled).length;
+      setStats({ totalSubscriptions, activeSubscriptions, subsByType, archiveTasksByStatus, totalArchiveTasks: archTasks.length, totalSchedulerTasks: schedTasks.length, enabledSchedulerTasks, totalLogs: (logsRes.data as Record<string, unknown>)?.total as number || 0 });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载失败");
+    } finally {
+      setLoading(false);
     }
-    loadStats();
-    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    void loadStats();
+  }, [loadStats]);
 
   if (loading) return (
     <div className="flex items-center justify-center h-80">
@@ -97,6 +95,10 @@ export default function UsageTab({ directories }: UsageTabProps) {
       <div className="flex flex-col items-center gap-3" style={{ color: "var(--accent-danger)" }}>
         <AlertCircle className="w-8 h-8" />
         <span className="text-sm font-bold">{error}</span>
+        <button onClick={() => loadStats()} className="px-4 py-2 text-xs font-bold rounded-lg glass-hover flex items-center gap-1.5" style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}>
+          <RefreshCw className="w-3.5 h-3.5" />
+          重试
+        </button>
       </div>
     </div>
   );

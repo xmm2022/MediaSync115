@@ -8,7 +8,7 @@ import React, { useEffect, useState } from "react";
 import { watchlistApi, personFollowApi, licenseApi } from "../api";
 import type { LicenseStatus, PersonFollowFeedItem, WatchlistItem, PersonFollowItem } from "../api/types";
 import {
-  Bookmark, Users, KeyRound, Plus, Trash2, RefreshCw, Sparkles, Rss, CheckCircle2, XCircle, Heart,
+  Bookmark, Users, KeyRound, Plus, Trash2, RefreshCw, Sparkles, Rss, CheckCircle2, XCircle, Heart, AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -120,17 +120,21 @@ export default function LibraryPlusTab({ addLog }: { addLog: (l: "INFO" | "SUCCE
 function WatchlistPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ERROR", m: string) => Promise<void> }) {
   const [lists, setLists] = useState<WatchlistItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
 
   const load = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const { data } = await watchlistApi.list();
       setLists(data ?? []);
     } catch (err: any) {
-      addLog("ERROR", `加载片单失败: ${err?.message || err}`);
+      const msg = err?.message || String(err);
+      setLoadError(`加载片单失败: ${msg}`);
+      await addLog("ERROR", `加载片单失败: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -182,8 +186,30 @@ function WatchlistPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | 
         </div>
       </div>
 
-      {loading ? <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>加载中…</p> : lists.length === 0 ? (
-        <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>暂无片单</p>
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3" aria-busy="true">
+          {[0, 1].map((i) => (
+            <div key={`sk-${i}`} className="glass rounded-2xl p-4 space-y-2 animate-pulse" aria-hidden="true">
+              <div className="h-3.5 rounded w-1/2" style={{ background: "var(--surface-subtle)" }} />
+              <div className="h-2.5 rounded w-3/4" style={{ background: "var(--surface-subtle)" }} />
+              <div className="flex gap-1 pt-1">
+                <div className="h-3 w-12 rounded" style={{ background: "var(--surface-subtle)" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : loadError ? (
+        <div className="glass rounded-2xl p-6 text-center space-y-3">
+          <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
+          <p className="text-xs font-semibold" style={{ color: "var(--accent-danger)" }}>{loadError}</p>
+          <button onClick={load} className="px-4 py-2 text-xs font-bold rounded-lg glass-hover" style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}>重试</button>
+        </div>
+      ) : lists.length === 0 ? (
+        <div className="glass rounded-2xl p-6 text-center space-y-1">
+          <Bookmark className="w-7 h-7 mx-auto mb-1" style={{ color: "var(--txt-muted)" }} />
+          <p className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>暂无片单</p>
+          <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>在上方填入名称即可创建你的第一个片单。</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {lists.map((l) => (
@@ -213,12 +239,14 @@ function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ER
   const [follows, setFollows] = useState<PersonFollowItem[]>([]);
   const [feed, setFeed] = useState<PersonFollowFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [personId, setPersonId] = useState<number | undefined>(undefined);
   const [personName, setPersonName] = useState("");
 
   const load = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [l, f] = await Promise.all([
         personFollowApi.list().catch(() => ({ data: [] as PersonFollowItem[] })),
@@ -227,7 +255,9 @@ function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ER
       setFollows(l.data ?? []);
       setFeed(Array.isArray(f.data) ? f.data : []);
     } catch (err: any) {
-      addLog("ERROR", `加载影人关注失败: ${err?.message || err}`);
+      const msg = err?.message || String(err);
+      setLoadError(`加载影人关注失败: ${msg}`);
+      await addLog("ERROR", `加载影人关注失败: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -290,8 +320,28 @@ function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ER
         </div>
       </div>
 
-      {loading ? <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>加载中…</p> : follows.length === 0 ? (
-        <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>暂无关注的影人</p>
+      {loading ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3" aria-busy="true">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={`sk-${i}`} className="glass rounded-2xl p-3 text-center space-y-2 animate-pulse" aria-hidden="true">
+              <div className="w-16 h-16 rounded-full mx-auto" style={{ background: "var(--surface-subtle)" }} />
+              <div className="h-2.5 rounded w-2/3 mx-auto" style={{ background: "var(--surface-subtle)" }} />
+              <div className="h-2 rounded w-1/2 mx-auto" style={{ background: "var(--surface-subtle)" }} />
+            </div>
+          ))}
+        </div>
+      ) : loadError ? (
+        <div className="glass rounded-2xl p-6 text-center space-y-3">
+          <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
+          <p className="text-xs font-semibold" style={{ color: "var(--accent-danger)" }}>{loadError}</p>
+          <button onClick={load} className="px-4 py-2 text-xs font-bold rounded-lg glass-hover" style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}>重试</button>
+        </div>
+      ) : follows.length === 0 ? (
+        <div className="glass rounded-2xl p-6 text-center space-y-1">
+          <Users className="w-7 h-7 mx-auto mb-1" style={{ color: "var(--txt-muted)" }} />
+          <p className="text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>暂无关注的影人</p>
+          <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>在上方填入 TMDB 影人 ID 即可关注，追踪其新作动态。</p>
+        </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {follows.map((p) => (
