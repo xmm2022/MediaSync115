@@ -539,9 +539,16 @@ export default function MediaDetailTab({
           <p className="text-xs font-bold mt-3" style={{ color: "var(--txt-muted)" }}>加载详情中…</p>
         </div>
       ) : error ? (
-        <div className="glass-heavy rounded-3xl p-8 text-center space-y-3">
+        <div className="glass-heavy rounded-3xl p-8 text-center space-y-4">
           <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
           <p className="text-sm font-semibold" style={{ color: "var(--accent-danger)" }}>{error}</p>
+          <button
+            onClick={() => loadDetail()}
+            className="px-4 py-2 text-xs font-bold rounded-xl glass-hover"
+            style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}
+          >
+            重试
+          </button>
         </div>
       ) : (
         <>
