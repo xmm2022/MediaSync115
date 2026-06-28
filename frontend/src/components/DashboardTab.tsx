@@ -70,6 +70,9 @@ export default function DashboardTab({
   const [newClient, setNewClient] = useState<"emby" | "feiniu">("emby");
   const [isSyncingAll, setIsSyncingAll] = useState(false);
 
+  // 初始加载标记：区分「还在首次加载」与「加载完成但确实无目录」，避免闪现误导性空态
+  const [initialLoaded, setInitialLoaded] = useState(false);
+
   // 归档任务列表 — 用于派生目录状态
   const [archiveTasks, setArchiveTasks] = useState<ArchiveTask[]>([]);
   const [pan115CookieStatus, setPan115CookieStatus] = useState<Pan115CookieStatus>({
@@ -86,10 +89,27 @@ export default function DashboardTab({
         if (Array.isArray(tasks)) setArchiveTasks(tasks as ArchiveTask[]);
       } catch (err) {
         console.error("Failed to load archive tasks:", err);
+      } finally {
+        setInitialLoaded(true);
       }
     };
     loadTasks();
   }, [directories]);
+
+  // 添加目录模态框：Esc 关闭 + 锁定背景滚动
+  useEffect(() => {
+    if (!showAddModal) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowAddModal(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [showAddModal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -453,13 +473,40 @@ export default function DashboardTab({
 
         {/* Horizontal Scroll Cards */}
         <div className="flex gap-6 overflow-x-auto no-scrollbar pb-4 snap-x">
-          {directories.length === 0 && (
-            <div className="snap-start flex-shrink-0 w-72 p-6 rounded-2xl glass flex flex-col items-center justify-center text-center space-y-2 min-h-[280px]" style={{ border: "1px dashed var(--border-strong)" } as React.CSSProperties}>
+          {!initialLoaded && directories.length === 0 ? (
+            /* 首次加载骨架屏：仅当尚无目录数据时显示，避免漏盖已加载的卡片 */
+            [0, 1, 2].map((i) => (
+              <div key={`sk-${i}`} className="snap-start flex-shrink-0 w-72 p-6 rounded-2xl glass space-y-4 animate-pulse min-h-[280px]" aria-hidden="true">
+                <div className="flex justify-between">
+                  <div className="w-11 h-11 rounded-xl" style={{ background: "var(--surface-subtle)" }} />
+                  <div className="w-12 h-12 rounded-full" style={{ background: "var(--surface-subtle)" }} />
+                </div>
+                <div className="h-4 rounded w-2/3" style={{ background: "var(--surface-subtle)" }} />
+                <div className="space-y-2 pt-2">
+                  <div className="h-3 rounded" style={{ background: "var(--surface-subtle)" }} />
+                  <div className="h-3 rounded w-5/6" style={{ background: "var(--surface-subtle)" }} />
+                  <div className="h-3 rounded w-4/6" style={{ background: "var(--surface-subtle)" }} />
+                </div>
+                <div className="h-2 rounded-full" style={{ background: "var(--surface-subtle)" }} />
+              </div>
+            ))
+          ) : directories.length === 0 ? (
+            /* 加载完成但仍无目录：引导添加，而非暗示后端故障 */
+            <div className="snap-start flex-shrink-0 w-72 p-6 rounded-2xl glass flex flex-col items-center justify-center text-center space-y-3 min-h-[280px]" style={{ border: "1px dashed var(--border-strong)" } as React.CSSProperties}>
               <Database className="w-8 h-8" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />
-              <p className="text-xs font-semibold" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>暂无 115 目录数据</p>
-              <p className="text-[10px]" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>请检查后端归档服务及 115 连接</p>
+              <div className="space-y-1">
+                <p className="text-xs font-bold" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>尚未配置归档监听目录</p>
+                <p className="text-[10px] leading-relaxed" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>点击「添加目录」设置 115 网盘监听文件夹，启动归档同步。</p>
+              </div>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="px-4 py-2 text-xs font-bold rounded-lg bg-brand-primary text-white transition-all hover:opacity-90 shadow-md flex items-center gap-1.5"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                添加目录
+              </button>
             </div>
-          )}
+          ) : null}
           {directories.map((dir) => (
             <div
               key={dir.id}
@@ -487,6 +534,9 @@ export default function DashboardTab({
                 {/* Custom Toggle Switch — 全局归档开关 */}
                 <button
                   onClick={() => toggleDir(dir.id)}
+                  aria-label={dir.enabled ? "暂停归档服务" : "启用归档服务"}
+                  aria-pressed={dir.enabled}
+                  role="switch"
                   className="focus:outline-none transition-transform active:scale-95"
                   title="切换归档服务全局开关"
                 >
@@ -617,7 +667,7 @@ export default function DashboardTab({
       {/* 后端无独立"添加同步目录"概念。保存动作映射到 archiveApi.updateConfig (设置 archive_watch_cid)。 */}
       <AnimatePresence>
         {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="配置归档监听目录">
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
