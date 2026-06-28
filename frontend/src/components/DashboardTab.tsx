@@ -302,11 +302,6 @@ export default function DashboardTab({
 
   return (
     <div className="space-y-8 md:space-y-12">
-      {/* 数据来源提示条：所有数据来自 /api/archive/* 端点 */}
-      <div className="glass-heavy rounded-xl px-4 py-2 flex items-center gap-2 text-xs font-medium" style={{ color: "var(--accent-info)" } as React.CSSProperties}>
-        <Info className="w-4 h-4 shrink-0" />
-        <span>仪表盘数据来自后端归档服务 (/api/archive/*)。速度/大小/项数等字段后端不提供，显示 "-"。完整归档配置请前往设置页。</span>
-      </div>
 
       {/* Centerpiece: Luminous Engine Dial */}
       <section className="flex flex-col items-center">
@@ -425,22 +420,33 @@ export default function DashboardTab({
             <h2 className="font-headline text-xl sm:text-2xl font-bold tracking-tight" style={{ color: "var(--txt)" } as React.CSSProperties}>115 目录列表 ({activeCount} 个启用)</h2>
             <p className="text-sm" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>从 /api/archive/folders 获取，状态从 /api/archive/tasks 派生</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:shrink-0">
             <button
               onClick={triggerFullScan}
               disabled={isSyncingAll}
-              className="min-w-0 px-3 sm:px-4 py-2 bg-brand-primary text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50 hover:bg-opacity-90 disabled:hover:bg-opacity-100"
+              aria-label="手动归档扫描"
+              className="min-w-0 px-3 sm:px-4 py-2 bg-brand-primary text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50 hover:opacity-90 disabled:hover:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingAll ? "animate-spin" : ""}`} />
-              <span className="truncate">{isSyncingAll ? "正在执行归档扫描..." : "手动归档扫描"}</span>
+              <span className="truncate">{isSyncingAll ? "扫描中..." : "归档扫描"}</span>
             </button>
             <button
-              onClick={onNavigateToSettings}
+              onClick={refreshDirectories}
+              aria-label="刷新目录列表"
+              className="min-w-0 px-3 sm:px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5"
+              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" } as React.CSSProperties}
+            >
+              <HardDrive className="w-3.5 h-3.5" />
+              <span className="truncate hidden sm:inline">刷新</span>
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              aria-label="添加归档目录"
               className="min-w-0 px-3 sm:px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5"
               style={{ background: "var(--surface-subtle)", color: "var(--brand-primary)", border: "1px solid var(--border)" } as React.CSSProperties}
             >
               <PlusCircle className="w-3.5 h-3.5" />
-              <span className="truncate">配置归档目录</span>
+              <span className="truncate">添加目录</span>
             </button>
           </div>
         </div>
