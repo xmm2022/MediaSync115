@@ -163,7 +163,13 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
         >
           <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "var(--accent-danger)" }} />
           <span className="text-xs font-bold">{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto hover:opacity-70 text-xs font-bold">关闭</button>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => load()} className="hover:opacity-70 text-xs font-bold flex items-center gap-1" style={{ color: "var(--accent-danger)" }}>
+              <RefreshCw className="w-3.5 h-3.5" />
+              重试
+            </button>
+            <button onClick={() => setError(null)} className="hover:opacity-70 text-xs font-bold">关闭</button>
+          </div>
         </div>
       )}
 

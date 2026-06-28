@@ -90,7 +90,13 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
       {error && (
         <div className="rounded-2xl px-5 py-3 flex items-center gap-2.5" style={{ background:"rgba(239,68,68,0.14)", border:"1px solid rgba(239,68,68,0.3)" }}>
           <span className="text-xs font-bold" style={{ color:"var(--accent-danger)" }}>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-xs font-bold" style={{ color:"var(--accent-danger)" }}>关闭</button>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => load()} disabled={loading} className="text-xs font-bold flex items-center gap-1 disabled:opacity-50" style={{ color:"var(--accent-danger)" }}>
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+              重试
+            </button>
+            <button onClick={() => setError(null)} className="text-xs font-bold" style={{ color:"var(--accent-danger)" }}>关闭</button>
+          </div>
         </div>
       )}
 
