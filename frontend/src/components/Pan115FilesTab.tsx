@@ -154,6 +154,8 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   // 文件浏览
   const [files, setFiles] = useState<Pan115File[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
+  // 文件列表加载/搜索失败信息：与「目录真空」区分，避免错误被空态掩盖
+  const [filesError, setFilesError] = useState<string | null>(null);
   const [currentCid, setCurrentCid] = useState("0");
   const [breadcrumb, setBreadcrumb] = useState<BreadcrumbItem[]>([{ cid: "0", name: "根目录" }]);
   const [fileSearch, setFileSearch] = useState("");
@@ -253,6 +255,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   // ---- 文件列表加载 ----
   const loadFiles = useCallback(async (cid: string) => {
     setFilesLoading(true);
+    setFilesError(null);
     try {
       const resp = await pan115Api.getFileList(cid, 0, 100);
       const data = resp.data as Record<string, unknown>;
@@ -275,6 +278,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
         || String(err);
       console.error("Failed to load file list:", msg);
       await addLog("ERROR", `加载 115 文件列表失败: ${msg}`);
+      setFilesError(`加载文件列表失败: ${msg}`);
       setFiles([]);
     } finally {
       setFilesLoading(false);
@@ -288,6 +292,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       return;
     }
     setFilesLoading(true);
+    setFilesError(null);
     try {
       const resp = await pan115Api.searchFile(fileSearch.trim(), currentCid);
       const data = resp.data as Record<string, unknown>;
@@ -299,6 +304,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       setFiles(rawList.map(normalizeFile));
     } catch (err: unknown) {
       await addLog("ERROR", `搜索文件失败: ${String(err)}`);
+      setFilesError(`搜索文件失败: ${String(err)}`);
     } finally {
       setFilesLoading(false);
     }
@@ -896,6 +902,19 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
               <div className="text-center py-10">
                 <div className="w-7 h-7 border-[3px] rounded-full animate-spin mx-auto" style={{ borderColor: "var(--brand-primary)", borderTopColor: "transparent" }} />
                 <p className="text-[10px] font-semibold mt-2" style={{ color: "var(--txt-muted)" }}>加载中…</p>
+              </div>
+            ) : filesError ? (
+              <div className="text-center py-10 rounded-xl space-y-3" style={{ background: "var(--surface-subtle)" }}>
+                <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
+                <p className="text-xs font-semibold" style={{ color: "var(--accent-danger)" }}>{filesError}</p>
+                <button
+                  onClick={() => (fileSearch.trim() ? handleFileSearch() : loadFiles(currentCid))}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg glass-hover"
+                  style={{ color: "var(--brand-primary)", background: "var(--surface)", border: "1px solid var(--border)" }}
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  重试
+                </button>
               </div>
             ) : files.length === 0 ? (
               <div className="text-center py-10 rounded-xl" style={{ background: "var(--surface-subtle)" }}>

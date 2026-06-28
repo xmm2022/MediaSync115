@@ -84,6 +84,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [isTesting115, setIsTesting115] = useState(false);
   const [isTestingEmby, setIsTestingEmby] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // 初始配置加载标记：加载期间渲染占位，避免空白表单被误读为可编辑
+  const [configLoaded, setConfigLoaded] = useState(false);
 
   // Track the originally-loaded (desensitised) cookie to decide whether
   // a "test 115" click needs to update the cookie server-side first.
@@ -352,6 +354,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         console.error("Failed to load archive config:", err);
         addLog("ERROR", "加载归档高级配置失败: " + getApiErrorMessage(err));
       }
+      setConfigLoaded(true);
     };
     loadConfig();
 
@@ -660,6 +663,16 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       addLog("ERROR", "触发归档扫描失败: " + getApiErrorMessage(err));
     }
   };
+
+  if (!configLoaded) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-32" style={{ color: "var(--txt-muted)" }}>
+        <div className="w-9 h-9 border-[3px] rounded-full animate-spin" style={{ borderColor: "var(--brand-primary)", borderTopColor: "transparent" }} />
+        <span className="text-sm font-bold">加载配置中…</span>
+        <span className="text-xs font-semibold">设置表单将在配置加载完成后才允许编辑，避免空白默认值被误存。</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-12">
