@@ -655,7 +655,7 @@ export default function RuntimeAdvancedSettingsPanel({ addLog }: RuntimeAdvanced
         </div>
 
         {saveError && (
-          <p className="text-[11px] font-bold rounded-lg px-3 py-2" style={{ color: "var(--accent-danger)", background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.20)" }}>
+          <p className="text-[11px] font-bold rounded-lg px-3 py-2" style={{ color: "var(--accent-danger)", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)" }}>
             {saveError}
           </p>
         )}

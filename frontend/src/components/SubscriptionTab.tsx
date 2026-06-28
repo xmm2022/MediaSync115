@@ -1015,7 +1015,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                         <button
                           onClick={() => handleDelete(sub)}
                           className="p-1.5 rounded-lg transition-all active:scale-95"
-                          style={{ background: "rgba(239,68,68,0.14)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" } as React.CSSProperties}
+                          style={{ background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" } as React.CSSProperties}
                           title="删除订阅"
                         >
                           <Trash2 className="w-3.5 h-3.5" />

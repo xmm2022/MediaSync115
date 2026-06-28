@@ -218,7 +218,7 @@ function WatchlistPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | 
                 <h4 className="text-sm font-black truncate" style={{ color: "var(--txt)" }}>{l.name}</h4>
                 <div className="flex gap-1">
                   <button onClick={() => handleFill(l)} disabled={busy === `fill-${l.id}`} className="p-1.5 rounded-lg bg-brand-primary/10 text-brand-primary border border-brand-primary/30 disabled:opacity-50" title="自动填充"><Sparkles className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => handleDelete(l)} className="p-1.5 rounded-lg text-red-500" title="删除" style={{ background: "rgba(239,68,68,0.14)", border: "1px solid var(--border)" } as React.CSSProperties}><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => handleDelete(l)} className="p-1.5 rounded-lg text-red-500" title="删除" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid var(--border)" } as React.CSSProperties}><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
               {l.description && <p className="text-[10px] font-semibold line-clamp-2" style={{ color: "var(--txt-muted)" }}>{l.description}</p>}
@@ -355,7 +355,7 @@ function PersonPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ER
               {p.known_for_department && <div className="text-[9px] font-bold" style={{ color: "var(--txt-muted)" }}>{p.known_for_department}</div>}
               <div className="flex gap-1 justify-center">
                 <button onClick={() => handleToggleAuto(p)} className="px-2 py-0.5 rounded text-[9px] font-bold glass-hover" title="自动订阅新作" style={p.auto_subscribe_new_works ? { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)", border: "1px solid var(--border)" } : { background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" } as React.CSSProperties}>{p.auto_subscribe_new_works ? "自动订阅" : "手动"}</button>
-                <button onClick={() => handleUnfollow(p)} className="px-2 py-0.5 rounded text-[9px] font-bold text-red-500" title="取消关注" style={{ background: "rgba(239,68,68,0.14)", border: "1px solid var(--border)" } as React.CSSProperties}>取关</button>
+                <button onClick={() => handleUnfollow(p)} className="px-2 py-0.5 rounded text-[9px] font-bold text-red-500" title="取消关注" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid var(--border)" } as React.CSSProperties}>取关</button>
               </div>
             </div>
           ))}
@@ -464,7 +464,7 @@ function LicensePanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "E
                     <span
                       key={feature}
                       className="text-[9px] font-bold px-2 py-1 rounded-lg"
-                      style={enabled ? { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" } : { background: "rgba(239,68,68,0.14)", color: "var(--accent-danger)" } as React.CSSProperties}
+                      style={enabled ? { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" } : { background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)" } as React.CSSProperties}
                     >
                       {getLicenseFeatureLabel(feature)}
                     </span>

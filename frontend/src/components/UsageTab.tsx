@@ -201,7 +201,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {directories.map(dir => {
               const statusStyle = dir.status === "syncing" ? { bg: "rgba(139,92,246,0.14)", color: "var(--brand-primary)" }
-                : dir.status === "error" ? { bg: "rgba(239,68,68,0.14)", color: "var(--accent-danger)" }
+                : dir.status === "error" ? { bg: "rgba(239,68,68,0.12)", color: "var(--accent-danger)" }
                 : { bg: "var(--surface-subtle)", color: "var(--txt-muted)" };
               return (
                 <div key={dir.id} className="glass glass-hover rounded-2xl p-5 transition-all">

@@ -1167,7 +1167,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
               <button
                 onClick={handleClearCompleted}
                 className="w-full py-2 rounded-xl text-xs font-bold transition-all glass-hover"
-                style={{ color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.25)" }}
+                style={{ color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" }}
               >
                 清空已完成 ({completedCount} 个)
               </button>

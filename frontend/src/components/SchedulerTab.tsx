@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from "motion/react";
 const sBtnSubtle: CSSProperties = { background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" };
 const sOkSoft: CSSProperties = { background: "rgba(34,197,94,0.14)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.3)" };
 const sWarnSoft: CSSProperties = { background: "rgba(245,158,11,0.14)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.3)" };
-const sDangerSoft: CSSProperties = { background: "rgba(239,68,68,0.14)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" };
+const sDangerSoft: CSSProperties = { background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" };
 const sOkBadge: CSSProperties = { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" };
 const sWarnBadge: CSSProperties = { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" };
 const sInput: CSSProperties = { background: "var(--bg-elev)", color: "var(--txt)", border: "1px solid var(--border)" };
@@ -88,7 +88,7 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
   return (
     <div className="space-y-6">
       {error && (
-        <div className="rounded-2xl px-5 py-3 flex items-center gap-2.5" style={{ background:"rgba(239,68,68,0.14)", border:"1px solid rgba(239,68,68,0.3)" }}>
+        <div className="rounded-2xl px-5 py-3 flex items-center gap-2.5" style={{ background:"rgba(239,68,68,0.12)", border:"1px solid rgba(239,68,68,0.3)" }}>
           <span className="text-xs font-bold" style={{ color:"var(--accent-danger)" }}>{error}</span>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => load()} disabled={loading} className="text-xs font-bold flex items-center gap-1 disabled:opacity-50" style={{ color:"var(--accent-danger)" }}>
