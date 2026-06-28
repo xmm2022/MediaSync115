@@ -14,10 +14,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   FolderOpen, File, Search, Plus, Trash2, RefreshCw, RotateCcw, HardDrive,
-  Shield, User, AlertTriangle, CheckCircle2, Upload, FolderPlus, Download,
+  Shield, User, CheckCircle2, Upload, FolderPlus, Download,
   Layers, X, ChevronRight, Home, Database, Zap, Info, FileText, Share2, QrCode, Copy, ArrowRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import ErrorBanner from "./ui/ErrorBanner";
 import { pan115Api } from "../api/pan115";
 import Pan115Progress, {
   type Pan115ProgressState,
@@ -904,17 +905,8 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                 <p className="text-[10px] font-semibold mt-2" style={{ color: "var(--txt-muted)" }}>加载中…</p>
               </div>
             ) : filesError ? (
-              <div className="text-center py-10 rounded-xl space-y-3" style={{ background: "var(--surface-subtle)" }}>
-                <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
-                <p className="text-xs font-semibold" style={{ color: "var(--accent-danger)" }}>{filesError}</p>
-                <button
-                  onClick={() => (fileSearch.trim() ? handleFileSearch() : loadFiles(currentCid))}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg glass-hover"
-                  style={{ color: "var(--brand-primary)", background: "var(--surface)", border: "1px solid var(--border)" }}
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  重试
-                </button>
+              <div className="text-center py-10 rounded-xl" style={{ background: "var(--surface-subtle)" }}>
+                <ErrorBanner variant="block" message={filesError} onRetry={() => (fileSearch.trim() ? handleFileSearch() : loadFiles(currentCid))} />
               </div>
             ) : files.length === 0 ? (
               <div className="text-center py-10 rounded-xl" style={{ background: "var(--surface-subtle)" }}>

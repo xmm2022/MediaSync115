@@ -14,8 +14,9 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   ArrowLeft, Star, Clock, Film, Tv, Download, Plus, Shield, ExternalLink,
-  CheckCircle, RefreshCw, Rss, FolderOpen, Users, Search, AlertTriangle,
+  CheckCircle, RefreshCw, Rss, FolderOpen, Users, Search,
 } from "lucide-react";
+import ErrorBanner from "./ui/ErrorBanner";
 import { motion } from "motion/react";
 import { searchApi } from "../api/search";
 import { pan115Api } from "../api/pan115";
@@ -539,16 +540,8 @@ export default function MediaDetailTab({
           <p className="text-xs font-bold mt-3" style={{ color: "var(--txt-muted)" }}>加载详情中…</p>
         </div>
       ) : error ? (
-        <div className="glass-heavy rounded-3xl p-8 text-center space-y-4">
-          <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
-          <p className="text-sm font-semibold" style={{ color: "var(--accent-danger)" }}>{error}</p>
-          <button
-            onClick={() => loadDetail()}
-            className="px-4 py-2 text-xs font-bold rounded-xl glass-hover"
-            style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}
-          >
-            重试
-          </button>
+        <div className="glass-heavy rounded-3xl p-8 text-center">
+          <ErrorBanner variant="block" message={error} onRetry={() => loadDetail()} />
         </div>
       ) : (
         <>

@@ -4,13 +4,15 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 /**
  * 失败/错误状态统一展示。
  *
- * - variant="banner"：横向顶部叠加横幅，自带容器（背景 0.12 / 边框 0.3），
+ * - variant="banner"：横向叠加横幅，自带容器（背景 0.12 / 边框 0.3），
  *   适合页面内容上方持续显示的错误条（含「关闭」可由 onDismiss 提供）。
- * - variant="block"：居中纵向块，不渲染外层容器，由父级容器负责包裹与
- *   定位，适合把加载/错误/空态作为同一区域内互斥分支使用。
+ *   隐藏图标传 icon={null}（默认 AlertTriangle w-4）。
+ * - variant="block"：居中纵向块，不渲染外层容器，由父级容器负责包裹，
+ *   适合把加载/错误/空态作为同一区域内互斥分支使用（默认 AlertTriangle w-8，
+ *   传 icon 可换图标，如 <AlertCircle/>）。
  *
- * 文本与图标统一使用 var(--accent-danger)；重试按钮使用品牌色与 surface-subtle。
- * 危险色透明度遵循批次 7 的归一约定（背景 0.12 / 边框 0.3）。
+ * 文本与图标统一 var(--accent-danger)；重试按钮统一品牌色 + surface-subtle 背景。
+ * 危险色透明度遵循批次 7 归一约定（背景 0.12 / 边框 0.3）。
  */
 export interface ErrorBannerProps {
   message: ReactNode;
@@ -18,11 +20,11 @@ export interface ErrorBannerProps {
   onDismiss?: () => void;
   /** 重试按钮处于执行中时显示 spinner */
   retrying?: boolean;
-  /** 关闭按钮图标文本（默认「关闭」）；置空字符串则不渲染关闭按钮 */
+  /** 关闭按钮文本（默认「关闭」）；置空字符串则不渲染关闭按钮 */
   dismissLabel?: string;
   variant?: "banner" | "block";
-  /** 自定义图标（默认 AlertTriangle） */
-  icon?: ReactNode;
+  /** 自定义图标；传 null 隐藏图标（默认按 variant 给 AlertTriangle） */
+  icon?: ReactNode | null;
 }
 
 export default function ErrorBanner({
@@ -34,7 +36,12 @@ export default function ErrorBanner({
   variant = "banner",
   icon,
 }: ErrorBannerProps) {
-  const glyph = icon ?? <AlertTriangle className="w-8 h-8 mx-auto shrink-0" style={{ color: "var(--accent-danger)" }} />;
+  const defaultIcon =
+    variant === "block"
+      ? <AlertTriangle className="w-8 h-8 mx-auto shrink-0" style={{ color: "var(--accent-danger)" }} />
+      : <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "var(--accent-danger)" }} />;
+  const glyph = icon === null ? null : (icon ?? defaultIcon);
+
   const retryButton = onRetry && (
     <button
       onClick={onRetry}
@@ -67,13 +74,13 @@ export default function ErrorBanner({
       className="rounded-2xl px-5 py-3 flex items-center gap-2.5"
       style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)" }}
     >
-      <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "var(--accent-danger)" }} />
+      {glyph}
       <span className="text-xs font-bold" style={{ color: "var(--accent-danger)" }}>{message}</span>
       <div className="ml-auto flex items-center gap-2">
         {onRetry && (
           <button
             onClick={onRetry}
-            className="hover:opacity-70 text-xs font-bold flex items-center gap-1"
+            className={`hover:opacity-70 text-xs font-bold flex items-center gap-1 ${retrying ? "opacity-50" : ""}`}
             style={{ color: "var(--accent-danger)" }}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${retrying ? "animate-spin" : ""}`} />
@@ -81,9 +88,7 @@ export default function ErrorBanner({
           </button>
         )}
         {onDismiss && dismissLabel !== "" && (
-          <button onClick={onDismiss} className="hover:opacity-70 text-xs font-bold" style={{ color: "var(--accent-danger)" }}>
-            {dismissLabel}
-          </button>
+          <button onClick={onDismiss} className="hover:opacity-70 text-xs font-bold" style={{ color: "var(--accent-danger)" }}>{dismissLabel}</button>
         )}
       </div>
     </div>

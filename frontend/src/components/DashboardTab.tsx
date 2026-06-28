@@ -43,6 +43,7 @@ import {
   Info
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import EmptyState from "./ui/EmptyState";
 
 interface DashboardTabProps {
   directories: SyncDirectory[];
@@ -492,19 +493,21 @@ export default function DashboardTab({
             ))
           ) : directories.length === 0 ? (
             /* 加载完成但仍无目录：引导添加，而非暗示后端故障 */
-            <div className="snap-start flex-shrink-0 w-72 p-6 rounded-2xl glass flex flex-col items-center justify-center text-center space-y-3 min-h-[280px]" style={{ border: "1px dashed var(--border-strong)" } as React.CSSProperties}>
-              <Database className="w-8 h-8" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />
-              <div className="space-y-1">
-                <p className="text-xs font-bold" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>尚未配置归档监听目录</p>
-                <p className="text-[10px] leading-relaxed" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>点击「添加目录」设置 115 网盘监听文件夹，启动归档同步。</p>
-              </div>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="px-4 py-2 text-xs font-bold rounded-lg bg-brand-primary text-white transition-all hover:opacity-90 shadow-md flex items-center gap-1.5"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                添加目录
-              </button>
+            <div className="snap-start flex-shrink-0 w-72 p-6 rounded-2xl glass flex flex-col items-center justify-center text-center min-h-[280px]" style={{ border: "1px dashed var(--border-strong)" } as React.CSSProperties}>
+              <EmptyState
+                icon={<Database className="w-8 h-8" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />}
+                text="尚未配置归档监听目录"
+                subtext="点击「添加目录」设置 115 网盘监听文件夹，启动归档同步。"
+                cta={
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="px-4 py-2 text-xs font-bold rounded-lg bg-brand-primary text-white transition-all hover:opacity-90 shadow-md flex items-center gap-1.5"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    添加目录
+                  </button>
+                }
+              />
             </div>
           ) : null}
           {directories.map((dir) => (

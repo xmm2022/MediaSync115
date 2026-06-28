@@ -4,6 +4,7 @@ import { moviepilotApi, subscriptionApi } from "../api";
 import { getApiErrorMessage } from "../api/errors";
 import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity, Search } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import EmptyState from "./ui/EmptyState";
 import type { SyncDirectory } from "../types";
 
 // directories prop: provided by App, built from archive API (folders+config+tasks).
@@ -869,17 +870,21 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
             <p className="text-xs font-bold mt-3" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>正在加载订阅列表...</p>
           </div>
         ) : subscriptions.length === 0 ? (
-          <div className="glass rounded-3xl p-12 text-center space-y-3">
-            <Rss className="w-10 h-10 mx-auto mb-2" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />
-            <p className="text-sm font-bold" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>暂无订阅项目</p>
-            <p className="text-xs font-semibold mt-1" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>创建第一个订阅，自动追更并转存入盘。</p>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-brand-primary text-white transition-all hover:opacity-90 shadow-md"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              新增订阅
-            </button>
+          <div className="glass rounded-3xl p-12 text-center">
+            <EmptyState
+              icon={<Rss className="w-10 h-10" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />}
+              text="暂无订阅项目"
+              subtext="创建第一个订阅，自动追更并转存入盘。"
+              cta={
+                <button
+                  onClick={() => setShowAddForm(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-brand-primary text-white transition-all hover:opacity-90 shadow-md"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  新增订阅
+                </button>
+              }
+            />
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

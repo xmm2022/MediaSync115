@@ -10,7 +10,8 @@ import React, { useEffect, useState } from "react";
 import { strmApi, archiveApi } from "../api";
 import { getApiErrorMessage } from "../api/errors";
 import type { StrmConfig, ArchiveConfig } from "../api/types";
-import { Film, RefreshCw, Play, AlertTriangle, CheckCircle2, XCircle, Settings2, Folder, ScanLine } from "lucide-react";
+import { Film, RefreshCw, Play, CheckCircle2, XCircle, Settings2, Folder, ScanLine } from "lucide-react";
+import ErrorBanner from "./ui/ErrorBanner";
 import { motion } from "motion/react";
 
 const INPUT_STYLE: React.CSSProperties = {
@@ -157,20 +158,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
   return (
     <div className="space-y-6">
       {error && (
-        <div
-          className="rounded-2xl px-5 py-3 flex items-center gap-2.5"
-          style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "var(--accent-danger)" }}
-        >
-          <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "var(--accent-danger)" }} />
-          <span className="text-xs font-bold">{error}</span>
-          <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => load()} className="hover:opacity-70 text-xs font-bold flex items-center gap-1" style={{ color: "var(--accent-danger)" }}>
-              <RefreshCw className="w-3.5 h-3.5" />
-              重试
-            </button>
-            <button onClick={() => setError(null)} className="hover:opacity-70 text-xs font-bold">关闭</button>
-          </div>
-        </div>
+        <ErrorBanner message={error} onRetry={() => load()} onDismiss={() => setError(null)} />
       )}
 
       {/* 标题 */}

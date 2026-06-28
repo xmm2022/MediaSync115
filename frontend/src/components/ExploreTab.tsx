@@ -3,6 +3,7 @@ import { Sparkles, Trophy, Star, Search, Plus, Calendar, BookmarkCheck, ArrowRig
 import { motion } from "motion/react";
 import { searchApi } from "../api/search";
 import { getApiErrorMessage } from "../api/errors";
+import EmptyState from "./ui/EmptyState";
 import type { ExploreItem } from "../api/types";
 import { DEFAULT_EXPLORE_BOARD, getExplorePosterSrc } from "../utils/runtimeDefaults";
 import type { ExploreBoardKey } from "../utils/exploreSubscription";
@@ -227,10 +228,8 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
 
       {/* Empty state (loaded but 0 items) */}
       {!loading && !error && items.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 gap-3" style={{ color: "var(--txt-muted)" }}>
-          <Eye className="w-8 h-8" />
-          <p className="text-xs font-semibold">暂无榜单数据</p>
-          <p className="text-[10px]">该来源暂时没有可展示的内容，请稍后刷新</p>
+        <div className="flex flex-col items-center justify-center py-20" style={{ color: "var(--txt-muted)" }}>
+          <EmptyState icon={<Eye className="w-8 h-8" />} text="暂无榜单数据" subtext="该来源暂时没有可展示的内容，请稍后刷新" />
         </div>
       )}
 

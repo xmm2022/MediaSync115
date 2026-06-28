@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { MediaResource, MediaResourceLink, PageName, type DetailContext } from "../types";
-import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, ExternalLink, AlertTriangle, RefreshCw } from "lucide-react";
+import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, ExternalLink, RefreshCw } from "lucide-react";
+import ErrorBanner from "./ui/ErrorBanner";
 import { motion, AnimatePresence } from "motion/react";
 import { searchApi } from "../api/search";
 import { pan115Api } from "../api/pan115";
@@ -886,16 +887,8 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
               <p className="text-xs font-bold" style={{ color: "var(--txt-muted)" }}>正在云端搜索索引库...</p>
             </div>
           ) : loadError ? (
-            <div className="glass rounded-3xl p-8 text-center space-y-3">
-              <AlertTriangle className="w-8 h-8 mx-auto" style={{ color: "var(--accent-danger)" }} />
-              <p className="text-sm font-semibold" style={{ color: "var(--accent-danger)" }}>{loadError}</p>
-              <button
-                onClick={searchMode === "direct" ? () => runDirectResourceSearch() : loadResources}
-                className="px-4 py-2 text-xs font-bold rounded-xl glass-hover"
-                style={{ color: "var(--brand-primary)", background: "var(--surface-subtle)" }}
-              >
-                重试
-              </button>
+            <div className="glass rounded-3xl p-8 text-center">
+              <ErrorBanner variant="block" message={loadError} onRetry={searchMode === "direct" ? () => runDirectResourceSearch() : loadResources} />
             </div>
           ) : filteredResources.length === 0 ? (
             <div className="glass rounded-3xl p-12 text-center">
