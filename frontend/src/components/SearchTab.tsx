@@ -901,12 +901,9 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                   key={res.id}
                   id={`res-card-${res.id}`}
                   onClick={() => handleSelectResource(res)}
-                  className="glass glass-hover rounded-2xl p-4 flex gap-4 cursor-pointer transition-all"
-                  style={
-                    selectedResource?.id === res.id
-                      ? { borderColor: "var(--brand-primary)", boxShadow: "0 0 0 2px rgba(139,92,246,0.18), 0 0 24px rgba(139,92,246,0.10)" }
-                      : {}
-                  }
+                  className={`glass glass-hover rounded-2xl p-4 flex gap-4 cursor-pointer transition-all ${
+                    selectedResource?.id === res.id ? "card-selected" : ""
+                  }`}
                 >
                   {/* Poster Placeholder */}
                   <div className="w-16 h-24 rounded-xl overflow-hidden shrink-0 relative" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
@@ -953,7 +950,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                         const bKey = buildBadgeKey(res.media_type, res.tmdb_id);
                         return bKey ? <LibraryBadge status={statusMap[bKey]} /> : null;
                       })()}
-                      <span className="ml-auto text-[9px] font-black px-2 py-1 rounded-lg" style={{ background: "rgba(139,92,246,0.12)", color: "var(--brand-primary)" }}>
+                      <span className="ml-auto text-[9px] font-black px-2 py-1 rounded-lg" style={{ background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)" }}>
                         查看资源
                       </span>
                     </div>
@@ -990,7 +987,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                     )}
                   </div>
                   <div className="space-y-2">
-                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider" style={{ color: "var(--brand-primary)", background: "rgba(139,92,246,0.14)" }}>
+                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider" style={{ color: "var(--brand-primary)", background: "var(--brand-primary-bg-alpha-heavy)" }}>
                       {selectedResource.category === "Movie" ? "超级大片" : selectedResource.category === "TV" ? "多集连载" : "当季热门"}
                     </span>
                     <h3 className="font-headline font-black text-base leading-tight" style={{ color: "var(--txt)" }}>
@@ -1024,7 +1021,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                       returnTo: PageName.SEARCH,
                     })}
                     className="text-[10px] font-black px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 self-start"
-                    style={{ color: "var(--brand-primary)", border: "1px solid rgba(139,92,246,0.25)", background: "rgba(139,92,246,0.08)" }}
+                    style={{ color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)", background: "var(--brand-primary-bg-alpha)" }}
                   >
                     查看完整详情 <ExternalLink className="w-3 h-3" />
                   </button>
@@ -1209,7 +1206,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                 </div>
 
                 {/* Cloud security badge */}
-                <div className="rounded-2xl p-3 flex gap-2 items-center" style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.18)" }}>
+                <div className="rounded-2xl p-3 flex gap-2 items-center" style={{ background: "var(--brand-primary-bg-alpha)", border: "1px solid var(--brand-primary-border-alpha)" }}>
                   <Shield className="w-4.5 h-4.5 shrink-0" style={{ color: "var(--brand-primary)" }} />
                   <p className="text-[10px] font-bold leading-tight" style={{ color: "var(--brand-primary)" }}>
                     本秒传通道完全加密！所有磁力经由您的 115 会话密钥直接发送至 115 官方云接口，挂载不耗费您的本地网络。

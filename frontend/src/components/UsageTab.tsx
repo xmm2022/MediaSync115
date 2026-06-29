@@ -152,7 +152,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
                 <BarChart data={stats.subsByType} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barSize={32}>
                   <XAxis dataKey="name" tickLine={false} axisLine={false} tick={chartTextStyle} />
                   <YAxis tickLine={false} axisLine={false} tick={chartTextStyle} allowDecimals={false} />
-                  <Tooltip cursor={{ fill: "rgba(139,92,246,0.06)" }} contentStyle={{ borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg-elev)", color: "var(--txt)", fontSize: 12, fontWeight: 600 }} />
+                  <Tooltip cursor={{ fill: "var(--brand-primary-bg-alpha)" }} contentStyle={{ borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg-elev)", color: "var(--txt)", fontSize: 12, fontWeight: 600 }} />
                   <Bar dataKey="count" name="订阅数" fill="var(--brand-primary)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -171,7 +171,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
                 <BarChart data={stats.archiveTasksByStatus} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barSize={32}>
                   <XAxis dataKey="name" tickLine={false} axisLine={false} tick={chartTextStyle} />
                   <YAxis tickLine={false} axisLine={false} tick={chartTextStyle} allowDecimals={false} />
-                  <Tooltip cursor={{ fill: "rgba(139,92,246,0.06)" }} contentStyle={{ borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg-elev)", color: "var(--txt)", fontSize: 12, fontWeight: 600 }} />
+                  <Tooltip cursor={{ fill: "var(--brand-primary-bg-alpha)" }} contentStyle={{ borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg-elev)", color: "var(--txt)", fontSize: 12, fontWeight: 600 }} />
                   <Bar dataKey="count" name="任务数" fill="var(--brand-secondary)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -191,7 +191,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
         {directories.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {directories.map(dir => {
-              const statusStyle = dir.status === "syncing" ? { bg: "rgba(139,92,246,0.14)", color: "var(--brand-primary)" }
+              const statusStyle = dir.status === "syncing" ? { bg: "var(--brand-primary-bg-alpha-heavy)", color: "var(--brand-primary)" }
                 : dir.status === "error" ? { bg: "rgba(239,68,68,0.12)", color: "var(--accent-danger)" }
                 : { bg: "var(--surface-subtle)", color: "var(--txt-muted)" };
               return (

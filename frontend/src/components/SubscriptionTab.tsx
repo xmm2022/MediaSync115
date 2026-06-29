@@ -926,7 +926,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                         <span
                           className="shrink-0 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider"
                           style={status === "subscribing"
-                            ? { background: "rgba(139,92,246,0.16)", color: "var(--brand-primary)" } as React.CSSProperties
+                            ? { background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)" } as React.CSSProperties
                             : { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" } as React.CSSProperties}
                         >
                           {status === "subscribing" ? <span className="animate-pulse">监听中</span> : "已暂停"}
@@ -993,7 +993,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                           onClick={() => toggleExpand(sub)}
                           className="p-1.5 rounded-lg transition-all flex items-center gap-1"
                           style={isExpanded
-                            ? { background: "rgba(139,92,246,0.10)", color: "var(--brand-primary)", border: "1px solid rgba(139,92,246,0.3)" } as React.CSSProperties
+                            ? { background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)" } as React.CSSProperties
                             : { background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" } as React.CSSProperties}
                           title="展开缺集/来源/下载"
                         >
@@ -1006,7 +1006,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                           className="p-1.5 rounded-lg transition-all active:scale-95"
                           style={status === "subscribing"
                             ? { background: "rgba(245,158,11,0.14)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.3)" } as React.CSSProperties
-                            : { background: "rgba(139,92,246,0.14)", color: "var(--brand-primary)", border: "1px solid rgba(139,92,246,0.3)" } as React.CSSProperties}
+                            : { background: "var(--brand-primary-bg-alpha-heavy)", color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)" } as React.CSSProperties}
                           title={status === "subscribing" ? "暂停订阅" : "继续监听"}
                         >
                           {status === "subscribing" ? (

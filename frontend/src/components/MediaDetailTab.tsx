@@ -847,7 +847,7 @@ export default function MediaDetailTab({
 
             {/* Security badge */}
             <div className="rounded-2xl p-3 flex gap-2 items-center"
-              style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.14)" }}>
+              style={{ background: "var(--brand-primary-bg-alpha)", border: "1px solid var(--brand-primary-border-alpha)" }}>
               <Shield className="w-4 h-4 shrink-0" style={{ color: "var(--brand-primary)" }} />
               <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--brand-primary)" }}>
                 本秒传通道完全加密！所有磁力经由您的 115 会话密钥直接发送至 115 官方云接口。

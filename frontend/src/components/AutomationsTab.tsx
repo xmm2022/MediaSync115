@@ -351,7 +351,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg flex items-center justify-center border"
                         style={isActive
-                          ? { background: "rgba(139,92,246,0.12)", color: "var(--brand-primary)", borderColor: "rgba(139,92,246,0.25)" }
+                          ? { background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)", borderColor: "var(--brand-primary-border-alpha)" }
                           : { background: "var(--surface-subtle)", color: "var(--txt-muted)", borderColor: "var(--border)" }
                         }>
                         {wf.trigger_type === "event" ? (

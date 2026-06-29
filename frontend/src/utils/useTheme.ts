@@ -9,9 +9,9 @@ export type ThemeMode = "dark" | "light";
 const STORAGE_KEY = "mediasync115-theme";
 
 function readInitial(): ThemeMode {
-  if (typeof window === "undefined") return "dark";
+  if (typeof window === "undefined") return "light";
   const saved = window.localStorage.getItem(STORAGE_KEY);
-  return saved === "light" || saved === "dark" ? saved : "dark";
+  return saved === "light" || saved === "dark" ? saved : "light";
 }
 
 export function useTheme() {

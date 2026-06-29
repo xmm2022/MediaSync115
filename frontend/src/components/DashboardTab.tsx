@@ -159,13 +159,13 @@ export default function DashboardTab({
   const pan115StatusColor = pan115Checking
     ? "var(--accent-info)"
     : pan115Ready
-    ? "var(--accent-ok)"
-    : "var(--accent-danger)";
+      ? "var(--accent-ok)"
+      : "var(--accent-danger)";
   const pan115StatusDot = pan115Checking
     ? "bg-sky-400 animate-pulse"
     : pan115Ready
-    ? "bg-teal-500 animate-pulse"
-    : "bg-red-500";
+      ? "bg-teal-500 animate-pulse"
+      : "bg-red-500";
 
   // Toggle directory sync
   // 后端 archive_enabled 是全局开关，非按目录。此处切换全局归档开关。
@@ -513,18 +513,17 @@ export default function DashboardTab({
           {directories.map((dir) => (
             <div
               key={dir.id}
-              className={`snap-start flex-shrink-0 w-72 p-6 rounded-2xl glass glass-hover transition-all ${
-                dir.enabled ? "" : "opacity-80"
-              }`}
+              className={`snap-start flex-shrink-0 w-72 p-6 rounded-2xl glass glass-hover transition-all ${dir.enabled ? "" : "opacity-80"
+                }`}
             >
               <div className="flex justify-between items-start mb-6">
                 <div className="p-3 rounded-xl flex items-center justify-center" style={(!dir.enabled
                   ? { background: "var(--surface-subtle)", color: "var(--txt-muted)" }
                   : dir.targetClient === "emby"
-                  ? { background: "rgba(16,185,129,0.16)", color: "var(--accent-ok)" }
-                  : dir.targetClient === "feiniu"
-                  ? { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" }
-                  : { background: "rgba(99,102,241,0.16)", color: "var(--accent-info)" }) as React.CSSProperties}>
+                    ? { background: "rgba(16,185,129,0.16)", color: "var(--accent-ok)" }
+                    : dir.targetClient === "feiniu"
+                      ? { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" }
+                      : { background: "rgba(99,102,241,0.16)", color: "var(--accent-info)" }) as React.CSSProperties}>
                   {dir.targetClient === "emby" ? (
                     <Film className="w-5 h-5" />
                   ) : dir.targetClient === "feiniu" ? (
@@ -585,9 +584,8 @@ export default function DashboardTab({
                   {/* 进度条：后端无 per-folder 进度，有活跃任务时显示 100% (不确定进度)，否则 0 */}
                   <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--surface-subtle)" } as React.CSSProperties}>
                     <motion.div
-                      className={`h-full ${
-                        dir.status === "scanning" ? "bg-amber-400" : "bg-brand-primary-light"
-                      }`}
+                      className={`h-full ${dir.status === "scanning" ? "bg-amber-400" : "bg-brand-primary-light"
+                        }`}
                       initial={{ width: 0 }}
                       animate={{ width: `${hasActiveTask && dir.enabled ? 100 : dir.progress}%` }}
                       transition={{ duration: 1 }}
@@ -767,7 +765,7 @@ export default function DashboardTab({
 
                 <div className="pt-2" style={{ borderTop: "1px solid var(--border)" } as React.CSSProperties}>
                   <p className="text-[10px] text-center" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-                    此操作将更新全局归档配置 (PUT /api/archive/config)。<br/>
+                    此操作将更新全局归档配置 (PUT /api/archive/config)。<br />
                     如需完整配置归档间隔、命名格式等，请
                     <button
                       type="button"
@@ -786,14 +784,14 @@ export default function DashboardTab({
 
       {/* 归档高级工具 */}
       <div className="glass rounded-2xl p-4 space-y-2">
-        <p className="text-[10px] font-black" style={{ color:"var(--txt-muted)" }}>归档工具</p>
+        <p className="text-[10px] font-black" style={{ color: "var(--txt-muted)" }}>归档工具</p>
         <div className="flex flex-wrap gap-1.5">
-          <button onClick={async () => { try { const r = await archiveApi.getSubdirOptions(); await addLog("SUCCESS", `子目录选项: ${JSON.stringify(r.data)}`); } catch(e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
-            className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>子目录选项</button>
-          <button onClick={async () => { try { const r = await archiveApi.getNamingOptions(); await addLog("SUCCESS", `命名选项: ${JSON.stringify(r.data)}`); } catch(e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
-            className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>命名选项</button>
-          <button onClick={async () => { try { await archiveApi.clearTasks(true); await addLog("WARN", "已清理归档任务(含失败)"); } catch(e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
-            className="px-2 py-1 rounded text-[9px] font-bold" style={{ color:"var(--accent-danger)", border:"1px solid rgba(239,68,68,0.3)" }}>清理任务</button>
+          <button onClick={async () => { try { const r = await archiveApi.getSubdirOptions(); await addLog("SUCCESS", `子目录选项: ${JSON.stringify(r.data)}`); } catch (e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
+            className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color: "var(--txt-muted)", border: "1px solid var(--border)" }}>子目录选项</button>
+          <button onClick={async () => { try { const r = await archiveApi.getNamingOptions(); await addLog("SUCCESS", `命名选项: ${JSON.stringify(r.data)}`); } catch (e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
+            className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color: "var(--txt-muted)", border: "1px solid var(--border)" }}>命名选项</button>
+          <button onClick={async () => { try { await archiveApi.clearTasks(true); await addLog("WARN", "已清理归档任务(含失败)"); } catch (e: unknown) { await addLog("ERROR", getApiErrorMessage(e)); } }}
+            className="px-2 py-1 rounded text-[9px] font-bold" style={{ color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" }}>清理任务</button>
         </div>
       </div>
     </div>

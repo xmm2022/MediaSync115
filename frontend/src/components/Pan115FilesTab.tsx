@@ -930,7 +930,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                   >
                     {/* 图标 */}
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                      style={{ background: file.type === "folder" ? "rgba(139,92,246,0.10)" : "var(--surface-subtle)" }}>
+                      style={{ background: file.type === "folder" ? "var(--brand-primary-bg-alpha)" : "var(--surface-subtle)" }}>
                       {file.type === "folder" ? (
                         <FolderOpen className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
                       ) : file.isVideo ? (
@@ -945,7 +945,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                       <p className="text-xs font-bold truncate" style={{ color: "var(--txt)" }}>{file.name}</p>
                       <p className="text-[9px] font-semibold mt-0.5 flex items-center gap-2" style={{ color: "var(--txt-muted)" }}>
                         {file.type === "folder" ? (
-                          <span className="px-1 rounded text-[8px]" style={{ background: "rgba(139,92,246,0.12)", color: "var(--brand-primary)" }}>文件夹</span>
+                          <span className="px-1 rounded text-[8px]" style={{ background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)" }}>文件夹</span>
                         ) : (
                           <>
                             <span>{file.sizeDisplay}</span>
@@ -1310,7 +1310,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
 
           {/* 使用提示 */}
           <div className="rounded-2xl p-3 flex gap-2 items-start"
-            style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.14)" }}>
+            style={{ background: "var(--brand-primary-bg-alpha)", border: "1px solid var(--brand-primary-border-alpha)" }}>
             <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--brand-primary)" }} />
             <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--brand-primary)" }}>
               点击文件夹即可进入浏览；离线任务支持磁力 / HTTP / ED2K 链接。分享链接解析后可选择单个或全量转存到网盘。

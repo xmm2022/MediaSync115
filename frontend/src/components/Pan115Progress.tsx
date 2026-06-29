@@ -84,7 +84,7 @@ export default function Pan115Progress({ state, onClose }: Pan115ProgressProps) 
                   </div>
                 ) : (
                   <div className="w-12 h-12 rounded-full flex items-center justify-center"
-                    style={{ background: "rgba(139,92,246,0.16)", border: "2px solid rgba(139,92,246,0.3)" }}>
+                    style={{ background: "var(--brand-primary-bg-alpha-heavy)", border: "2px solid var(--brand-primary-border-alpha)" }}>
                     <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--brand-primary)" }} />
                   </div>
                 )}

@@ -412,8 +412,8 @@ export default function App() {
                       className="w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-xs font-semibold transition-all relative glass-hover"
                       style={
                         isActive
-                          ? { background: "rgba(var(--brand-primary-rgb,139,92,246), 0.16)" as string, color: "var(--brand-primary)" as string }
-                          : { color: "var(--txt-secondary)" as string, background: "transparent" }
+                          ? { background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)" }
+                          : { color: "var(--txt-secondary)", background: "transparent" }
                       }
                     >
                       <Icon className={`w-4.5 h-4.5 ${isActive ? "text-brand-primary" : ""}`} style={isActive ? { color: "var(--brand-primary)" } : { color: "var(--txt-muted)" }} />
