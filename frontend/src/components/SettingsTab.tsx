@@ -32,6 +32,7 @@ import { authApi } from "../api/auth";
 import { pansouApi } from "../api/pansou";
 import { moviepilotApi } from "../api/moviepilot";
 import { twilightApi } from "../api/twilight";
+import { animeApi } from "../api/anime";
 import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
 import { getApiErrorMessage } from "../api/errors";
@@ -149,6 +150,14 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [moviepilotPassword, setMoviepilotPassword] = useState("");
   const [moviepilotPasswordConfigured, setMoviepilotPasswordConfigured] = useState(false);
   const [moviepilotSavePath, setMoviepilotSavePath] = useState("");
+  // ANI-RSS
+  const [anirssEnabled, setAnirssEnabled] = useState(false);
+  const [anirssBaseUrl, setAnirssBaseUrl] = useState("");
+  const [mikanBaseUrl, setMikanBaseUrl] = useState("https://mikanani.me");
+  const [anirssApiKey, setAnirssApiKey] = useState("");
+  const [anirssApiKeyConfigured, setAnirssApiKeyConfigured] = useState(false);
+  const [anirssDefaultDownloadPath, setAnirssDefaultDownloadPath] = useState("");
+  const [anirssDownloadPathPresetsInput, setAnirssDownloadPathPresetsInput] = useState("");
   // Twilight
   const [twilightEnabled, setTwilightEnabled] = useState(false);
   const [twilightBaseUrl, setTwilightBaseUrl] = useState("");
@@ -369,6 +378,14 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setMoviepilotPasswordConfigured(Boolean(rt.moviepilot_password_configured));
         setMoviepilotSavePath(String(rt.moviepilot_save_path || ""));
 
+        // ANI-RSS
+        setAnirssEnabled(Boolean(rt.anirss_enabled));
+        setAnirssBaseUrl(String(rt.anirss_base_url || ""));
+        setMikanBaseUrl(String(rt.mikan_base_url || "https://mikanani.me"));
+        setAnirssApiKeyConfigured(Boolean(rt.anirss_api_key_configured));
+        setAnirssDefaultDownloadPath(String(rt.anirss_default_download_path || ""));
+        setAnirssDownloadPathPresetsInput(formatListInput(rt.anirss_download_path_presets));
+
         // Twilight
         setTwilightEnabled(Boolean(rt.twilight_enabled));
         setTwilightBaseUrl(String(rt.twilight_base_url || ""));
@@ -561,6 +578,13 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         moviepilot_username: moviepilotUsername.trim() || undefined,
         moviepilot_save_path: moviepilotSavePath.trim() || undefined,
 
+        // ANI-RSS
+        anirss_enabled: anirssEnabled,
+        anirss_base_url: anirssBaseUrl.trim() || undefined,
+        mikan_base_url: mikanBaseUrl.trim() || "https://mikanani.me",
+        anirss_default_download_path: anirssDefaultDownloadPath.trim(),
+        anirss_download_path_presets: parseListInput(anirssDownloadPathPresetsInput),
+
         // Twilight
         twilight_enabled: twilightEnabled,
         twilight_base_url: twilightBaseUrl.trim() || undefined,
@@ -658,6 +682,9 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       if (moviepilotPassword.trim()) {
         payload.moviepilot_password = moviepilotPassword;
       }
+      if (anirssApiKey.trim()) {
+        payload.anirss_api_key = anirssApiKey;
+      }
       if (twilightApiKey.trim()) {
         payload.twilight_api_key = twilightApiKey;
       }
@@ -667,6 +694,10 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       if (moviepilotPassword.trim()) {
         setMoviepilotPassword("");
         setMoviepilotPasswordConfigured(true);
+      }
+      if (anirssApiKey.trim()) {
+        setAnirssApiKey("");
+        setAnirssApiKeyConfigured(true);
       }
       if (twilightApiKey.trim()) {
         setTwilightApiKey("");
@@ -708,6 +739,26 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       if (moviepilotPassword.trim()) {
         setMoviepilotPassword("");
         setMoviepilotPasswordConfigured(true);
+      }
+      return response;
+    });
+
+  const saveAniRssSettings = () =>
+    runAction("anirssConfigSave", "保存 ANI-RSS 配置", async () => {
+      const payload: Record<string, unknown> = {
+        anirss_enabled: anirssEnabled,
+        anirss_base_url: anirssBaseUrl.trim() || undefined,
+        mikan_base_url: mikanBaseUrl.trim() || "https://mikanani.me",
+        anirss_default_download_path: anirssDefaultDownloadPath.trim(),
+        anirss_download_path_presets: parseListInput(anirssDownloadPathPresetsInput),
+      };
+      if (anirssApiKey.trim()) {
+        payload.anirss_api_key = anirssApiKey;
+      }
+      const response = await settingsApi.updateRuntime(payload);
+      if (anirssApiKey.trim()) {
+        setAnirssApiKey("");
+        setAnirssApiKeyConfigured(true);
       }
       return response;
     });
@@ -1299,6 +1350,43 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                     <div className="flex gap-2">
                       <button type="button" onClick={saveMoviePilotSettings} disabled={isBusy("moviepilotConfigSave")} className="px-3 py-1.5 rounded-lg text-[9px] font-black bg-brand-primary text-white disabled:opacity-50 cursor-pointer">保存 MP 接入</button>
                       <button type="button" onClick={() => runAction("moviepilotHealth", "检测 MoviePilot 连通状态", () => moviepilotApi.health())} disabled={isBusy("moviepilotHealth")} className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>检测连通性</button>
+                    </div>
+                  </div>
+
+                  {/* ANI-RSS config */}
+                  <div className="pt-4 border-t space-y-3" style={{ borderColor: "var(--border)" }}>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold" style={{ color: "var(--txt)" }}>ANI-RSS 日番追新接入</span>
+                      <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer">
+                        <input type="checkbox" checked={anirssEnabled} onChange={(e) => setAnirssEnabled(e.target.checked)} className="accent-brand-primary" />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <label className="space-y-1 block md:col-span-2">
+                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>ANI-RSS 地址</span>
+                        <input value={anirssBaseUrl} onChange={(e) => setAnirssBaseUrl(e.target.value)} placeholder="e.g. http://ani-rss:7789" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
+                      </label>
+                      <label className="space-y-1 block md:col-span-2">
+                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>Mikan 域名</span>
+                        <input value={mikanBaseUrl} onChange={(e) => setMikanBaseUrl(e.target.value)} placeholder="https://mikanani.me" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
+                      </label>
+                      <label className="space-y-1 block md:col-span-2">
+                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>API Key</span>
+                        <input type="password" value={anirssApiKey} onChange={(e) => setAnirssApiKey(e.target.value)} placeholder={anirssApiKeyConfigured ? "已配置，留空不修改" : "配置 ANI-RSS API Key"} className="w-full text-xs px-3.5 py-2.5 input-premium" />
+                      </label>
+                      <label className="space-y-1 block md:col-span-2">
+                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>默认保存位置（可选）</span>
+                        <input value={anirssDefaultDownloadPath} onChange={(e) => setAnirssDefaultDownloadPath(e.target.value)} placeholder="/Media/番剧/${title}/Season ${season}" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
+                      </label>
+                      <label className="space-y-1 block md:col-span-2">
+                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>保存位置预设</span>
+                        <textarea value={anirssDownloadPathPresetsInput} onChange={(e) => setAnirssDownloadPathPresetsInput(e.target.value)} rows={4} placeholder={"/Media/番剧\n/Media/番剧/${title}/Season ${season}\n/Media/国产动漫/${title}/Season ${season}"} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium resize-y" />
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={saveAniRssSettings} disabled={isBusy("anirssConfigSave")} className="px-3 py-1.5 rounded-lg text-[9px] font-black bg-brand-primary text-white disabled:opacity-50 cursor-pointer">保存 ANI-RSS</button>
+                      <button type="button" onClick={() => runAction("anirssHealth", "检测 ANI-RSS 连通状态", () => animeApi.checkAniRssHealth())} disabled={isBusy("anirssHealth")} className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>检测连通性</button>
                     </div>
                   </div>
 

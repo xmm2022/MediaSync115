@@ -228,6 +228,101 @@ export interface TwilightHealth {
   api_key_status?: unknown;
 }
 
+// ---- Anime / Bangumi / ANI-RSS ----
+export interface BangumiSubject {
+  id: number;
+  name: string;
+  name_cn?: string;
+  date?: string;
+  image?: string;
+  images?: {
+    small?: string;
+    grid?: string;
+    large?: string;
+    medium?: string;
+    common?: string;
+  };
+  summary?: string;
+  score?: number;
+  rating?: {
+    score?: number;
+    total?: number;
+  };
+  eps?: number;
+  total_episodes?: number;
+  platform?: string;
+  tags?: { name?: string; count?: number }[];
+  [key: string]: unknown;
+}
+
+export interface BangumiSearchResponse {
+  data: BangumiSubject[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface AniRssConfig {
+  enabled: boolean;
+  base_url: string;
+  api_key_configured: boolean;
+  mikan_base_url?: string;
+  default_download_path?: string;
+  download_path_presets?: string[];
+}
+
+export interface MikanRssCandidate {
+  source: "mikan";
+  mikan_id: string;
+  title: string;
+  rss_url: string;
+  rss_type?: string;
+  subgroup_id?: string | null;
+  subgroup?: string;
+  mikan_url?: string;
+  bgm_url?: string;
+  bangumi_id?: string | null;
+  [key: string]: unknown;
+}
+
+export interface MikanRssCandidatesResponse {
+  source: "mikan";
+  keyword: string;
+  base_url: string;
+  matched: boolean;
+  matched_mikan_id?: string | null;
+  items?: unknown[];
+  candidates: MikanRssCandidate[];
+  errors?: string[];
+}
+
+export interface AniRssSubscriptionCreatePayload {
+  rss_url: string;
+  rss_type?: string;
+  bgm_url?: string;
+  bangumi_id?: string;
+  subgroup?: string;
+  title?: string;
+  poster_path?: string;
+  overview?: string;
+  year?: string | number;
+  rating?: number;
+  season?: number;
+  enable?: boolean;
+  auto_download?: boolean;
+  download_path?: string;
+}
+
+export interface AniRssSubscriptionResponse {
+  id?: string | number;
+  title?: string;
+  media_type?: string;
+  provider?: string;
+  external_system?: string;
+  external_subscription_id?: string | number;
+  external_status?: string;
+}
+
 // ---- Scheduler ----
 export interface SchedulerTask {
   id: string;

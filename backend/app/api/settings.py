@@ -100,6 +100,12 @@ class RuntimeSettingsRequest(BaseModel):
     moviepilot_password: Optional[str] = None
     moviepilot_access_token: Optional[str] = None
     moviepilot_save_path: Optional[str] = None
+    anirss_enabled: Optional[bool] = None
+    anirss_base_url: Optional[str] = None
+    anirss_api_key: Optional[str] = None
+    mikan_base_url: Optional[str] = None
+    anirss_default_download_path: Optional[str] = None
+    anirss_download_path_presets: Optional[list[str]] = None
     twilight_enabled: Optional[bool] = None
     twilight_base_url: Optional[str] = None
     twilight_web_url: Optional[str] = None

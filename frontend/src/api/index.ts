@@ -17,5 +17,6 @@ export { quarkApi } from './quark';
 export { pansouApi } from './pansou';
 export { moviepilotApi } from './moviepilot';
 export { twilightApi } from './twilight';
+export { animeApi } from './anime';
 
 export type * from './types';

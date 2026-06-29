@@ -15,6 +15,7 @@ import { buildExploreSubscriptionPayload } from "./utils/exploreSubscription";
 import DashboardTab from "./components/DashboardTab";
 import SearchTab from "./components/SearchTab";
 import ExploreTab from "./components/ExploreTab";
+import AnimeTab from "./components/AnimeTab";
 import SubscriptionTab from "./components/SubscriptionTab";
 import UsageTab from "./components/UsageTab";
 import AutomationsTab from "./components/AutomationsTab";
@@ -28,6 +29,7 @@ import {
   LayoutDashboard,
   Search,
   Trophy,
+  Clapperboard,
   Rss,
   BarChart3,
   Workflow,
@@ -294,6 +296,7 @@ export default function App() {
       items: [
         { name: PageName.SEARCH, label: "磁力秒传检索", icon: Search },
         { name: PageName.EXPLORE, label: "榜单探索", icon: Trophy },
+        { name: PageName.ANIME, label: "动漫追番", icon: Clapperboard },
         { name: PageName.SUBSCRIPTION, label: "RSS智能追更", icon: Rss },
         { name: PageName.LIBRARY, label: "片单 / 影人", icon: Bookmark },
       ],
@@ -630,6 +633,18 @@ export default function App() {
               </motion.div>
             )}
 
+            {activePage === PageName.ANIME && (
+              <motion.div
+                key="anime"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+              >
+                <AnimeTab addLog={addLog} />
+              </motion.div>
+            )}
+
             {activePage === PageName.SUBSCRIPTION && (
               <motion.div
                 key="subscription"
@@ -768,6 +783,7 @@ export default function App() {
           { name: PageName.DASHBOARD, label: "主面板", icon: LayoutDashboard },
           { name: PageName.SEARCH, label: "秒传搜索", icon: Search },
           { name: PageName.EXPLORE, label: "热门榜单", icon: Trophy },
+          { name: PageName.ANIME, label: "追番", icon: Clapperboard },
           { name: PageName.SUBSCRIPTION, label: "智能追更", icon: Rss },
         ].map((item) => {
           const Icon = item.icon;

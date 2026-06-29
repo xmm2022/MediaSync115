@@ -1,0 +1,40 @@
+services:
+  ani-rss:
+    image: wushuo894/ani-rss:latest
+    container_name: ani-rss
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      UMASK: "022"
+      SERVER_PORT: "7789"
+      CONFIG: /config
+      TZ: Asia/Shanghai
+      SWAGGER_ENABLED: "false"
+      MCP_ENABLED: "false"
+      JAVA_OPTS: "-Xms64m -Xmx512m -Xss256k -XX:+UseG1GC"
+    ports:
+      - "7789:7789"
+    volumes:
+      - ./data/ani-rss/config:/config
+      - ./data/media:/Media
+    depends_on:
+      - qbittorrent
+
+  qbittorrent:
+    image: linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      WEBUI_PORT: "8080"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:8085:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    volumes:
+      - ./data/qbittorrent/config:/config
+      - ./data/downloads:/downloads
+      - ./data/media:/Media

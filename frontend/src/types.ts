@@ -7,6 +7,7 @@ export enum PageName {
   DASHBOARD = "dashboard",
   SEARCH = "search",
   EXPLORE = "explore",
+  ANIME = "anime",
   SUBSCRIPTION = "subscription",
   LIBRARY = "library",
   USAGE = "usage",

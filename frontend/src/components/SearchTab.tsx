@@ -68,6 +68,7 @@ const RESOURCE_SOURCES: { key: ResourceSourceKey; label: string; desc: string }[
 ];
 
 type DirectResourceSourceKey = "115_hdhive" | "115_tg" | "magnet_seedhub";
+type SearchCategory = "All" | "Movie" | "TV" | "Anime";
 
 const DIRECT_RESOURCE_SOURCES: { key: DirectResourceSourceKey; label: string }[] = [
   { key: "115_hdhive", label: "115·HDHive" },
@@ -80,7 +81,36 @@ const DOUBAN_DISCOVER_SECTION_KEYS = [
   "movie_showing",
   "movie_latest",
   "movie_top250",
+  "tv_hot",
+  "tv_american",
+  "tv_animation",
 ] as const;
+
+type DoubanDiscoverSectionKey = typeof DOUBAN_DISCOVER_SECTION_KEYS[number];
+
+const DOUBAN_DISCOVER_SECTION_KEYS_BY_CATEGORY: Record<SearchCategory, readonly DoubanDiscoverSectionKey[]> = {
+  All: DOUBAN_DISCOVER_SECTION_KEYS,
+  Movie: ["movie_hot", "movie_showing", "movie_latest", "movie_top250"],
+  TV: ["tv_american"],
+  Anime: ["tv_animation"],
+};
+
+const SEARCH_CATEGORY_LABELS: Record<SearchCategory, string> = {
+  All: "全部类型",
+  Movie: "热门电影",
+  TV: "热门美剧",
+  Anime: "新番动漫",
+};
+
+const DISCOVER_SECTION_LIMIT = 24;
+const DISCOVER_VISIBLE_LIMIT = 36;
+
+function getDiscoverSectionKeys(category: SearchCategory) {
+  if (category === "All") {
+    return DOUBAN_DISCOVER_SECTION_KEYS.map((key) => key);
+  }
+  return [...(DOUBAN_DISCOVER_SECTION_KEYS_BY_CATEGORY[category] || DOUBAN_DISCOVER_SECTION_KEYS)];
+}
 
 type ExploreSectionPayload = {
   section?: {
@@ -101,6 +131,7 @@ function normalizeExploreSectionPayload(data: unknown) {
   const payload = data as ExploreSectionPayload;
   const section = payload.section ?? payload;
   return {
+    key: section?.key || payload.key || "",
     title: section?.title || "",
     tag: section?.tag,
     items: Array.isArray(section?.items) ? section.items : [],
@@ -166,13 +197,87 @@ function isDirectResourceResult(resource: MediaResource) {
   return resource.id.startsWith("direct-resource:");
 }
 
+function dedupeDiscoverResources(items: MediaResource[]) {
+  const seen = new Set<string>();
+  return items.filter((resource) => {
+    const key = resource.tmdb_id
+      ? `${resource.media_type || "movie"}:${resource.tmdb_id}`
+      : resource.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function shuffleDiscoverResources(items: MediaResource[]) {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+function isAnimeDiscoverSection(section: ReturnType<typeof normalizeExploreSectionPayload>) {
+  const key = section.key.toLowerCase();
+  const text = `${section.title} ${section.tag || ""}`;
+  return key.includes("animation") || /动画|动漫|新番/.test(text);
+}
+
+function mapDiscoverItemToResource(
+  item: SearchResourceItem,
+  section: ReturnType<typeof normalizeExploreSectionPayload>,
+) {
+  const resource = mapSearchItemToResource(item, section.tag || section.title);
+  if (isAnimeDiscoverSection(section)) {
+    return { ...resource, category: "Anime" as const };
+  }
+  return resource;
+}
+
+function selectDiscoverResources(items: MediaResource[], category: SearchCategory) {
+  const unique = shuffleDiscoverResources(dedupeDiscoverResources(items));
+  if (category !== "All") {
+    return unique.slice(0, DISCOVER_VISIBLE_LIMIT);
+  }
+
+  const buckets: Record<Exclude<SearchCategory, "All">, MediaResource[]> = {
+    Movie: unique.filter((resource) => resource.category === "Movie"),
+    TV: unique.filter((resource) => resource.category === "TV"),
+    Anime: unique.filter((resource) => resource.category === "Anime"),
+  };
+  const result: MediaResource[] = [];
+  const order: Exclude<SearchCategory, "All">[] = ["Movie", "TV", "Anime"];
+
+  while (result.length < DISCOVER_VISIBLE_LIMIT) {
+    let pushed = false;
+    for (const key of order) {
+      const item = buckets[key].shift();
+      if (item) {
+        result.push(item);
+        pushed = true;
+        if (result.length >= DISCOVER_VISIBLE_LIMIT) break;
+      }
+    }
+    if (!pushed) break;
+  }
+
+  return result;
+}
+
+function buildResourceKeyword(resource: MediaResource) {
+  const title = String(resource.title || "").trim();
+  if (!title) return "";
+  return resource.year > 0 ? `${title} ${resource.year}` : title;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavigateToDetail }: SearchTabProps) {
   const [resources, setResources] = useState<MediaResource[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<"All" | "Movie" | "TV" | "Anime">("All");
+  const [selectedCategory, setSelectedCategory] = useState<SearchCategory>("All");
   const [selectedResource, setSelectedResource] = useState<MediaResource | null>(null);
   const [transferringLinkId, setTransferringLinkId] = useState<string | null>(null);
   const [transferSuccessId, setTransferSuccessId] = useState<string | null>(null);
@@ -198,7 +303,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   const [imdbSearching, setImdbSearching] = useState(false);
 
   // ---- Load explore sections (browse / discovery) ----
-  const loadResources = useCallback(async () => {
+  const loadResources = useCallback(async (forceRefresh = false, category: SearchCategory = "All") => {
     const requestId = requestSeqRef.current += 1;
     const setIsLoadingReset = () => {
       setStatusMap({});
@@ -207,40 +312,43 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     setLoadError(null);
     setSearchMode("discover");
     setIsLoadingReset();
+    setSelectedResource(null);
     try {
-      const responses = await Promise.all(
-        DOUBAN_DISCOVER_SECTION_KEYS.map((key) =>
-          searchApi.getExploreDoubanSection(key, 24, false, 0),
-        ),
-      );
       const allItems: MediaResource[] = [];
       const agg: Record<string, BadgeStatus> = {};
+      const sectionKeys = getDiscoverSectionKeys(category);
+      const responses = await Promise.allSettled(
+        sectionKeys.map((key) =>
+          searchApi.getExploreDoubanSection(key, DISCOVER_SECTION_LIMIT, forceRefresh, 0),
+        ),
+      );
+      const errors: string[] = [];
 
-      for (const response of responses) {
-        const section = normalizeExploreSectionPayload(response.data);
-        const items = section.items || [];
-        for (const item of items) {
-          allItems.push(mapSearchItemToResource(item, section.tag || section.title));
+      for (const result of responses) {
+        if (result.status === "fulfilled") {
+          const response = result.value;
+          const section = normalizeExploreSectionPayload(response.data);
+          for (const item of section.items) {
+            allItems.push(mapDiscoverItemToResource(item, section));
+          }
+          mergeStatusMap(agg, section.embyStatusMap, "emby");
+          mergeStatusMap(agg, section.feiniuStatusMap, "feiniu");
+        } else {
+          errors.push(result.reason?.response?.data?.detail || result.reason?.message || String(result.reason));
         }
-        mergeStatusMap(agg, section.embyStatusMap, "emby");
-        mergeStatusMap(agg, section.feiniuStatusMap, "feiniu");
       }
 
       if (requestId !== requestSeqRef.current) return;
 
       setStatusMap(agg);
 
-      // Deduplicate by id
-      const seen = new Set<string>();
-      const unique = allItems.filter((r) => {
-        if (seen.has(r.id)) return false;
-        seen.add(r.id);
-        return true;
-      });
+      const unique = selectDiscoverResources(allItems, category);
 
       setResources(unique);
       if (unique.length === 0) {
-        setLoadError("探索列表为空，请检查后端搜索配置（TMDB API Key / 豆瓣可达性）");
+        const categoryLabel = SEARCH_CATEGORY_LABELS[category] || "推荐";
+        const suffix = errors.length > 0 ? ` (${errors[0]})` : "";
+        setLoadError(`${categoryLabel}推荐列表为空，请检查豆瓣分区可达性，或切换资源直搜按标题搜索。${suffix}`);
       }
     } catch (err: any) {
       if (requestId !== requestSeqRef.current) return;
@@ -258,7 +366,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     event?.preventDefault();
     const keyword = searchQuery.trim();
     if (!keyword) {
-      await loadResources();
+      await loadResources(false, selectedCategory);
       return;
     }
     if (tmdbSearchConfigured === null) {
@@ -312,7 +420,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     event?.preventDefault();
     const keyword = searchQuery.trim();
     if (!keyword) {
-      await loadResources();
+      await loadResources(false, selectedCategory);
       return;
     }
 
@@ -408,6 +516,44 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     throw new Error("SeedHub 后台检索超时");
   };
 
+  const fetchKeywordResourceLinks = async (resource: MediaResource): Promise<MediaResourceLink[]> => {
+    const mediaType = resource.media_type === "tv" ? "tv" : "movie";
+    const firstKeyword = buildResourceKeyword(resource);
+    const fallbackKeyword = String(resource.title || "").trim();
+    const keywords = firstKeyword && firstKeyword !== fallbackKeyword
+      ? [firstKeyword, fallbackKeyword]
+      : [fallbackKeyword].filter(Boolean);
+
+    for (const keyword of keywords) {
+      const settled = await Promise.allSettled(
+        DIRECT_RESOURCE_SOURCES.map(async (source) => {
+          let response: { data: unknown };
+          if (source.key === "115_hdhive") {
+            response = await searchApi.getHdhivePan115ByKeyword(keyword, mediaType);
+          } else if (source.key === "115_tg") {
+            response = await searchApi.getTgPan115ByKeyword(keyword, mediaType);
+          } else {
+            response = await searchApi.getSeedhubMagnetByKeyword(keyword, mediaType, 40);
+          }
+          const rawLinks = extractResourceLinks(response.data).map((link) => ({
+            ...link,
+            source_service: link.source_service || source.label,
+          }));
+          return mapResourceLinks(rawLinks);
+        }),
+      );
+
+      const links = settled.flatMap((result) => (
+        result.status === "fulfilled" ? result.value : []
+      ));
+      if (links.length > 0) {
+        return links;
+      }
+    }
+
+    return [];
+  };
+
   const cancelSeedhubTask = async () => {
     if (!seedhubTask?.taskId) return;
     const taskId = seedhubTask.taskId;
@@ -496,7 +642,10 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     setSelectedResource({ ...resource, links: [] });
     setActiveSource("unified"); // 重置为统一来源
     setLoadingLinks(true);
-    const links = await fetchResourceLinks(resource, "unified");
+    const shouldUseKeywordFallback = !resource.tmdb_id || tmdbSearchConfigured === false;
+    const links = shouldUseKeywordFallback
+      ? await fetchKeywordResourceLinks(resource)
+      : await fetchResourceLinks(resource, "unified");
     setSelectedResource((prev) => (prev ? { ...prev, links } : null));
     setLoadingLinks(false);
   };
@@ -665,7 +814,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
 
   // ---- Initial load ----
   useEffect(() => {
-    loadResources();
+    loadResources(false, "All");
   }, [loadResources]);
 
   useEffect(() => {
@@ -698,15 +847,9 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
       res.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       res.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    // Category filter aligned to backend media_type:
-    //   All → no filter
-    //   Movie → media_type === "movie"
-    //   TV → media_type === "tv"
-    //   Anime → merged into TV (backend has no "anime" media_type; uses "tv" for anime series)
     const matchesCategory =
       selectedCategory === "All" ||
-      (selectedCategory === "Movie" && res.media_type === "movie") ||
-      ((selectedCategory === "TV" || selectedCategory === "Anime") && res.media_type === "tv");
+      res.category === selectedCategory;
 
     return matchesSearch && matchesCategory;
   });
@@ -810,7 +953,12 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
           {(["All", "Movie", "TV", "Anime"] as const).map((cat) => (
             <button
               key={cat}
-              onClick={() => setSelectedCategory(cat)}
+              onClick={() => {
+                setSelectedCategory(cat);
+                if (searchMode === "discover") {
+                  void loadResources(false, cat);
+                }
+              }}
               className="px-4 py-2 rounded-xl text-xs font-bold transition-all glass-hover"
               style={
                 selectedCategory === cat
@@ -818,7 +966,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                   : { background: "var(--surface)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }
               }
             >
-              {cat === "All" ? "全部类型" : cat === "Movie" ? "4K电影" : cat === "TV" ? "热门美剧" : "新番动漫"}
+              {SEARCH_CATEGORY_LABELS[cat]}
             </button>
           ))}
         </div>
@@ -879,6 +1027,18 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
             <Flame className="w-4 h-4" style={{ color: "var(--brand-primary-light)" }} />
             <span>{searchMode === "direct" ? "资源直搜结果" : searchMode === "keyword" ? "关键词搜索结果" : "热搜影视精品推荐"}</span>
             <span className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>({filteredResources.length} 个结果)</span>
+            {searchMode === "discover" && (
+              <button
+                type="button"
+                onClick={() => loadResources(true, selectedCategory)}
+                disabled={isLoading}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10px] font-black transition-all glass-hover disabled:opacity-60"
+                style={{ color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)", background: "var(--brand-primary-bg-alpha)" }}
+              >
+                <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin" : ""}`} />
+                换一批
+              </button>
+            )}
           </h3>
 
           {isLoading ? (
@@ -888,7 +1048,15 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
             </div>
           ) : loadError ? (
             <div className="glass rounded-3xl p-8 text-center">
-              <ErrorBanner variant="block" message={loadError} onRetry={searchMode === "direct" ? () => runDirectResourceSearch() : loadResources} />
+              <ErrorBanner
+                variant="block"
+                message={loadError}
+                onRetry={
+                  searchMode === "direct"
+                    ? () => runDirectResourceSearch()
+                    : () => loadResources(false, selectedCategory)
+                }
+              />
             </div>
           ) : filteredResources.length === 0 ? (
             <div className="glass rounded-3xl p-12 text-center">
@@ -1034,17 +1202,17 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                       <Download className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
                       <span>资源通道</span>
                     </span>
-                    {selectedResource.tmdb_id ? (
+                    {selectedResource.tmdb_id && tmdbSearchConfigured !== false ? (
                       <span className="text-[10px] font-bold" style={{ color: "var(--brand-primary)" }}>多源可切换</span>
                     ) : isDirectResourceResult(selectedResource) ? (
                       <span className="text-[10px] font-bold" style={{ color: "var(--brand-primary)" }}>资源直搜</span>
                     ) : (
-                      <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>无 TMDB ID</span>
+                      <span className="text-[10px] font-bold" style={{ color: "var(--brand-primary)" }}>标题直搜</span>
                     )}
                   </div>
 
                   {/* 多源资源选择器 */}
-                  {selectedResource.tmdb_id && (
+                  {selectedResource.tmdb_id && tmdbSearchConfigured !== false && (
                     <div className="flex flex-wrap gap-1">
                       {RESOURCE_SOURCES.map((s) => (
                         <button
@@ -1087,11 +1255,11 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                   ) : selectedResource.links.length === 0 ? (
                     <div className="text-center py-6 rounded-xl" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
                       <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>
-                        {selectedResource.tmdb_id
+                        {selectedResource.tmdb_id && tmdbSearchConfigured !== false
                           ? "该来源暂无可用下载链接"
                           : isDirectResourceResult(selectedResource)
                           ? "该直搜来源暂无可用资源"
-                          : "该资源缺少 TMDB ID，无法获取下载链接"}
+                          : "标题直搜暂无可用资源，可切换到资源直搜手动换关键词"}
                       </p>
                     </div>
                   ) : (

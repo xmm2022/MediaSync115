@@ -21,6 +21,9 @@ from app.services.emby_service import emby_service
 from app.utils.proxy import proxy_manager
 
 
+DEFAULT_ANIRSS_DOWNLOAD_PATH_PRESETS: list[str] = []
+
+
 class RuntimeSettingsService:
     ENV_FIELD_MAP = {
         "http_proxy": "HTTP_PROXY",
@@ -132,6 +135,12 @@ class RuntimeSettingsService:
             "moviepilot_password_enc": "",
             "moviepilot_access_token": "",
             "moviepilot_save_path": "",
+            "anirss_enabled": False,
+            "anirss_base_url": "",
+            "anirss_api_key_enc": "",
+            "mikan_base_url": "https://mikanani.me",
+            "anirss_default_download_path": "",
+            "anirss_download_path_presets": DEFAULT_ANIRSS_DOWNLOAD_PATH_PRESETS,
             "twilight_enabled": False,
             "twilight_base_url": "",
             "twilight_web_url": "",
@@ -850,6 +859,73 @@ class RuntimeSettingsService:
             "save_path": self.get_moviepilot_save_path(),
         }
 
+    def get_anirss_enabled(self) -> bool:
+        return bool(self._data.get("anirss_enabled", False))
+
+    def get_anirss_base_url(self) -> str:
+        return str(self._data.get("anirss_base_url") or "").strip().rstrip("/")
+
+    def get_mikan_base_url(self) -> str:
+        raw = str(self._data.get("mikan_base_url") or "https://mikanani.me").strip()
+        if not raw:
+            return "https://mikanani.me"
+        if not raw.startswith(("http://", "https://")):
+            raw = f"https://{raw}"
+        return raw.rstrip("/")
+
+    def get_anirss_api_key_enc(self) -> str:
+        return str(self._data.get("anirss_api_key_enc") or "")
+
+    def get_anirss_api_key(self) -> str:
+        from app.utils.credential_crypto import decrypt_credential
+
+        encrypted = self.get_anirss_api_key_enc()
+        if not encrypted:
+            return ""
+        return decrypt_credential(encrypted, self.get_auth_secret())
+
+    def set_anirss_api_key(self, api_key: str) -> None:
+        from app.utils.credential_crypto import encrypt_credential
+
+        plain = str(api_key or "").strip()
+        if not plain:
+            self._data["anirss_api_key_enc"] = ""
+            return
+        self._data["anirss_api_key_enc"] = encrypt_credential(
+            plain,
+            self.get_auth_secret(),
+        )
+
+    def get_anirss_default_download_path(self) -> str:
+        return str(self._data.get("anirss_default_download_path") or "").strip()
+
+    def get_anirss_download_path_presets(self) -> list[str]:
+        raw = self._data.get("anirss_download_path_presets")
+        source_items: list[str] = []
+        if isinstance(raw, str):
+            source_items = [part.strip() for part in raw.replace("\r", "\n").split("\n")]
+        elif isinstance(raw, list):
+            source_items = [str(part or "").strip() for part in raw]
+
+        presets: list[str] = []
+        seen: set[str] = set()
+        for item in source_items:
+            if not item or item in seen:
+                continue
+            presets.append(item)
+            seen.add(item)
+        return presets
+
+    def get_anirss_config(self) -> dict[str, Any]:
+        return {
+            "enabled": self.get_anirss_enabled(),
+            "base_url": self.get_anirss_base_url(),
+            "api_key_configured": bool(self.get_anirss_api_key_enc()),
+            "mikan_base_url": self.get_mikan_base_url(),
+            "default_download_path": self.get_anirss_default_download_path(),
+            "download_path_presets": self.get_anirss_download_path_presets(),
+        }
+
     def get_twilight_enabled(self) -> bool:
         return bool(self._data.get("twilight_enabled", False))
 
@@ -1253,6 +1329,11 @@ class RuntimeSettingsService:
             normalized["twilight_api_key_enc"] = self._data.get(
                 "twilight_api_key_enc", ""
             )
+        if "anirss_api_key" in payload:
+            self.set_anirss_api_key(str(payload.get("anirss_api_key") or ""))
+            normalized["anirss_api_key_enc"] = self._data.get(
+                "anirss_api_key_enc", ""
+            )
         for key in self._defaults.keys():
             if key not in payload:
                 continue
@@ -1271,10 +1352,10 @@ class RuntimeSettingsService:
                 if not isinstance(value, str):
                     value = str(value)
                 cleaned = value.strip()
-                if key in {"moviepilot_base_url", "twilight_base_url", "twilight_web_url"}:
+                if key in {"moviepilot_base_url", "anirss_base_url", "mikan_base_url", "twilight_base_url", "twilight_web_url"}:
                     cleaned = cleaned.rstrip("/")
                 if not cleaned:
-                    if key in {"tg_bot_token", "moviepilot_access_token"}:
+                    if key in {"tg_bot_token", "moviepilot_access_token", "anirss_default_download_path"}:
                         normalized[key] = ""
                     continue
                 normalized[key] = cleaned
@@ -1329,6 +1410,25 @@ class RuntimeSettingsService:
                             and item.get("source")
                             and item.get("key")
                         ]
+                    continue
+
+                if key == "anirss_download_path_presets":
+                    source_items: list[str] = []
+                    if isinstance(value, str):
+                        source_items = [
+                            part.strip()
+                            for part in value.replace("\r", "\n").split("\n")
+                        ]
+                    elif isinstance(value, list):
+                        source_items = [str(part or "").strip() for part in value]
+                    deduped: list[str] = []
+                    seen: set[str] = set()
+                    for item in source_items:
+                        if not item or item in seen:
+                            continue
+                        deduped.append(item)
+                        seen.add(item)
+                    normalized[key] = deduped
                     continue
 
                 source_items: list[str] = []
@@ -1495,6 +1595,12 @@ class RuntimeSettingsService:
                 self.get_moviepilot_access_token()
             ),
             "moviepilot_save_path": self.get_moviepilot_save_path(),
+            "anirss_enabled": self.get_anirss_enabled(),
+            "anirss_base_url": self.get_anirss_base_url(),
+            "anirss_api_key_configured": bool(self.get_anirss_api_key_enc()),
+            "mikan_base_url": self.get_mikan_base_url(),
+            "anirss_default_download_path": self.get_anirss_default_download_path(),
+            "anirss_download_path_presets": self.get_anirss_download_path_presets(),
             "twilight_enabled": self.get_twilight_enabled(),
             "twilight_base_url": self.get_twilight_base_url(),
             "twilight_web_url": self.get_twilight_web_url(),
