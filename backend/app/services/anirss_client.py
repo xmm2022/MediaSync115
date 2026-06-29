@@ -71,6 +71,61 @@ class AniRssClient:
         data = self.unwrap_result(response)
         return data if isinstance(data, dict) else {}
 
+    async def mikan(self, text: str, season: dict[str, Any] | None = None) -> dict[str, Any]:
+        response = await self._request(
+            "POST",
+            "/api/mikan",
+            params={"text": str(text or "")},
+            json=season or {},
+        )
+        data = self.unwrap_result(response)
+        return data if isinstance(data, dict) else {}
+
+    async def mikan_group(self, url: str) -> list[Any]:
+        response = await self._request(
+            "POST",
+            "/api/mikanGroup",
+            params={"url": str(url or "")},
+        )
+        data = self.unwrap_result(response)
+        return data if isinstance(data, list) else []
+
+    async def ani_bt(self, *, season: str = "", bgm_url: str = "") -> dict[str, Any]:
+        response = await self._request(
+            "POST",
+            "/api/aniBT",
+            params={"season": str(season or ""), "bgmUrl": str(bgm_url or "")},
+        )
+        data = self.unwrap_result(response)
+        return data if isinstance(data, dict) else {}
+
+    async def ani_bt_group(self, bgm_id: str) -> list[Any]:
+        response = await self._request(
+            "POST",
+            "/api/aniBTGroup",
+            params={"bgmId": str(bgm_id or "")},
+        )
+        data = self.unwrap_result(response)
+        return data if isinstance(data, list) else []
+
+    async def anime_garden_list(self, *, bgm_url: str = "") -> list[Any]:
+        response = await self._request(
+            "POST",
+            "/api/animeGardenList",
+            params={"bgmUrl": str(bgm_url or "")},
+        )
+        data = self.unwrap_result(response)
+        return data if isinstance(data, list) else []
+
+    async def anime_garden_group(self, bgm_id: str) -> list[Any]:
+        response = await self._request(
+            "POST",
+            "/api/animeGardenGroup",
+            params={"bgmId": str(bgm_id or "")},
+        )
+        data = self.unwrap_result(response)
+        return data if isinstance(data, list) else []
+
     async def preview_ani(self, ani: dict[str, Any]) -> dict[str, Any]:
         response = await self._request("POST", "/api/previewAni", json=ani)
         data = self.unwrap_result(response)

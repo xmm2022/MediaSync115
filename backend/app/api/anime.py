@@ -13,7 +13,6 @@ from app.services.anirss_provider_service import (
     anirss_provider_service,
 )
 from app.services.bangumi_client import BangumiClientError, bangumi_client
-from app.services.mikan_client import MikanClient, MikanClientError
 from app.services.runtime_settings_service import runtime_settings_service
 
 
@@ -31,8 +30,7 @@ class AniRssSubscriptionPayload(BaseModel):
     overview: Optional[str] = None
     year: Optional[str] = None
     rating: Optional[float] = None
-    season: Optional[int] = None
-    enable: bool = True
+    enable: bool = False
     auto_download: bool = True
     download_path: Optional[str] = None
 
@@ -78,16 +76,35 @@ async def get_bangumi_subject(subject_id: int) -> dict[str, Any]:
 async def get_mikan_rss_candidates(
     keyword: str = Query(..., min_length=1),
     bangumi_id: Optional[str] = Query(None),
+    air_date: Optional[str] = Query(None),
     limit: int = Query(24, ge=1, le=80),
 ) -> dict[str, Any]:
     try:
-        client = MikanClient(base_url=runtime_settings_service.get_mikan_base_url())
-        return await client.discover_rss_candidates(
+        return await anirss_provider_service.discover_mikan_rss_candidates(
             keyword,
             bangumi_id=bangumi_id,
+            air_date=air_date,
             limit=limit,
         )
-    except MikanClientError as exc:
+    except (AniRssClientError, AniRssProviderError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/anirss/rss-candidates")
+async def get_anirss_rss_candidates(
+    keyword: str = Query(..., min_length=1),
+    bangumi_id: Optional[str] = Query(None),
+    air_date: Optional[str] = Query(None),
+    limit: int = Query(48, ge=1, le=120),
+) -> dict[str, Any]:
+    try:
+        return await anirss_provider_service.discover_anirss_rss_candidates(
+            keyword,
+            bangumi_id=bangumi_id,
+            air_date=air_date,
+            limit=limit,
+        )
+    except (AniRssClientError, AniRssProviderError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
@@ -104,10 +121,50 @@ async def check_anirss_health() -> dict[str, Any]:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.get("/anirss/subscriptions")
-async def list_anirss_subscriptions() -> dict[str, Any]:
+@router.get("/anirss/download-client/status")
+async def get_anirss_download_client_status() -> dict[str, Any]:
     try:
-        return await anirss_provider_service.list_subscriptions()
+        return await anirss_provider_service.download_client_status()
+    except AniRssProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/anirss/download-client/apply-defaults")
+async def apply_anirss_download_client_defaults() -> dict[str, Any]:
+    try:
+        return await anirss_provider_service.apply_download_client_defaults()
+    except AniRssProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/anirss/subscriptions")
+async def list_anirss_subscriptions(
+    include_preview: bool = Query(True),
+    preview_limit: int = Query(5, ge=0, le=20),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return await anirss_provider_service.list_subscriptions(
+            db,
+            include_preview=include_preview,
+            preview_limit=preview_limit,
+        )
+    except (AniRssClientError, AniRssProviderError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/anirss/subscriptions/sync")
+async def sync_anirss_subscriptions(
+    include_preview: bool = Query(True),
+    preview_limit: int = Query(5, ge=0, le=20),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return await anirss_provider_service.list_subscriptions(
+            db,
+            include_preview=include_preview,
+            preview_limit=preview_limit,
+        )
     except (AniRssClientError, AniRssProviderError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -149,11 +206,13 @@ async def refresh_anirss_subscription(external_subscription_id: str) -> dict[str
 async def set_anirss_subscription_enabled(
     external_subscription_id: str,
     payload: AniRssSubscriptionEnabledPayload,
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
         return await anirss_provider_service.set_subscription_enabled(
             external_subscription_id,
             payload.enable,
+            db,
         )
     except AniRssProviderError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

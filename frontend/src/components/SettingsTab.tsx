@@ -36,6 +36,7 @@ import { animeApi } from "../api/anime";
 import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
 import { getApiErrorMessage } from "../api/errors";
+import type { AniRssDownloadClientStatus } from "../api/types";
 import {
   buildTgBotRuntimePayload,
   buildTgRuntimePayload,
@@ -158,6 +159,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [anirssApiKeyConfigured, setAnirssApiKeyConfigured] = useState(false);
   const [anirssDefaultDownloadPath, setAnirssDefaultDownloadPath] = useState("");
   const [anirssDownloadPathPresetsInput, setAnirssDownloadPathPresetsInput] = useState("");
+  const [anirssDownloadClientStatus, setAnirssDownloadClientStatus] = useState<AniRssDownloadClientStatus | null>(null);
   // Twilight
   const [twilightEnabled, setTwilightEnabled] = useState(false);
   const [twilightBaseUrl, setTwilightBaseUrl] = useState("");
@@ -481,6 +483,14 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setDetailVisibleTabs(Array.isArray(rt.detail_visible_tabs) ? rt.detail_visible_tabs : []);
         setAccountUsername(String(rt.auth_username || "admin"));
 
+        try {
+          const downloadClientResp = await animeApi.getAniRssDownloadClientStatus();
+          setAnirssDownloadClientStatus(downloadClientResp.data);
+        } catch (statusErr) {
+          setAnirssDownloadClientStatus(null);
+          addLog("WARN", "加载 ANI-RSS 下载器状态失败: " + getApiErrorMessage(statusErr));
+        }
+
       } catch (err) {
         console.error("Failed to load runtime settings:", err);
         addLog("ERROR", "加载运行时设置失败: " + getApiErrorMessage(err));
@@ -760,6 +770,20 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setAnirssApiKey("");
         setAnirssApiKeyConfigured(true);
       }
+      return response;
+    });
+
+  const checkAniRssDownloadClient = () =>
+    runAction("anirssDownloadClientCheck", "检测 ANI-RSS 下载器配置", async () => {
+      const response = await animeApi.getAniRssDownloadClientStatus();
+      setAnirssDownloadClientStatus(response.data);
+      return response;
+    });
+
+  const applyAniRssDownloadClientDefaults = () =>
+    runAction("anirssDownloadClientApply", "同步 ANI-RSS 下载器安全配置", async () => {
+      const response = await animeApi.applyAniRssDownloadClientDefaults();
+      setAnirssDownloadClientStatus(response.data.status || null);
       return response;
     });
 
@@ -1347,7 +1371,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                         <input value={moviepilotSavePath} onChange={(e) => setMoviepilotSavePath(e.target.value)} placeholder="e.g. /incoming/pt" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
                       </label>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button type="button" onClick={saveMoviePilotSettings} disabled={isBusy("moviepilotConfigSave")} className="px-3 py-1.5 rounded-lg text-[9px] font-black bg-brand-primary text-white disabled:opacity-50 cursor-pointer">保存 MP 接入</button>
                       <button type="button" onClick={() => runAction("moviepilotHealth", "检测 MoviePilot 连通状态", () => moviepilotApi.health())} disabled={isBusy("moviepilotHealth")} className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>检测连通性</button>
                     </div>
@@ -1368,7 +1392,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                         <input value={anirssBaseUrl} onChange={(e) => setAnirssBaseUrl(e.target.value)} placeholder="e.g. http://ani-rss:7789" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
                       </label>
                       <label className="space-y-1 block md:col-span-2">
-                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>Mikan 域名</span>
+                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>Mikan 域名（兼容）</span>
                         <input value={mikanBaseUrl} onChange={(e) => setMikanBaseUrl(e.target.value)} placeholder="https://mikanani.me" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
                       </label>
                       <label className="space-y-1 block md:col-span-2">
@@ -1377,16 +1401,68 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                       </label>
                       <label className="space-y-1 block md:col-span-2">
                         <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>默认保存位置（可选）</span>
-                        <input value={anirssDefaultDownloadPath} onChange={(e) => setAnirssDefaultDownloadPath(e.target.value)} placeholder="/Media/番剧/${title}/Season ${season}" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
+                        <input value={anirssDefaultDownloadPath} onChange={(e) => setAnirssDefaultDownloadPath(e.target.value)} placeholder="/Media/番剧/${title}" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
                       </label>
                       <label className="space-y-1 block md:col-span-2">
                         <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>保存位置预设</span>
-                        <textarea value={anirssDownloadPathPresetsInput} onChange={(e) => setAnirssDownloadPathPresetsInput(e.target.value)} rows={4} placeholder={"/Media/番剧\n/Media/番剧/${title}/Season ${season}\n/Media/国产动漫/${title}/Season ${season}"} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium resize-y" />
+                        <textarea value={anirssDownloadPathPresetsInput} onChange={(e) => setAnirssDownloadPathPresetsInput(e.target.value)} rows={4} placeholder={"/Media/番剧\n/Media/番剧/${title}\n/Media/国产动漫/${title}"} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium resize-y" />
                       </label>
+                    </div>
+                    <div className="rounded-2xl p-3 space-y-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-black flex items-center gap-1.5" style={{ color: "var(--txt)" }}>
+                            <Server className="w-3.5 h-3.5" />
+                            下载器配置闭环
+                          </p>
+                          <p className="text-[10px] font-bold mt-1" style={{ color: "var(--txt-muted)" }}>
+                            {anirssDownloadClientStatus?.message || "尚未检测 ANI-RSS 到 qBittorrent 的连接状态"}
+                          </p>
+                        </div>
+                        <span
+                          className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-[9px] font-black shrink-0"
+                          style={anirssDownloadClientStatus?.ready
+                            ? { color: "var(--accent-ok)", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.24)" }
+                            : { color: "var(--accent-warn)", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.28)" }}
+                        >
+                          {anirssDownloadClientStatus?.ready ? "配置正常" : "需要检测"}
+                        </span>
+                      </div>
+                      {anirssDownloadClientStatus && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[10px] font-bold">
+                          <div className="rounded-xl px-2.5 py-2" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}>
+                            <span className="block text-[9px] font-black uppercase" style={{ color: "var(--txt-muted)" }}>qBittorrent</span>
+                            <span className="block truncate">{anirssDownloadClientStatus.qbittorrent?.version || "-"}</span>
+                            <span className="block truncate">{anirssDownloadClientStatus.qbittorrent?.base_url || "-"}</span>
+                          </div>
+                          <div className="rounded-xl px-2.5 py-2" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}>
+                            <span className="block text-[9px] font-black uppercase" style={{ color: "var(--txt-muted)" }}>任务数</span>
+                            <span className="block">{anirssDownloadClientStatus.qbittorrent?.torrent_count ?? "-"}</span>
+                            <span className="block">downloadNew: {anirssDownloadClientStatus.actual?.download_new ? "开" : "关"}</span>
+                          </div>
+                          <div className="rounded-xl px-2.5 py-2" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}>
+                            <span className="block text-[9px] font-black uppercase" style={{ color: "var(--txt-muted)" }}>下载路径</span>
+                            <span className="block truncate">{anirssDownloadClientStatus.actual?.download_path_template || "-"}</span>
+                            <span className="block">qbUseDownloadPath: {anirssDownloadClientStatus.actual?.qb_use_download_path ? "开" : "关"}</span>
+                          </div>
+                        </div>
+                      )}
+                      {!!anirssDownloadClientStatus?.issues?.length && (
+                        <p className="text-[10px] font-bold leading-relaxed" style={{ color: "var(--accent-warn)" }}>
+                          {anirssDownloadClientStatus.issues.join("；")}
+                        </p>
+                      )}
+                      {!!anirssDownloadClientStatus?.unsafe_flags?.length && (
+                        <p className="text-[10px] font-bold leading-relaxed" style={{ color: "var(--accent-danger)" }}>
+                          安全开关异常：{anirssDownloadClientStatus.unsafe_flags.join("；")}
+                        </p>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <button type="button" onClick={saveAniRssSettings} disabled={isBusy("anirssConfigSave")} className="px-3 py-1.5 rounded-lg text-[9px] font-black bg-brand-primary text-white disabled:opacity-50 cursor-pointer">保存 ANI-RSS</button>
                       <button type="button" onClick={() => runAction("anirssHealth", "检测 ANI-RSS 连通状态", () => animeApi.checkAniRssHealth())} disabled={isBusy("anirssHealth")} className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>检测连通性</button>
+                      <button type="button" onClick={checkAniRssDownloadClient} disabled={isBusy("anirssDownloadClientCheck")} className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>检测下载器</button>
+                      <button type="button" onClick={applyAniRssDownloadClientDefaults} disabled={isBusy("anirssDownloadClientApply")} className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "rgba(245,158,11,0.10)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.28)" }}>同步安全配置</button>
                     </div>
                   </div>
 

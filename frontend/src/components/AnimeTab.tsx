@@ -13,25 +13,14 @@ import {
   Search,
 } from "lucide-react";
 import { animeApi } from "../api/anime";
-import type { AniRssConfig, BangumiSubject, MikanRssCandidate } from "../api/types";
+import type { AniRssConfig, AniRssRssCandidate, AniRssSubscriptionStatus, BangumiSubject } from "../api/types";
 import { getApiErrorMessage } from "../api/errors";
 
 interface AnimeTabProps {
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
 }
 
-type AniRssListItem = {
-  id?: string;
-  title?: string;
-  url?: string;
-  subgroup?: string;
-  enable?: boolean;
-  currentEpisodeNumber?: number;
-  totalEpisodeNumber?: number;
-  image?: string;
-  bgmUrl?: string;
-  [key: string]: unknown;
-};
+type AniRssListItem = AniRssSubscriptionStatus;
 
 type PreviewSummary = {
   itemCount: number;
@@ -60,6 +49,38 @@ function pickBangumiRating(subject: BangumiSubject | null) {
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+function getRssSourceLabel(source: unknown) {
+  const normalized = normalizeRssSource(source);
+  if (normalized === "mikan") return "Mikan";
+  if (normalized === "ani-bt") return "AniBT";
+  if (normalized === "anime-garden") return "AnimeGarden";
+  return normalized || "RSS";
+}
+
+function normalizeRssSource(source: unknown) {
+  const normalized = String(source || "").trim().toLowerCase();
+  if (normalized === "anibt" || normalized === "ani_bt") return "ani-bt";
+  if (normalized === "animegarden" || normalized === "anime_garden") return "anime-garden";
+  return normalized;
+}
+
+function getCandidateSource(candidate: AniRssRssCandidate) {
+  return normalizeRssSource(candidate.rss_type || candidate.source);
+}
+
+function pickPreferredCandidate(candidates: AniRssRssCandidate[], source?: string) {
+  const normalizedSource = normalizeRssSource(source);
+  const scoped = normalizedSource
+    ? candidates.filter((candidate) => getCandidateSource(candidate) === normalizedSource)
+    : candidates;
+  return (
+    scoped.find((candidate) => String(candidate.subgroup || "").trim() === "ANi") ||
+    scoped.find((candidate) => !candidate.subgroup_id) ||
+    scoped[0] ||
+    null
+  );
+}
+
 function flattenAniRssList(raw: unknown): AniRssListItem[] {
   const payload = raw as { weekList?: { items?: AniRssListItem[] }[]; items?: AniRssListItem[] };
   if (Array.isArray(payload?.items)) return payload.items;
@@ -67,6 +88,67 @@ function flattenAniRssList(raw: unknown): AniRssListItem[] {
     return payload.weekList.flatMap((week) => (Array.isArray(week.items) ? week.items : []));
   }
   return [];
+}
+
+function getAniEnabled(item: AniRssListItem) {
+  return Boolean(item.enabled ?? item.enable);
+}
+
+function getAniStatus(item: AniRssListItem) {
+  const status = String(item.status || "").trim();
+  if (status) return status;
+  return getAniEnabled(item) ? "tracking" : "paused";
+}
+
+function getAniStatusLabel(item: AniRssListItem) {
+  return String(item.status_text || (
+    getAniStatus(item) === "error"
+      ? "错误"
+      : getAniStatus(item) === "tracking"
+        ? "追新中"
+        : getAniStatus(item) === "missing"
+          ? "外部不存在"
+          : "暂停"
+  ));
+}
+
+function getAniStatusStyle(item: AniRssListItem) {
+  const status = getAniStatus(item);
+  if (status === "error") {
+    return { color: "var(--accent-danger)", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.26)" };
+  }
+  if (status === "tracking") {
+    return { color: "var(--accent-ok)", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.24)" };
+  }
+  if (status === "missing") {
+    return { color: "var(--accent-warn)", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.28)" };
+  }
+  return { color: "var(--txt-secondary)", background: "var(--surface)", border: "1px solid var(--border)" };
+}
+
+function getAniCurrentEpisode(item: AniRssListItem) {
+  return item.current_episode ?? item.currentEpisodeNumber ?? 0;
+}
+
+function getAniTotalEpisodes(item: AniRssListItem) {
+  return item.total_episodes ?? item.totalEpisodeNumber ?? "?";
+}
+
+function getAniRssUrl(item: AniRssListItem) {
+  return String(item.rss_url || item.url || "");
+}
+
+function getAniDownloadPath(item: AniRssListItem) {
+  return String(item.download_path || item.downloadPath || "");
+}
+
+function getAniCustomDownloadPath(item: AniRssListItem) {
+  return Boolean(item.custom_download_path ?? item.customDownloadPath);
+}
+
+function getAniRecentHitTitle(item: AniRssListItem) {
+  const hit = item.recent_hit || item.matched_items?.[0];
+  return String(hit?.title || "").trim();
 }
 
 function getPreviewSummary(raw: Record<string, unknown> | null): PreviewSummary | null {
@@ -95,28 +177,41 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
   const [rssUrl, setRssUrl] = useState("");
   const [rssType, setRssType] = useState("mikan");
   const [subgroup, setSubgroup] = useState("");
-  const [season, setSeason] = useState(1);
   const [downloadPath, setDownloadPath] = useState("");
   const [enable, setEnable] = useState(false);
   const [busyKey, setBusyKey] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [subscriptions, setSubscriptions] = useState<AniRssListItem[]>([]);
-  const [rssCandidates, setRssCandidates] = useState<MikanRssCandidate[]>([]);
+  const [rssCandidates, setRssCandidates] = useState<AniRssRssCandidate[]>([]);
   const [rssCandidateMatched, setRssCandidateMatched] = useState<boolean | null>(null);
 
   const selectedTitle = pickBangumiTitle(selected);
   const selectedPoster = pickBangumiPoster(selected);
   const bgmUrl = selected ? `https://bgm.tv/subject/${selected.id}` : "";
+  const aniRssReady = Boolean(config?.enabled && config.api_key_configured);
   const canSubmitAniRss = Boolean(config?.enabled && config.api_key_configured && rssUrl.trim() && selected);
   const previewSummary = useMemo(() => getPreviewSummary(preview), [preview]);
+  const rssCandidateCounts = useMemo(() => {
+    return rssCandidates.reduce<Record<string, number>>((acc, candidate) => {
+      const source = getCandidateSource(candidate);
+      if (!source) return acc;
+      acc[source] = (acc[source] || 0) + 1;
+      return acc;
+    }, {});
+  }, [rssCandidates]);
+  const visibleRssCandidates = useMemo(() => {
+    if (rssType === "other") return rssCandidates;
+    const filtered = rssCandidates.filter((candidate) => getCandidateSource(candidate) === normalizeRssSource(rssType));
+    return filtered.length > 0 ? filtered : rssCandidates;
+  }, [rssCandidates, rssType]);
 
   const createDisabledReason = useMemo(() => {
     if (!config) return "正在读取 ANI-RSS 配置";
     if (!config.enabled) return "未启用 ANI-RSS";
     if (!config.api_key_configured) return "未配置 ANI-RSS API Key";
     if (!selected) return "请先选择 Bangumi 条目";
-    if (!rssUrl.trim()) return "请先填写或自动获取 RSS 地址";
+    if (!rssUrl.trim()) return "请先填写或通过 ANI-RSS 获取 RSS 地址";
     return "";
   }, [config, rssUrl, selected]);
 
@@ -140,7 +235,7 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
   const loadSubscriptions = async () => {
     setBusyKey("list");
     try {
-      const response = await animeApi.listAniRssSubscriptions();
+      const response = await animeApi.syncAniRssSubscriptions({ includePreview: true, previewLimit: 5 });
       setSubscriptions(flattenAniRssList(response.data));
     } catch (err) {
       setError(getApiErrorMessage(err, "读取 ANI-RSS 订阅失败"));
@@ -178,7 +273,7 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
     }
   };
 
-  const applyMikanCandidate = (candidate: MikanRssCandidate) => {
+  const applyAniRssCandidate = (candidate: AniRssRssCandidate) => {
     setRssUrl(String(candidate.rss_url || ""));
     setRssType(String(candidate.rss_type || "mikan"));
     const candidateSubgroup = String(candidate.subgroup || "").trim();
@@ -186,29 +281,48 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
     setPreview(null);
   };
 
-  const loadMikanRssCandidates = async (subject: BangumiSubject | null = selected) => {
+  const handleRssTypeChange = (nextType: string) => {
+    setRssType(nextType);
+    setPreview(null);
+    if (nextType === "other") return;
+    const preferred = pickPreferredCandidate(rssCandidates, nextType);
+    if (preferred) {
+      applyAniRssCandidate(preferred);
+    }
+  };
+
+  const loadAniRssRssCandidates = async (subject: BangumiSubject | null = selected) => {
     const keyword = pickBangumiTitle(subject) || query.trim();
     if (!keyword) return;
-    setBusyKey("mikan");
+    if (!aniRssReady) {
+      setError("请先启用 ANI-RSS 并配置 API Key，再获取 RSS 候选。");
+      return;
+    }
+    setBusyKey("rss-candidates");
     setError("");
     setRssCandidateMatched(null);
     try {
-      const response = await animeApi.getMikanRssCandidates(keyword, subject?.id, 24);
+      const response = await animeApi.getAniRssRssCandidates(
+        keyword,
+        subject?.id,
+        48,
+        subject?.date ? String(subject.date) : undefined,
+      );
       const candidates = Array.isArray(response.data.candidates) ? response.data.candidates : [];
       setRssCandidates(candidates);
       setRssCandidateMatched(Boolean(response.data.matched));
       if (candidates.length > 0) {
-        const preferred =
-          candidates.find((candidate) => String(candidate.subgroup || "").trim() === "ANi") ||
-          candidates.find((candidate) => !candidate.subgroup_id) ||
-          candidates[0];
-        applyMikanCandidate(preferred);
-        await addLog("SUCCESS", `已获取 Mikan RSS 候选: ${keyword}`);
+        const preferred = pickPreferredCandidate(candidates);
+        if (preferred) applyAniRssCandidate(preferred);
+        await addLog("SUCCESS", `已通过 ANI-RSS 获取 RSS 候选: ${keyword}`);
       } else {
-        setError(`Mikan 未找到「${keyword}」对应当前 Bangumi 条目的 RSS。可以换 TV 主条目或手动填写 RSS。`);
+        const details = Array.isArray(response.data.errors) && response.data.errors.length > 0
+          ? ` ${response.data.errors[0]}`
+          : "";
+        setError(`ANI-RSS 未找到「${keyword}」对应当前 Bangumi 条目的 RSS。可以换 TV 主条目或手动填写 RSS。${details}`);
       }
     } catch (err) {
-      setError(getApiErrorMessage(err, "自动获取 Mikan RSS 失败"));
+      setError(getApiErrorMessage(err, "通过 ANI-RSS 获取 RSS 失败"));
     } finally {
       setBusyKey("");
     }
@@ -223,11 +337,10 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
     setSubgroup("");
     setDownloadPath("");
     if (!query.trim()) setQuery(pickBangumiTitle(subject));
-    void loadMikanRssCandidates(subject);
+    void loadAniRssRssCandidates(subject);
   };
 
   const buildPayload = () => {
-    const normalizedSeason = Math.max(1, Math.round(season || 1));
     const customDownloadPath = downloadPath.trim();
     return {
       rss_url: rssUrl.trim(),
@@ -240,7 +353,6 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
       overview: selected?.summary || undefined,
       year: pickBangumiYear(selected) || undefined,
       rating: pickBangumiRating(selected),
-      season: normalizedSeason,
       enable,
       auto_download: true,
       download_path: customDownloadPath || undefined,
@@ -279,9 +391,9 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
   };
 
   const toggleAniRssSubscription = async (item: AniRssListItem) => {
-    const externalId = String(item.id || "").trim();
+    const externalId = String(item.external_subscription_id || item.id || "").trim();
     if (!externalId) return;
-    const nextEnable = !Boolean(item.enable);
+    const nextEnable = !getAniEnabled(item);
     setBusyKey(`toggle-${externalId}`);
     setError("");
     try {
@@ -436,7 +548,7 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
                 <a href={bgmUrl} target="_blank" rel="noreferrer" className="text-[10px] font-bold inline-flex items-center gap-1 mt-1" style={{ color: "var(--brand-primary)" }}>
                   Bangumi 条目 <ExternalLink className="w-3 h-3" />
                 </a>
-                <p className="text-[10px] font-bold mt-2" style={{ color: "var(--txt-muted)" }}>会优先从 Mikan 自动获取 RSS，也可以手动填写其他 RSS。</p>
+                <p className="text-[10px] font-bold mt-2" style={{ color: "var(--txt-muted)" }}>会通过 ANI-RSS API 精确匹配 Mikan、AniBT、AnimeGarden RSS，也可以手动填写其他 RSS。</p>
               </div>
             </div>
           ) : (
@@ -451,13 +563,14 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
                 <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>RSS 地址</span>
                 <button
                   type="button"
-                  onClick={() => void loadMikanRssCandidates(selected)}
-                  disabled={!selected || busyKey === "mikan"}
+                  onClick={() => void loadAniRssRssCandidates(selected)}
+                  disabled={!selected || !aniRssReady || busyKey === "rss-candidates"}
+                  title={!selected ? "请先选择 Bangumi 条目" : !aniRssReady ? "请先启用 ANI-RSS 并配置 API Key" : ""}
                   className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black glass-hover disabled:opacity-50"
                   style={{ color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)", background: "var(--brand-primary-bg-alpha)" }}
                 >
-                  {busyKey === "mikan" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Rss className="w-3 h-3" />}
-                  自动获取
+                  {busyKey === "rss-candidates" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Rss className="w-3 h-3" />}
+                  ANI-RSS 获取
                 </button>
               </div>
               <input
@@ -466,32 +579,38 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
                   setRssUrl(event.target.value);
                   setPreview(null);
                 }}
-                placeholder="https://mikanani.me/RSS/Bangumi?..."
+                placeholder="https://example.com/rss.xml"
                 className="w-full text-xs font-mono px-3.5 py-2.5 input-premium"
               />
             </label>
             {rssCandidates.length > 0 && (
               <div className="sm:col-span-2 rounded-2xl p-3 space-y-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-black" style={{ color: "var(--txt)" }}>Mikan RSS 候选</span>
+                  <span className="text-[10px] font-black" style={{ color: "var(--txt)" }}>ANI-RSS RSS 候选</span>
                   <span className="text-[9px] font-bold text-right" style={{ color: rssCandidateMatched ? "var(--accent-ok)" : "var(--accent-warn)" }}>
-                    {rssCandidateMatched ? "已匹配 Bangumi" : "未匹配当前条目"}
+                    {rssCandidateMatched ? "已精确匹配 Bangumi" : "未匹配当前条目"}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-auto pr-1">
-                  {rssCandidates.map((candidate) => {
+                  {visibleRssCandidates.map((candidate) => {
                     const active = rssUrl.trim() === String(candidate.rss_url || "").trim();
                     const candidateSubgroup = String(candidate.subgroup || "全部字幕组");
-                    const candidateTitle = String(candidate.title || "Mikan RSS");
+                    const candidateTitle = String(candidate.title || "ANI-RSS RSS");
+                    const sourceLabel = getRssSourceLabel(candidate.source);
                     return (
                       <button
                         key={String(candidate.rss_url)}
                         type="button"
-                        onClick={() => applyMikanCandidate(candidate)}
+                        onClick={() => applyAniRssCandidate(candidate)}
                         className="rounded-xl px-3 py-2 text-left glass-hover"
                         style={{ border: active ? "1px solid var(--brand-primary)" : "1px solid var(--border)", background: active ? "var(--brand-primary-bg-alpha)" : "var(--surface)" }}
                       >
-                        <span className="block text-[10px] font-black truncate" title={candidateTitle} style={{ color: active ? "var(--brand-primary)" : "var(--txt)" }}>{candidateTitle}</span>
+                        <span className="flex items-center gap-1 min-w-0">
+                          <span className="text-[8px] font-black rounded-md px-1.5 py-0.5 shrink-0" style={{ color: active ? "var(--brand-primary)" : "var(--txt-secondary)", background: active ? "var(--brand-primary-bg-alpha)" : "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                            {sourceLabel}
+                          </span>
+                          <span className="block text-[10px] font-black truncate" title={candidateTitle} style={{ color: active ? "var(--brand-primary)" : "var(--txt)" }}>{candidateTitle}</span>
+                        </span>
                         <span className="block text-[9px] font-bold truncate mt-1" style={{ color: active ? "var(--brand-primary)" : "var(--txt-secondary)" }}>{candidateSubgroup}</span>
                         <span className="block text-[9px] font-mono truncate mt-1" style={{ color: "var(--txt-muted)" }}>{candidate.rss_url}</span>
                       </button>
@@ -500,18 +619,14 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
                 </div>
               </div>
             )}
-            <label className="space-y-1">
+            <label className="space-y-1 sm:col-span-2">
               <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>RSS 来源</span>
-              <select value={rssType} onChange={(event) => setRssType(event.target.value)} className="w-full text-xs px-3.5 py-2.5 input-premium">
-                <option value="mikan">Mikan 自动识别</option>
-                <option value="ani-bt">AniBT</option>
-                <option value="anime-garden">AnimeGarden</option>
+              <select value={rssType} onChange={(event) => handleRssTypeChange(event.target.value)} className="w-full text-xs px-3.5 py-2.5 input-premium">
+                <option value="mikan" disabled={rssCandidates.length > 0 && !rssCandidateCounts.mikan}>Mikan{rssCandidates.length > 0 ? ` (${rssCandidateCounts.mikan || 0})` : ""}</option>
+                <option value="ani-bt" disabled={rssCandidates.length > 0 && !rssCandidateCounts["ani-bt"]}>AniBT{rssCandidates.length > 0 ? ` (${rssCandidateCounts["ani-bt"] || 0})` : ""}</option>
+                <option value="anime-garden" disabled={rssCandidates.length > 0 && !rssCandidateCounts["anime-garden"]}>AnimeGarden{rssCandidates.length > 0 ? ` (${rssCandidateCounts["anime-garden"] || 0})` : ""}</option>
                 <option value="other">其他 RSS</option>
               </select>
-            </label>
-            <label className="space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>季度</span>
-              <input type="number" min={1} value={season} onChange={(event) => { setSeason(Number(event.target.value)); setPreview(null); }} className="w-full text-xs px-3.5 py-2.5 input-premium" />
             </label>
             <label className="space-y-1 sm:col-span-2">
               <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>字幕组</span>
@@ -627,36 +742,70 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {subscriptions.map((item) => {
-              const itemId = String(item.id || "");
+              const itemId = String(item.external_subscription_id || item.id || "");
               const toggleBusy = busyKey === `toggle-${itemId}`;
+              const enabled = getAniEnabled(item);
+              const statusStyle = getAniStatusStyle(item);
+              const rss = getAniRssUrl(item);
+              const downloadPathValue = getAniDownloadPath(item);
+              const matchedCount = Number(item.matched_count || 0);
+              const ignoredCount = Number(item.duplicate_ignored_count || 0);
+              const recentHitTitle = getAniRecentHitTitle(item);
               return (
                 <div key={item.id || item.title} className="rounded-2xl p-3" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
                   <div className="flex items-start justify-between gap-2">
                     <h4 className="text-xs font-black line-clamp-2" style={{ color: "var(--txt)" }}>{item.title || "未命名订阅"}</h4>
-                    <button
-                      type="button"
-                      onClick={() => void toggleAniRssSubscription(item)}
-                      disabled={!itemId || toggleBusy}
-                      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-black glass-hover disabled:opacity-50 cursor-pointer shrink-0"
-                      title={item.enable ? "点击暂停 ANI-RSS 追新" : "点击启用 ANI-RSS 追新，可能开始添加下载任务"}
-                      style={item.enable
-                        ? { color: "var(--accent-ok)", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.24)" }
-                        : { color: "var(--brand-primary)", background: "var(--brand-primary-bg-alpha)", border: "1px solid var(--brand-primary-border-alpha)" }}
-                    >
-                      {toggleBusy ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : item.enable ? (
-                        <Pause className="w-3 h-3" />
-                      ) : (
-                        <Play className="w-3 h-3" />
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-black" style={statusStyle}>
+                        {getAniStatusLabel(item)}
+                      </span>
+                      {getAniStatus(item) !== "missing" && (
+                        <button
+                          type="button"
+                          onClick={() => void toggleAniRssSubscription(item)}
+                          disabled={!itemId || toggleBusy}
+                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-black glass-hover disabled:opacity-50 cursor-pointer"
+                          title={enabled ? "点击暂停 ANI-RSS 追新" : "点击启用 ANI-RSS 追新，可能开始添加下载任务"}
+                          style={enabled
+                            ? { color: "var(--accent-ok)", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.24)" }
+                            : { color: "var(--brand-primary)", background: "var(--brand-primary-bg-alpha)", border: "1px solid var(--brand-primary-border-alpha)" }}
+                        >
+                          {toggleBusy ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : enabled ? (
+                            <Pause className="w-3 h-3" />
+                          ) : (
+                            <Play className="w-3 h-3" />
+                          )}
+                          {enabled ? "暂停追新" : "启用追新"}
+                        </button>
                       )}
-                      {item.enable ? "暂停追新" : "启用追新"}
-                    </button>
+                    </div>
                   </div>
                   <p className="text-[10px] font-bold mt-1" style={{ color: "var(--txt-muted)" }}>
-                    {item.subgroup || "字幕组未知"} · {item.currentEpisodeNumber || 0}/{item.totalEpisodeNumber || "?"}
+                    {item.subgroup || "字幕组未知"} · {getAniCurrentEpisode(item)}/{getAniTotalEpisodes(item)}
                   </p>
-                  <p className="text-[10px] mt-2 line-clamp-2 break-all" style={{ color: "var(--txt-secondary)" }}>{item.url || "无 RSS 地址"}</p>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-bold" style={{ color: "var(--txt-secondary)" }}>
+                    <span>{getAniCustomDownloadPath(item) ? "自定义路径" : "默认路径"}</span>
+                    <span>命中 {matchedCount}</span>
+                    <span>去重忽略 {ignoredCount}</span>
+                  </div>
+                  {recentHitTitle && (
+                    <p className="text-[10px] mt-2 line-clamp-1" title={recentHitTitle} style={{ color: "var(--accent-ok)" }}>
+                      最近命中：{recentHitTitle}
+                    </p>
+                  )}
+                  {item.recent_error && (
+                    <p className="text-[10px] mt-2 line-clamp-2" title={String(item.recent_error)} style={{ color: "var(--accent-warn)" }}>
+                      最近错误：{String(item.recent_error)}
+                    </p>
+                  )}
+                  {downloadPathValue && (
+                    <p className="text-[10px] mt-2 line-clamp-1 break-all" title={downloadPathValue} style={{ color: "var(--txt-muted)" }}>
+                      {downloadPathValue}
+                    </p>
+                  )}
+                  <p className="text-[10px] mt-2 line-clamp-2 break-all" style={{ color: "var(--txt-secondary)" }}>{rss || "无 RSS 地址"}</p>
                 </div>
               );
             })}

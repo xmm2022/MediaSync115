@@ -1,376 +1,272 @@
 # MediaSync115
 
-<p align="center">
-  <strong>影视搜索、榜单探索、订阅、115 转存、自动归档、STRM 生成、Emby 代理 302 播放的一体化媒体同步工具</strong>
-</p>
+MediaSync115 是一个围绕个人媒体库构建的媒体同步工具，覆盖影视发现、资源聚合、115 转存、订阅追更、动漫追番、自动归档、STRM 生成、Emby/飞牛入库状态和播放代理。
 
-<p align="center">
-  <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?style=for-the-badge&logo=vue.js&logoColor=white">
-  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white">
-  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-3-003b57?style=for-the-badge&logo=sqlite&logoColor=white">
-  <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ed?style=for-the-badge&logo=docker&logoColor=white">
-  <img alt="Playwright" src="https://img.shields.io/badge/Tested%20with-Playwright-2ead33?style=for-the-badge&logo=playwright&logoColor=white">
-</p>
+当前前端为 React + Vite，后端为 FastAPI + SQLite，推荐通过 Docker Compose 部署。
 
-tg群：https://t.me/+EkEBz7x7i9NlYzFl
+## 功能概览
 
-tg群的二维码：
+- 影视搜索与探索：TMDB、豆瓣榜单、片单、演职员关注。
+- 多源资源聚合：Pansou、HDHive、Telegram、SeedHub、不太灵、磁力、ED2K、115 分享。
+- 115 转存：详情页、探索页、订阅任务、工作流统一接入转存链路。
+- 智能订阅：电影/剧集订阅，支持季、集段、只追新集、固定 115 分享来源。
+- 动漫追番：Bangumi 搜番、ANI-RSS API 获取多源精确 RSS、创建/预览/启停、状态闭环。
+- ANI-RSS 配置闭环：检测 ANI-RSS 到 qBittorrent 的下载器配置、任务数和安全开关。
+- 归档与 STRM：转存后自动归档、生成 STRM，支持 Emby/飞牛影视读取。
+- Emby 与飞牛影视：入库角标、缺集判断、媒体库索引同步。
+- Emby 代理播放：端口 `8099` 提供 STRM 播放 302 跳转。
+- 工作流、调度、日志、健康检查、运行时设置、可选 Kafka 埋点。
+- Telegram：TG 索引、TG Bot 搜索/转存/订阅/通知。
 
-<img width="300" height="300" alt="image" src="https://github.com/user-attachments/assets/19c930cc-3a3a-4ba4-b2bb-b9703982efce" />
+## 快速开始
 
+### 默认账号
 
-## Overview
-
-MediaSync115 是一个面向个人媒体库管理的全栈应用，围绕"找片、找资源、转存、订阅、入库同步"构建。
-
-它当前支持：
-- TMDB 搜索和探索
-- 豆瓣榜单探索
-- 115 网盘资源、磁力、ED2K 获取
-- 探索页与详情页一键转存
-- 电影/剧集订阅与自动扫描
-- 手动 115 分享链接固定追新
-- 转存后自动归档与 STRM 生成
-- Emby 已入库标记、缺集判断和全量同步索引
-- **Emby 代理 302 播放**（端口 8099）
-- **飞牛影视集成**（已入库标记、缺集判断）
-- **资源画质筛选**（分辨率/编码/HDR/音频/字幕/排除标签/体积范围）
-- **剧集季/集粒度订阅**（指定季、集段、只追新集、含特别篇）
-- **订阅状态细化**（匹配中/转存中/离线已提交/归档中等多阶段追踪）
-- TG Bot 搜索、订阅、通知
-- 可选 Kafka 埋点统计能力
-- 日志、调度、运行时设置、健康检查
-
-## What It Does
-
-### 1. 搜索影视内容
-- 搜索电影和剧集
-- 查看电影详情、剧集详情、豆瓣详情
-- 从 TMDB 和豆瓣榜单探索热门内容
-
-### 2. 获取多种资源
-- 获取 115 网盘分享资源
-- 获取磁力链接
-- 获取 ED2K 链接
-- 支持 Pansou、HDHive、Telegram、SeedHub、不太灵
-- **支持资源画质筛选**：按分辨率、编码、HDR、音频语言、字幕等维度自动排序过滤
-
-### 3. 转存到 115 网盘
-- 详情页支持一键转存
-- 剧集支持按缺集选集转存
-- 剧集详情页支持手动导入 115 分享链接，并可选择立即转存、仅保存为固定追新来源，或转存并追新
-- 探索页支持卡片一键转存
-- 支持后台转存队列
-- 转存资源默认直存到 115 默认目录
-- 手动转存、订阅自动转存、工作流转存统一走"转存 -> 归档 -> STRM"链路
-
-### 4. 订阅与自动扫描
-- 支持订阅电影和剧集
-- **剧集支持季/集粒度**：全剧追踪、指定季、指定集段，以及「只追新集」模式
-- **订阅设置面板**（电影+剧集通用）：配置画质偏好（分辨率/编码/HDR/音频语言/字幕/排除标签/体积范围）
-- 后台定时扫描订阅内容（HDHive / Pansou / TG / 离线磁力多来源链路）
-- 自动搜索可用资源并执行转存
-- **手动 115 固定来源追新**：手动导入的 115 分享链接可保存到剧集订阅中，后续定时任务会重复扫描该链接并只转存缺失/新增剧集
-- 订阅页可查看固定来源对应的分享链接、扫描状态、最新发现集数，并支持立即扫描、启用/停用、删除
-- 已完成的电影/剧集订阅可自动清理
-
-### 5. 自动归档与 STRM
-- 支持将待整理目录中的影视自动归档到 115 输出目录
-- 支持在归档完成后自动生成 `.strm` 文件
-- 支持离线下载完成后自动触发归档和后续 STRM 生成
-- 生成的 STRM 可直接供 Emby、飞牛影视和支持 HTTP STRM 的播放器使用
-
-### 6. Emby 联动 & 代理 302 播放
-- 卡片和详情页显示 Emby 已入库标记
-- 支持剧集缺集判断（含飞牛影视合并查询）
-- 支持 Emby 媒体库全量同步索引
-- 支持定时同步 Emby 数据
-- **Emby 代理端口 8099**：Emby 客户端连接代理端口，STRM 播放自动 302 跳转到 115 CDN 直连播放，无需经过服务器中转
-
-### 7. 飞牛影视集成
-- 卡片和详情页显示飞牛已入库标记
-- 剧集缺集判断同时查询 Emby + 飞牛，合并结果
-- 支持飞牛媒体库全量同步索引
-
-### 8. Telegram Bot 与通知
-- 支持 TG Bot 搜索电影和剧集
-- 支持在 TG Bot 中查看详情、搜索资源、发起转存和添加订阅
-- TG Bot 影视消息支持海报预览
-- 订阅转存成功通知支持海报预览
-
-### 9. 可选 Analytics 埋点
-- 支持通过 Kafka 发送搜索、订阅、转存等事件
-- 未配置 Kafka 时自动禁用，不影响主业务流程
-
-## Quick Start
-
-Docker Hub 页面：
+首次启动后访问 Web UI：
 
 ```text
-https://hub.docker.com/r/wangsy1007/mediasync115
+http://127.0.0.1:5173
 ```
 
-当前提供 `latest` 和明确版本号 tag，例如 `1.1.8`；多架构镜像支持 linux/amd64 和 linux/arm64，Docker 客户端会按宿主机平台自动选择对应版本。
+默认登录：
 
-推荐策略：
-- 日常部署和 NAS 手动更新用户：使用 `latest`
-- 想锁定版本不自动漂移：使用 `1.1.8`
-
-### 1. 准备数据目录
-
-```bash
-mkdir -p data
+```text
+用户名：admin
+密码：password
 ```
 
-注意：
-- `docker compose` 部署时不需要预先创建 `backend/.env`
-- 首次启动后可直接进入设置页填写必要参数，配置会持久化到 `data/runtime_settings.json`
-- 如果你习惯本地开发用 `.env`，应用仍然兼容读取 `backend/.env`
+首次登录后建议在「配置与终端」里修改账号密码。
 
-### 2. 使用 docker run 部署
+### Docker Compose 部署
 
-```bash
-docker pull wangsy1007/mediasync115:latest
-
-docker run -d \
-  --name mediasync115 \
-  -p 5173:5173 \
-  -p 9008:9008 \
-  -p 8099:8099 \
-  -e EMBY_PROXY_HOST=your-emby-host \
-  -e EMBY_PROXY_PORT=8096 \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/strm:/app/strm \
-  --restart unless-stopped \
-  wangsy1007/mediasync115:latest
-```
-
-- `8099`：Emby 代理端口（可选，启用后 Emby 客户端连接此端口实现 302 直连播放）
-- `EMBY_PROXY_HOST`：真实 Emby 服务器的地址（默认 `host.docker.internal`）
-- `EMBY_PROXY_PORT`：真实 Emby 服务器的端口（默认 `8096`）
-
-如果你要使用 STRM 生成功能，建议把宿主机目录挂载到容器内固定路径 `/app/strm`，然后在设置页把 `STRM 输出目录` 填成 `/app/strm`。
-
-如果你确实需要强制指定架构，也可以显式传入 `--platform`：
-
-```bash
-docker pull --platform linux/amd64 wangsy1007/mediasync115:latest
-docker pull --platform linux/arm64 wangsy1007/mediasync115:latest
-```
-
-### 3. 使用 Docker Compose 部署
-
-仓库提供两套 Compose 文件，按需选择：
-
-| 场景 | 本地构建 | NAS（Docker Hub 镜像） |
-|------|----------|------------------------|
-| **仅 MediaSync115**（盘搜地址在设置页自行填写） | [`compose.yaml`](./compose.yaml) | [`compose.nas.yaml`](./compose.nas.yaml) |
-| **MediaSync115 + 盘搜**（一键集成，盘搜对外 **38080**） | [`compose.pansou.yaml`](./compose.pansou.yaml) | [`compose.nas.pansou.yaml`](./compose.nas.pansou.yaml) |
-
-#### 3.1 仅部署 MediaSync115
-
-[`compose.yaml`](./compose.yaml) 只启动 MediaSync115，**不包含**盘搜容器。若你已有独立盘搜实例，在设置 → **Pansou** 中填写其地址即可（例如 `http://192.168.1.x:38080/`）。
-
-```yaml
-services:
-  mediasync115:
-    image: wangsy1007/mediasync115:latest
-    container_name: mediasync115
-    restart: unless-stopped
-    ports:
-      - "5173:5173"
-      - "9008:9008"
-      - "8099:8099"
-    environment:
-      TZ: Asia/Shanghai
-      EMBY_PROXY_HOST: ${EMBY_PROXY_HOST:-host.docker.internal}
-      EMBY_PROXY_PORT: ${EMBY_PROXY_PORT:-8096}
-    volumes:
-      - ./data:/app/data
-      - ${STRM_HOST_DIR:-./strm}:/app/strm
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5173/healthz', timeout=10)"
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
-```
-
-```bash
-docker compose up -d
-# 本地开发构建：docker compose up -d --build
-```
-
-#### 3.2 同时部署 MediaSync115 与盘搜
-
-[`compose.pansou.yaml`](./compose.pansou.yaml) 集成 [Pansou 盘搜](https://github.com/fish2018/pansou)：盘搜对外端口 **38080**，MediaSync115 在容器内通过 `http://pansou:8888/` 自动连接，一般**无需**在设置页再填 Pansou 地址。
-
-完整配置见仓库内 [`compose.pansou.yaml`](./compose.pansou.yaml)。启动前请确保存在 `docker/pansou.env`（内含盘搜必需的 `ENABLED_PLUGINS` 等，可按 [fish2018/pansou](https://github.com/fish2018/pansou) 文档调整）。
-
-```bash
-docker compose -f compose.pansou.yaml up -d
-# 本地开发构建：docker compose -f compose.pansou.yaml up -d --build
-```
-
-盘搜健康检查：`http://你的IP:38080/api/health`
-
-**Compose 参数说明（两套文件通用）：**
-
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `pansou` 服务 `38080:8888` | 仅集成版 | 盘搜 API 对外端口 **38080**（见 `compose.pansou.yaml`） |
-| `PANSOU_BASE_URL` | 仅集成版 | 集成 Compose 内填 `http://pansou:8888/` |
-| `ports: 5173:5173` | 是 | 前端 UI 端口，浏览器访问 `http://你的IP:5173` |
-| `ports: 9008:9008` | 是 | 后端 API + STRM 播放端口，飞牛影视读取 STRM 时走此端口 |
-| `ports: 8099:8099` | 否 | **Emby 代理端口**。如果不需要 Emby 代理 302 播放可删除此行 |
-| `TZ: Asia/Shanghai` | 推荐 | 容器时区 |
-| `EMBY_PROXY_HOST` | 否 | 真实 Emby 服务器的 IP/域名。`host.docker.internal` 表示宿主机。如果 Emby 在另一台设备上，改为 `192.168.1.x` |
-| `EMBY_PROXY_PORT` | 否 | 真实 Emby 的端口（默认 8096） |
-| `volumes: ./data:/app/data` | 是 | 持久化数据目录。**不要删除宿主机上的这个目录**，所有配置、数据库都在里面 |
-| `volumes: strm:/app/strm` | STRM 场景 | STRM 输出目录挂载。如果不用 STRM 功能可删除此行 |
-
-**首次启动后需在设置页勾选：**
-
-| 设置项 | 说明 |
-|--------|------|
-| TMDB API Key | 在 [TMDB](https://www.themoviedb.org/settings/api) 申请 |
-| 115 Cookie | 浏览器登录 115 后按 F12 → Network → 找到请求里的 `Cookie` 头完整复制 |
-| Emby URL + API Key | Emby 后台 → 高级 → API 密钥管理 |
-| 飞牛影视 URL + API Key | 飞牛后台 → 设置 → API 密钥 |
-
-> **关于端口**：如果仅部署单实例，建议保持默认。如需修改，`:` 左边是宿主机端口（可改），右边是容器内端口（不要改）。
-
-> **关于 STRM**：STRM 功能生成的是文本文件，写入容器内 `/app/strm` 目录。请确保这个目录已挂载到宿主机，并被 Emby/飞牛影视的媒体库路径覆盖到。
-
-> **关于 Emby 代理 8099**：
-> - 在 STRM 设置页开启「Emby 代理」开关后，生成的 `.strm` 文件会使用代理端口
-> - Emby 客户端（App / Web）连接 `http://你的IP:8099` 即可实现播放自动 302 跳转到 115 CDN 直连
-> - `EMBY_PROXY_HOST` 必须指向真实的 Emby 服务地址。如果 Emby 装在同一个 Docker 网络里的另一个容器，可以用容器名；如果装在宿主机，用 `host.docker.internal`
-
-如果你想把 STRM 输出到宿主机其他目录，可以在仓库根目录创建 `.env`，例如：
-
-```bash
-STRM_HOST_DIR=/Volumes/Media/strm
-```
-
-然后重新执行：
+本地构建并启动主服务：
 
 ```bash
 docker compose up -d --build
 ```
 
-设置页中请把 `STRM 输出目录` 固定填写为 `/app/strm`。
+启动主服务 + ANI-RSS + qBittorrent：
 
-首次启动后，请在设置页补齐必要配置，例如：
+```bash
+docker compose -f compose.yaml -f compose.anirss.yaml up -d --build
+```
 
-- `TMDB_API_KEY`
-- `PAN115_COOKIE`
-- `EMBY_URL`
-- `Pansou 服务地址`（使用 `compose.yaml` / `compose.nas.yaml` 时必填；使用 `compose.pansou.yaml` 集成部署时通常可省略）
+启动主服务 + Pansou：
 
-访问地址：
-- `http://127.0.0.1:9008` — 前端 UI + 后端 API
-- `http://127.0.0.1:8099` — Emby 代理（Emby 客户端连接此端口）
-- `http://127.0.0.1:9008/api/docs` — API 文档
+```bash
+docker compose -f compose.pansou.yaml up -d --build
+```
 
-## NAS Manual Update
+常用访问地址：
 
-推荐在 NAS 上使用 `wangsy1007/mediasync115:latest` 部署。这样当 Docker Hub 上的 `latest` 更新后，很多 NAS 的 Docker 管理界面都能识别到“有可更新镜像”，用户只需要手动点击更新即可。
+| 地址 | 说明 |
+| --- | --- |
+| `http://127.0.0.1:5173` | Web UI |
+| `http://127.0.0.1:5173/healthz` | 容器健康检查 |
+| `http://127.0.0.1:9008` | 兼容入口 / STRM 相关入口 |
+| `http://127.0.0.1:8099` | Emby 代理播放端口 |
+| `http://127.0.0.1:7789` | ANI-RSS Web UI |
+| `http://127.0.0.1:8085` | qBittorrent Web UI，仅绑定本机 |
 
-前提：
-- 镜像 tag 使用 `latest`
-- 数据目录映射到宿主机，例如 `./data:/app/data`
-- 不要把数据库和运行时配置写在容器内部
+### NAS 部署
 
-### 1. 首次部署
+NAS 用户建议使用 Docker Hub 镜像版 compose：
 
-如果 NAS 支持导入 compose 文件：
-- 仅 MediaSync115：使用 [`compose.nas.yaml`](./compose.nas.yaml)
-- 含盘搜（对外端口 38080）：使用 [`compose.nas.pansou.yaml`](./compose.nas.pansou.yaml)，并一并上传 `docker/pansou.env`
+默认镜像为 `wangsy1007/mediasync115:latest`。如果需要锁定版本，可以把 compose 里的 tag 改成明确版本号。
 
-如果 NAS 只支持填写镜像参数，请保持等效配置：
-- 镜像：`wangsy1007/mediasync115:latest`
-- 端口：`5173`（前端 UI）、`9008`（STRM 播放）、`8099`（Emby 代理）
-- 卷：宿主机数据目录映射到 `/app/data`
-- 可选：宿主机 STRM 目录映射到 `/app/strm`
-- 重启策略：`unless-stopped`
+| 场景 | Compose 文件 |
+| --- | --- |
+| 仅 MediaSync115 | `compose.nas.yaml` |
+| MediaSync115 + Pansou | `compose.nas.pansou.yaml` |
 
-### 2. 用户手动更新
-
-当 NAS 提示 `latest` 有新版本时，用户只需要：
-- 点击“拉取更新”或“重新部署”
-- 等待容器重建完成
-- 保持原来的数据目录挂载不变
-
-如果是命令行更新，等效操作是：
+更新镜像：
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-### 3. 版本选择建议
+数据目录必须持久化，至少保留：
 
-- 使用 `latest`：适合绝大多数 NAS 用户，能更容易被平台识别到有更新
-- 使用固定版本 tag，例如 `1.1.8`：适合想锁版本的用户，但通常不会收到“新版本可更新”提示
+```text
+./data:/app/data
+```
 
-## Changelog
+如果使用 STRM，再挂载：
 
-`1.1.8` 重点更新：
-- 新增 **Emby 代理 302 播放**（端口 8099），Emby 客户端连接代理端口即可实现 115 直连播放
-- 新增 **资源画质筛选**：按分辨率/编码/HDR/音频语言/字幕/排除标签/体积范围智能过滤
-- 新增 **剧集季/集粒度订阅**：支持全剧/指定季/指定集段追踪 + 只追新集模式
-- 新增 **飞牛影视集成**：已入库标记、缺集判断、全量同步索引
-- 优化移动端搜索结果海报卡片布局和侧边栏文字显示
-- SQLite 启用 WAL 模式 + 连接超时，解决高并发订阅检查时数据库锁问题
-- 订阅状态模型细化（匹配中/转存中/离线已提交/归档中等多阶段追踪）
-- 首页推荐列表移除两侧黑色渐变遮罩
+```text
+./strm:/app/strm
+```
 
-`1.1.3` 重点更新：
-- 影视探索首页海报骨架屏改为按容器宽度动态显示数量
+## 首次配置
 
-`1.1.2` 重点更新：
-- 探索页首屏优先返回豆瓣列表，TMDB 匹配改后台异步回填
-- 探索页真实 502 不再误提示为"后端启动中"
-- 容器启动日志新增前后端成功提示，并延长健康检查启动宽限时间
+进入「配置与终端」后按需填写：
 
-`1.1.1` 重点更新：
-- 新增 Kafka 埋点统计支持（可选启用）
-- 提升订阅定时调度稳定性与并发保护
-- 优化容器启动阶段前端 502 体验
-- TG Bot 影视消息新增海报预览
-- 转存后自动归档并在归档完成后自动生成 STRM
+| 配置 | 用途 |
+| --- | --- |
+| TMDB API Key | 搜索、详情、海报、剧集信息 |
+| 115 Cookie | 115 文件、转存、离线与归档 |
+| Pansou 地址 | 盘搜资源聚合；集成 compose 时默认使用 `http://pansou:8888/` |
+| HDHive 账号或 Cookie | PT/115 资源补充与自动解锁 |
+| Telegram API | TG 索引、TG 搜索、TG Bot |
+| Emby URL / API Key | 入库角标、缺集判断、STRM 播放 |
+| 飞牛 URL / API Key | 飞牛影视入库角标与缺集判断 |
+| ANI-RSS 地址 / API Key | 动漫追番和 RSS 状态同步 |
+| MoviePilot / Twilight | 可选外部系统集成 |
 
-完整更新日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+运行时配置会保存到：
 
-### 4. 升级后数据是否保留
+```text
+data/runtime_settings.json
+```
 
-会保留。运行时配置、数据库和缓存都在宿主机挂载目录 `data/` 下，只要这个目录不删，重建容器不会丢数据。
+数据库默认保存到：
 
-## FAQ
+```text
+data/mediasync.db
+```
 
-### Docker 已启动，但前端首次可用为什么会慢？
-后端启动阶段会执行首页探索预热和部分运行时初始化，健康检查通过前页面不会完全可用。这是当前实现的设计选择。
+## 动漫追番工作流
 
-### 数据丢失后怎么恢复？
-核心数据都在 `data/` 下。只要这个目录保留，容器重建后数据库和运行时配置都会继续存在。
+动漫追番页当前链路：
 
-### 详情页资源为什么不是自动加载？
-当前详情页已经改成手动获取资源，避免页面打开即触发重型请求。
+1. 使用 Bangumi 搜索并选择番剧条目。
+2. 通过 ANI-RSS API 使用 Bangumi ID 精确获取 Mikan、AniBT、AnimeGarden RSS 候选。
+3. 预览 ANI-RSS 命中结果。
+4. 创建 ANI-RSS 订阅。
+5. 订阅默认停用，不会立即下载。
+6. 在订阅卡片中查看暂停/追新中/错误、集数、RSS、保存路径、命中、去重忽略和最近错误。
 
-### 手动导入 115 分享时，「固定追新」和「转存并追新」有什么区别？
+安全约束：
 
-这两个选项都会把手动粘贴的 115 分享链接保存到当前剧集订阅的固定来源中，区别在于是否立刻执行一次转存：
+- 创建订阅后端默认 `enable=false`。
+- 保存位置留空时不传 `download_path`，由 ANI-RSS 使用自己的默认路径。
+- 只有用户显式启用追新，ANI-RSS 才可能向 qBittorrent 添加任务。
+- 设置页的「下载器配置闭环」只检测和同步安全默认配置，不会启用订阅。
+- 当前推荐先确认 qBittorrent 任务数为 `0`，再启用任何真实追新。
 
-- **固定追新**：只保存这个 115 分享链接为固定来源，不立即转存当前链接里的文件。后续订阅定时任务或订阅页的「立即扫描」会再次检查这个链接，只转存缺失或新增剧集。适合未完结剧集、分享链接后续会持续更新的场景。
-- **转存并追新**：先把这个 115 分享链接保存为固定来源，同时马上按当前链接执行一次转存。后续这个链接仍会作为固定来源继续追新。适合你既想立刻把当前已有集数转存进去，又想后续自动跟进更新的场景。
+相关 compose：
 
-如果只是想临时转存一次，不希望后续扫描这个链接，选择 **立即转存**。
+```bash
+docker compose -f compose.yaml -f compose.anirss.yaml up -d --build
+```
 
-固定来源只针对手动导入的 115 分享链接生效；从 HDHive 等来源解锁得到的 115 链接不会自动保存为固定追新来源。
+ANI-RSS 数据目录：
+
+```text
+data/ani-rss/config
+```
+
+qBittorrent 数据目录：
+
+```text
+data/qbittorrent/config
+data/downloads
+data/media
+```
+
+## 订阅与转存
+
+MediaSync115 内置影视订阅系统，适合电影和电视剧：
+
+- 订阅范围：全剧、指定季、指定集段。
+- 追更模式：补缺、只追新集。
+- 资源优先级：HDHive、Pansou、TG，可在设置中调整。
+- 画质偏好：分辨率、编码、HDR、音频、字幕、排除标签、体积范围。
+- 固定来源：可把手动 115 分享链接保存为订阅来源，后续重复扫描并只处理缺失/新增集。
+- 自动清理：已入库或已完成范围可清理订阅。
+
+普通影视订阅和 ANI-RSS 动漫追番是两条不同链路：
+
+- 普通影视订阅由 MediaSync115 负责搜索和 115 转存。
+- 动漫追番由 ANI-RSS 负责 RSS 去重和 qBittorrent 下载。
+
+## 归档、STRM 与播放
+
+归档链路：
+
+```text
+115 转存 / 离线完成 -> 归档 -> 生成 STRM -> Emby/飞牛读取
+```
+
+常用设置：
+
+- STRM 输出目录建议设为 `/app/strm`。
+- Docker 部署时把宿主机目录挂载到 `/app/strm`。
+- Emby 代理端口为 `8099`。
+- `EMBY_PROXY_HOST` 指向真实 Emby 服务。
+- `EMBY_PROXY_PORT` 默认为 `8096`。
+
+示例：
+
+```bash
+STRM_HOST_DIR=/volume1/media/strm
+EMBY_PROXY_HOST=192.168.1.10
+EMBY_PROXY_PORT=8096
+```
+
+## Compose 文件说明
+
+| 文件 | 说明 |
+| --- | --- |
+| `compose.yaml` | 本地构建 MediaSync115 |
+| `compose.anirss.yaml` | 叠加 ANI-RSS 与 qBittorrent |
+| `compose.pansou.yaml` | 本地构建 MediaSync115 + Pansou |
+| `compose.nas.yaml` | NAS 使用 Docker Hub 镜像部署 |
+| `compose.nas.pansou.yaml` | NAS 使用 Docker Hub 镜像部署 + Pansou |
+
+## 常用命令
+
+查看服务：
+
+```bash
+docker compose -f compose.yaml -f compose.anirss.yaml ps
+```
+
+查看主服务日志：
+
+```bash
+docker logs -f mediasync115
+```
+
+查看 ANI-RSS 日志：
+
+```bash
+docker logs -f ani-rss
+```
+
+确认 qBittorrent 当前任务数：
+
+```bash
+curl -fsS -H 'Host: localhost:8080' \
+  http://127.0.0.1:8085/api/v2/torrents/info \
+  | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'
+```
+
+输出 `0` 表示当前没有 qBittorrent 任务。如果你的 qB Web UI 已关闭本机免登录，请先登录 Web UI 或用固定密码登录 API 后再带 cookie 查询。
+
+## 开发文档
+
+开发环境、目录结构、运行方式、测试、热更新、接口约定和注意事项见：
+
+```text
+docs/DEVELOPMENT.md
+```
+
+## 更新日志
+
+完整更新记录见：
+
+```text
+CHANGELOG.md
+```
+
+当前仓库仍保留旧版前端目录 `frontend-legacy-vue/` 作为历史参考，新功能开发默认使用 `frontend/`。
+
+## 社区
+
+Telegram 群：
+
+```text
+https://t.me/+EkEBz7x7i9NlYzFl
+```

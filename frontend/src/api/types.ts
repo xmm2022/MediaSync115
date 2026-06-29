@@ -271,30 +271,55 @@ export interface AniRssConfig {
   download_path_presets?: string[];
 }
 
-export interface MikanRssCandidate {
-  source: "mikan";
-  mikan_id: string;
+export type AniRssCandidateSource = "mikan" | "ani-bt" | "anime-garden" | string;
+
+export interface AniRssRssCandidate {
+  source: AniRssCandidateSource;
+  provider?: "anirss" | string;
+  source_id?: string | null;
+  mikan_id?: string | null;
+  anibt_id?: string | null;
+  anime_garden_id?: string | null;
   title: string;
   rss_url: string;
   rss_type?: string;
   subgroup_id?: string | null;
   subgroup?: string;
   mikan_url?: string;
+  source_url?: string | null;
   bgm_url?: string;
   bangumi_id?: string | null;
   [key: string]: unknown;
 }
 
-export interface MikanRssCandidatesResponse {
-  source: "mikan";
+export type MikanRssCandidate = AniRssRssCandidate;
+
+export interface AniRssRssCandidatesResponse {
+  source: "anirss" | "mikan";
+  provider?: "anirss" | string;
+  discovery?: "anirss-api" | string;
+  sources?: AniRssCandidateSource[];
   keyword: string;
+  search_text?: string;
+  queries?: { text?: string; source?: string; bgm_url?: string; season?: Record<string, unknown>; items?: number }[];
   base_url: string;
   matched: boolean;
   matched_mikan_id?: string | null;
+  matched_source_count?: number;
+  source_results?: {
+    source?: string;
+    matched?: boolean;
+    candidate_count?: number;
+    item_count?: number;
+    queries?: unknown[];
+    errors?: string[];
+  }[];
   items?: unknown[];
-  candidates: MikanRssCandidate[];
+  candidates: AniRssRssCandidate[];
   errors?: string[];
 }
+
+export type MikanRssCandidatesResponse = AniRssRssCandidatesResponse;
 
 export interface AniRssSubscriptionCreatePayload {
   rss_url: string;
@@ -307,7 +332,6 @@ export interface AniRssSubscriptionCreatePayload {
   overview?: string;
   year?: string | number;
   rating?: number;
-  season?: number;
   enable?: boolean;
   auto_download?: boolean;
   download_path?: string;
@@ -321,6 +345,113 @@ export interface AniRssSubscriptionResponse {
   external_system?: string;
   external_subscription_id?: string | number;
   external_status?: string;
+}
+
+export interface AniRssPreviewSummaryItem {
+  title?: string;
+  episode?: string | null;
+  subgroup?: string | null;
+  info_hash?: string | null;
+  pub_date?: string | null;
+}
+
+export interface AniRssSubscriptionStatus {
+  id?: string;
+  external_subscription_id?: string;
+  local_subscription_id?: number | null;
+  title?: string;
+  jp_title?: string | null;
+  subgroup?: string | null;
+  enabled?: boolean;
+  enable?: boolean;
+  status?: "tracking" | "paused" | "error" | "missing" | string;
+  status_text?: string;
+  current_episode?: number | null;
+  total_episodes?: number | null;
+  currentEpisodeNumber?: number | null;
+  totalEpisodeNumber?: number | null;
+  rss_url?: string;
+  url?: string;
+  bangumi_url?: string | null;
+  bgmUrl?: string | null;
+  download_path?: string;
+  downloadPath?: string;
+  custom_download_path?: boolean;
+  customDownloadPath?: boolean;
+  download_new?: boolean;
+  downloadNew?: boolean;
+  last_download_time?: number | null;
+  lastDownloadTime?: number | null;
+  image?: string | null;
+  cover?: string | null;
+  completed?: boolean;
+  matched_count?: number;
+  duplicate_ignored_count?: number;
+  matched_items?: AniRssPreviewSummaryItem[];
+  duplicate_ignored_items?: AniRssPreviewSummaryItem[];
+  preview_download_path?: string | null;
+  recent_hit?: AniRssPreviewSummaryItem | null;
+  recent_error?: string | null;
+  local_external_status?: string | null;
+  raw?: unknown;
+  [key: string]: unknown;
+}
+
+export interface AniRssSubscriptionListResponse {
+  total?: number;
+  items?: AniRssSubscriptionStatus[];
+  weekList?: { items?: AniRssSubscriptionStatus[] }[];
+  releaseDateList?: unknown[];
+  sync?: {
+    remote_count?: number;
+    local_count?: number;
+    include_preview?: boolean;
+    updated_local?: boolean;
+  };
+  [key: string]: unknown;
+}
+
+export interface AniRssDownloadClientStatus {
+  ok: boolean;
+  ready?: boolean;
+  message?: string;
+  config_path?: string;
+  desired?: Record<string, unknown>;
+  actual?: {
+    download_tool_type?: string;
+    download_tool_host?: string;
+    download_tool_username?: string;
+    download_tool_password_configured?: boolean;
+    download_tool_password_matches_default?: boolean;
+    qb_use_download_path?: boolean;
+    rss?: boolean;
+    download_new?: boolean;
+    auto_start?: boolean;
+    download_count?: number | null;
+    download_path_template?: string;
+  };
+  qbittorrent?: {
+    ok?: boolean;
+    message?: string;
+    base_url?: string;
+    version?: string;
+    login_status?: number | null;
+    torrent_count?: number | null;
+    torrents_status?: number;
+  };
+  issues?: string[];
+  unsafe_flags?: string[];
+}
+
+export interface AniRssDownloadClientApplyResponse {
+  ok: boolean;
+  changed?: boolean;
+  changed_fields?: string[];
+  before?: AniRssDownloadClientStatus["actual"];
+  after?: AniRssDownloadClientStatus["actual"];
+  status?: AniRssDownloadClientStatus;
+  restart_required?: boolean;
+  message?: string;
 }
 
 // ---- Scheduler ----
