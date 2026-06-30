@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  ArrowLeft, Star, Clock, Film, Tv, Download, Shield, HardDrive, Cloud,
+  ArrowLeft, Star, Clock, Film, Tv, Download, Shield, Cloud,
   CheckCircle, RefreshCw, Rss, FolderOpen, Users, Search,
 } from "lucide-react";
 import ErrorBanner from "./ui/ErrorBanner";
@@ -26,6 +26,7 @@ import { settingsApi } from "../api/settings";
 import { moviepilotApi } from "../api/moviepilot";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 import Pan115Progress, { type Pan115ProgressState, deriveDefaultProgressState } from "./Pan115Progress";
+import SubscriptionDialog from "./SubscriptionDialog";
 import type { MediaResourceLink } from "../types";
 
 // ---- Types ----
@@ -257,8 +258,7 @@ export default function MediaDetailTab({
   const [pan115SubId, setPan115SubId] = useState<string | null>(null);
   const [ptSubId, setPtSubId] = useState<string | null>(null);
   const [pan115SubTitle, setPan115SubTitle] = useState<string>("");
-  const [subscribing, setSubscribing] = useState(false);
-  const [subscriptionMenuOpen, setSubscriptionMenuOpen] = useState(false);
+  const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
 
   // TV
   const [selectedSeason, setSelectedSeason] = useState(1);
@@ -566,85 +566,13 @@ export default function MediaDetailTab({
   };
 
   // ---- Subscribe ----
-  // 115 自动搜索订阅：未订阅时用 toggle 创建；已订阅时用 DELETE /subscriptions/{id} 取消（toggle 会硬删除包含下载记录，等价但走 delete 更显式 + 返回更可控）。
-  // PT 订阅：未订阅时调 moviepilotApi.createSubscription；若已有同 TMDB 的 115 自动搜索订阅，
-  //   后端 _find_existing_subscription 不区分 provider 会把该订阅 provider 改写为 moviepilot，
-  //   因此前端先 confirm 让用户知情。
-  const handleSubscriptionChannel = async (channel: "pan115" | "pt" | "quark") => {
-    if (channel === "quark") {
-      await addLog("WARN", "夸克订阅暂未接入。可在资源通道先把夸克分享链接转存一次，再由系统调度扫描。");
-      setSubscriptionMenuOpen(false);
-      return;
-    }
+  // 订阅创建/取消统一由 SubscriptionDialog 弹窗承载：渠道选择、115 固定来源绑定、TV 范围、PT 改写 provider 预警等。
+  // 这里仅保留弹窗的打开入口 + 弹窗提交后的状态刷新回调。PT 资源卡片上的"添加 PT 订阅"按钮也直接打开弹窗（默认聚焦 PT 渠道即可，弹窗内部自选）。
+  const openSubscriptionDialog = () => setSubscriptionDialogOpen(true);
 
-    // 已订阅 → 取消
-    if (channel === "pan115" && isPan115Subscribed && pan115SubId) {
-      setSubscribing(true);
-      try {
-        await subscriptionApi.delete(pan115SubId);
-        setPan115SubId(null);
-        setPan115SubTitle("");
-        await addLog("INFO", `已取消 115 自动搜索订阅: ${title || defaultTitle}`);
-        setSubscriptionMenuOpen(false);
-      } catch (err: unknown) {
-        await addLog("ERROR", `取消订阅失败: ${String(err)}`);
-      } finally {
-        setSubscribing(false);
-      }
-      return;
-    }
-    if (channel === "pt" && isPtSubscribed && ptSubId) {
-      setSubscribing(true);
-      try {
-        await subscriptionApi.delete(ptSubId);
-        setPtSubId(null);
-        await addLog("INFO", `已取消 PT 下载订阅: ${title || defaultTitle}`);
-        setSubscriptionMenuOpen(false);
-      } catch (err: unknown) {
-        await addLog("ERROR", `取消 PT 订阅失败: ${String(err)}`);
-      } finally {
-        setSubscribing(false);
-      }
-      return;
-    }
-
-    // 创建 PT 订阅前若已存在 115 自动搜索订阅，提示后端会改写 provider
-    if (channel === "pt" && isPan115Subscribed) {
-      const ok = window.confirm(
-        `检测到「${title || defaultTitle}」已存在 115 自动搜索订阅。\n\n` +
-        `创建 MoviePilot PT 订阅会让后端将同一个 TMDB 订阅的归属从 MediaSync115 改写为 MoviePilot，` +
-        `此后本系统定时扫描将不再处理它（115 自动搜索会失效，改由 MoviePilot 调度 PT 下载）。\n\n` +
-        `确认继续创建 PT 订阅？`,
-      );
-      if (!ok) return;
-    }
-
-    setSubscribing(true);
-    try {
-      if (channel === "pan115") {
-        await subscriptionApi.toggle({ tmdb_id: tmdbId, title, media_type: mediaType });
-        await addLog("SUCCESS", `已添加 115 自动搜索订阅: ${title}`);
-      } else {
-        const yearValue = detail?.release_date?.split("-")[0] || detail?.first_air_date?.split("-")[0] || undefined;
-        await moviepilotApi.createSubscription({
-          title,
-          media_type: mediaType,
-          tmdb_id: tmdbId,
-          poster_path: detail?.poster_path || defaultPoster,
-          overview: detail?.overview,
-          year: yearValue,
-          rating: detail?.vote_average,
-          auto_download: true,
-        });
-        await addLog("SUCCESS", `已创建 PT 下载订阅: ${title}`);
-      }
-      setSubscriptionMenuOpen(false);
-      await checkSubscription();
-    } catch (err: unknown) {
-      await addLog("ERROR", `订阅操作失败: ${String(err)}`);
-    } finally {
-      setSubscribing(false);
-    }
+  // 弹窗内订阅状态变更后刷新 checkSubscription
+  const handleSubscriptionChanged = async () => {
+    await checkSubscription();
   };
 
   // ---- Season change ----
@@ -709,6 +637,21 @@ export default function MediaDetailTab({
   return (
     <div className="liquid-page space-y-6">
       <Pan115Progress state={progress} onClose={() => setProgress(deriveDefaultProgressState())} />
+      <SubscriptionDialog
+        open={subscriptionDialogOpen}
+        tmdbId={tmdbId}
+        mediaType={mediaType}
+        title={title}
+        defaultPoster={defaultPoster}
+        detail={detail}
+        seasons={seasons}
+        resources={resources}
+        pan115SubId={pan115SubId}
+        ptSubId={ptSubId}
+        addLog={addLog}
+        onClose={() => setSubscriptionDialogOpen(false)}
+        onChanged={handleSubscriptionChanged}
+      />
 
       {/* Back button */}
       <button
@@ -800,8 +743,8 @@ export default function MediaDetailTab({
                   </p>
                 )}
 
-                {/* Actions — 订阅入口（下拉含 115 / 夸克 / PT 三个渠道，按当前状态显示添加/取消） */}
-                <div className="relative flex flex-wrap gap-2 pt-1">
+                {/* Actions — 订阅入口：点击弹出 SubscriptionDialog，承载渠道选择 / 115 固定来源 / TV 范围 / PT 预警 */}
+                <div className="flex flex-wrap gap-2 pt-1">
                   {(isPan115Subscribed || isPtSubscribed) && (
                     <span
                       className="px-2.5 py-2 rounded-xl text-[10px] font-black flex items-center gap-1.5"
@@ -814,55 +757,13 @@ export default function MediaDetailTab({
                     </span>
                   )}
                   <button
-                    onClick={() => setSubscriptionMenuOpen((open) => !open)}
-                    disabled={subscribing}
-                    className="px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                    onClick={openSubscriptionDialog}
+                    className="px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all active:scale-95"
                     style={{ background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }}
                   >
-                    {subscribing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Rss className="w-3.5 h-3.5" />}
-                    添加订阅
+                    <Rss className="w-3.5 h-3.5" />
+                    {(isPan115Subscribed || isPtSubscribed) ? "管理订阅" : "添加订阅"}
                   </button>
-                  {subscriptionMenuOpen && (
-                    <div
-                      className="absolute left-0 top-12 z-30 w-[280px] rounded-2xl p-2 space-y-1"
-                      style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "0 18px 40px rgba(15,23,42,.18)" }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleSubscriptionChannel("pan115")}
-                        disabled={subscribing}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-black flex items-center gap-2 transition-all glass-hover disabled:opacity-50"
-                        style={{ color: "var(--txt)" }}
-                      >
-                        {isPan115Subscribed
-                          ? <CheckCircle className="w-4 h-4" style={{ color: "var(--accent-ok)" }} />
-                          : <HardDrive className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />}
-                        <span>{isPan115Subscribed ? "取消 115 自动搜索订阅" : "添加 115 自动搜索订阅"}</span>
-                      </button>
-                      <div
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-black flex items-center gap-2 opacity-55 cursor-not-allowed"
-                        style={{ color: "var(--txt-muted)" }}
-                      >
-                        <Cloud className="w-4 h-4" />
-                        <span>夸克订阅（暂未接入，可先在下方通道转存）</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleSubscriptionChannel("pt")}
-                        disabled={subscribing || isPtSubscribed}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-black flex items-center gap-2 transition-all glass-hover disabled:opacity-50"
-                        style={{ color: "var(--txt)" }}
-                      >
-                        {isPtSubscribed
-                          ? <CheckCircle className="w-4 h-4" style={{ color: "var(--accent-ok)" }} />
-                          : <Download className="w-4 h-4" style={{ color: "var(--accent-info)" }} />}
-                        <span>{isPtSubscribed ? "已订阅 PT（MoviePilot 正在调度）" : "添加 PT 下载订阅（MoviePilot）"}</span>
-                      </button>
-                      <p className="px-3 pt-1 text-[9px] font-semibold leading-relaxed" style={{ color: "var(--txt-muted)" }}>
-                        115 订阅由本系统定时按 TMDB 自动找源；PT 订阅交由 MoviePilot 调度下载。
-                      </p>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -1107,18 +1008,17 @@ export default function MediaDetailTab({
                               转存到夸克
                             </button>
                           )}
-                          {/* MoviePilot PT 来源：资源本身不能直接下载，需通过创建 MoviePilot 订阅让其调度 */}
+                          {/* MoviePilot PT 来源：资源本身不能直接下载，需通过创建 MoviePilot 订阅让其调度。点击打开订阅弹窗（默认 PT 渠道） */}
                           {activeSource === "moviepilot_pt" && (
                             <button
-                              disabled={subscribing}
-                              onClick={() => handleSubscriptionChannel("pt")}
-                              className="px-2.5 py-1 rounded text-[9px] font-black tracking-wider flex items-center gap-1 disabled:opacity-50"
+                              onClick={openSubscriptionDialog}
+                              className="px-2.5 py-1 rounded text-[9px] font-black tracking-wider flex items-center gap-1"
                               style={isPtSubscribed
                                 ? { background: "var(--surface-subtle)", color: "var(--accent-ok)", border: "1px solid var(--border)" }
                                 : { background: "var(--accent-info)", color: "#fff", border: "1px solid var(--accent-info)" }}
                             >
-                              {isPtSubscribed ? <CheckCircle className="w-3 h-3" /> : (subscribing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Rss className="w-3 h-3" />)}
-                              {isPtSubscribed ? "已订阅 PT" : "添加 PT 订阅"}
+                              {isPtSubscribed ? <CheckCircle className="w-3 h-3" /> : <Rss className="w-3 h-3" />}
+                              {isPtSubscribed ? "已订阅 PT · 管理" : "添加 PT 订阅"}
                             </button>
                           )}
                           {link.shareUrl && !canTransferToPan115 && !canTransferToQuark && activeSource !== "moviepilot_pt" && (
