@@ -10,9 +10,12 @@ import {
   CheckCircle,
   Cloud,
   Download,
+  Eye,
+  File,
+  FileVideo,
   ExternalLink,
+  FolderOpen,
   HardDrive,
-  Link2,
   RefreshCw,
   Rss,
   Shield,
@@ -103,6 +106,37 @@ interface SourceState {
   items: Pan115Resource[];
 }
 
+interface SharePreviewFile {
+  id?: string | number;
+  file_id?: string | number;
+  fid?: string | number;
+  cid?: string | number;
+  name?: string;
+  file_name?: string;
+  n?: string;
+  title?: string;
+  path?: string;
+  parent_path?: string;
+  size?: string | number;
+  s?: string | number;
+  file_size?: string | number;
+  size_text?: string;
+  sizeText?: string;
+  is_video?: boolean | number | string;
+  is_dir?: boolean | number | string;
+  is_directory?: boolean | number | string;
+  [key: string]: unknown;
+}
+
+interface SharePreviewState {
+  loading: boolean;
+  loaded: boolean;
+  error: string;
+  files: SharePreviewFile[];
+  totalCount: number;
+  videoCount: number;
+}
+
 interface MoviePilotTorrent {
   key: string;
   title: string;
@@ -129,6 +163,17 @@ const emptySourceState = (): SourceState => ({
   error: "",
   items: [],
 });
+
+const emptySharePreviewState = (): SharePreviewState => ({
+  loading: false,
+  loaded: false,
+  error: "",
+  files: [],
+  totalCount: 0,
+  videoCount: 0,
+});
+
+const VIDEO_FILE_PATTERN = /\.(?:mkv|mp4|m4v|avi|mov|wmv|flv|webm|rmvb|ts|m2ts|iso)$/i;
 
 function formatSizeValue(value: unknown): string {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -194,6 +239,165 @@ function firstNumber(...values: unknown[]): number | undefined {
     if (Number.isFinite(numberValue)) return numberValue;
   }
   return undefined;
+}
+
+function isTruthyFlag(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  const text = String(value ?? "").trim().toLowerCase();
+  return text === "1" || text === "true" || text === "yes";
+}
+
+function findSharePreviewFiles(rawData: unknown): SharePreviewFile[] {
+  if (Array.isArray(rawData)) return rawData.filter((item) => typeof item === "object" && item !== null) as SharePreviewFile[];
+  const payload = asRecord(rawData);
+  const data = asRecord(payload.data);
+  for (const container of [payload, data]) {
+    for (const key of ["list", "items", "files", "resources"]) {
+      const value = container[key];
+      if (Array.isArray(value)) {
+        return value.filter((item) => typeof item === "object" && item !== null) as SharePreviewFile[];
+      }
+    }
+  }
+  return [];
+}
+
+function extractSharePreview(rawData: unknown): Pick<SharePreviewState, "files" | "totalCount" | "videoCount"> {
+  const payload = asRecord(rawData);
+  const data = asRecord(payload.data);
+  const files = findSharePreviewFiles(rawData);
+  const computedVideoCount = files.filter(isPreviewVideoFile).length;
+  return {
+    files,
+    totalCount: firstNumber(payload.total_count, payload.total, data.total_count, data.total, files.length) ?? files.length,
+    videoCount: firstNumber(payload.video_count, data.video_count, computedVideoCount) ?? computedVideoCount,
+  };
+}
+
+function previewFileName(file: SharePreviewFile): string {
+  return firstText(file.name, file.file_name, file.n, file.title, "未命名文件");
+}
+
+function previewFileKey(file: SharePreviewFile, index: number): string {
+  return firstText(file.id, file.file_id, file.fid, file.cid, file.path, file.name, String(index));
+}
+
+function previewFileSizeText(file: SharePreviewFile): string {
+  const explicit = firstText(file.size_text, file.sizeText);
+  if (explicit) return explicit;
+  return formatSizeValue(file.size ?? file.s ?? file.file_size);
+}
+
+function previewFileSizeBytes(file: SharePreviewFile): number {
+  const raw = file.size ?? file.s ?? file.file_size ?? file.size_text ?? file.sizeText;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const text = String(raw || "").replace(/,/g, "").trim();
+  const match = text.match(/^([\d.]+)\s*(tb|gb|mb|kb|b|t|g|m|k)?/i);
+  if (!match) return 0;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return 0;
+  const unit = (match[2] || "b").toLowerCase();
+  if (unit === "tb" || unit === "t") return value * 1024 ** 4;
+  if (unit === "gb" || unit === "g") return value * 1024 ** 3;
+  if (unit === "mb" || unit === "m") return value * 1024 ** 2;
+  if (unit === "kb" || unit === "k") return value * 1024;
+  return value;
+}
+
+function isPreviewDirectory(file: SharePreviewFile): boolean {
+  return isTruthyFlag(file.is_dir) || isTruthyFlag(file.is_directory);
+}
+
+function isPreviewVideoFile(file: SharePreviewFile): boolean {
+  return isTruthyFlag(file.is_video) || VIDEO_FILE_PATTERN.test(previewFileName(file));
+}
+
+function scorePreviewVideoFile(file: SharePreviewFile): number {
+  const name = previewFileName(file).toLowerCase();
+  let score = previewFileSizeBytes(file);
+  for (const [value, pattern] of [
+    [8000, /\b(?:8k|4320p)\b/],
+    [4000, /\b(?:4k|2160p|uhd)\b/],
+    [3000, /\b(?:1440p|2k|qhd)\b/],
+    [2000, /\b(?:1080p|fhd|full\s*hd)\b/],
+    [1000, /\b720p\b/],
+  ] as const) {
+    if (pattern.test(name)) {
+      score += value * 1_000_000_000;
+      break;
+    }
+  }
+  if (/\b(?:remux|bdremux)\b/.test(name)) score += 500_000_000;
+  else if (/\b(?:bluray|blu-ray|bdrip|bd)\b/.test(name)) score += 400_000_000;
+  else if (/\bweb[-.\s]?dl\b/.test(name)) score += 300_000_000;
+  if (/\b(?:sample|trailer|preview|预告|样片|片段)\b/.test(name)) score -= 10_000_000_000_000;
+  return score;
+}
+
+function SharePreviewPanel({ preview }: { preview?: SharePreviewState }) {
+  if (!preview) return null;
+  if (preview.loading) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[10px] font-bold" style={{ background: "var(--surface)", color: "var(--txt-muted)", border: "1px solid var(--border)" }}>
+        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+        正在读取分享文件...
+      </div>
+    );
+  }
+  if (preview.error) {
+    return (
+      <div className="flex items-start gap-2 rounded-lg px-2.5 py-2 text-[10px] font-bold" style={{ background: "rgba(239,68,68,0.08)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.24)" }}>
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 break-words">{preview.error}</span>
+      </div>
+    );
+  }
+  if (!preview.loaded) return null;
+
+  const videoFiles = preview.files.filter(isPreviewVideoFile);
+  const bestVideo = videoFiles.length > 0
+    ? [...videoFiles].sort((a, b) => scorePreviewVideoFile(b) - scorePreviewVideoFile(a))[0]
+    : null;
+  const visibleFiles = preview.files.slice(0, 6);
+
+  return (
+    <div className="rounded-lg p-2.5 space-y-2" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-black" style={{ color: "var(--txt-secondary)" }}>
+        <FileVideo className="h-3.5 w-3.5" style={{ color: "var(--brand-primary)" }} />
+        <span>{preview.totalCount} 个文件</span>
+        <span style={{ color: "var(--txt-muted)" }}>·</span>
+        <span>{preview.videoCount} 个视频</span>
+      </div>
+      {bestVideo && (
+        <div className="min-w-0 rounded-md px-2 py-1.5 text-[10px] font-bold" style={{ background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)" }}>
+          <span className="block truncate">优先视频：{previewFileName(bestVideo)}</span>
+          <span className="mt-0.5 block text-[9px]" style={{ color: "var(--txt-muted)" }}>{previewFileSizeText(bestVideo)}</span>
+        </div>
+      )}
+      {visibleFiles.length === 0 ? (
+        <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" }}>分享中未解析到文件。</p>
+      ) : (
+        <div className="space-y-1">
+          {visibleFiles.map((file, index) => {
+            const isDir = isPreviewDirectory(file);
+            const isVideo = isPreviewVideoFile(file);
+            const Icon = isDir ? FolderOpen : isVideo ? FileVideo : File;
+            return (
+              <div key={previewFileKey(file, index)} className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5" style={{ background: "var(--surface-subtle)" }}>
+                <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: isVideo ? "var(--brand-primary)" : "var(--txt-muted)" }} />
+                <span className="min-w-0 flex-1 truncate text-[10px] font-semibold" style={{ color: "var(--txt)" }}>{previewFileName(file)}</span>
+                {!isDir && <span className="shrink-0 text-[9px] font-bold" style={{ color: "var(--txt-muted)" }}>{previewFileSizeText(file)}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {preview.files.length > visibleFiles.length && (
+        <p className="text-[9px] font-bold" style={{ color: "var(--txt-muted)" }}>还有 {preview.files.length - visibleFiles.length} 个文件未展开</p>
+      )}
+    </div>
+  );
 }
 
 function mapMoviePilotItems(rawData: unknown): MoviePilotTorrent[] {
@@ -265,6 +469,7 @@ export default function SubscriptionDialog({
   const [ptLoaded, setPtLoaded] = useState(false);
   const [ptError, setPtError] = useState("");
   const [selectedPtKey, setSelectedPtKey] = useState("");
+  const [previewByKey, setPreviewByKey] = useState<Record<string, SharePreviewState>>({});
   const [submitting, setSubmitting] = useState(false);
   const [transferringKey, setTransferringKey] = useState("");
   const [unlockingSlug, setUnlockingSlug] = useState("");
@@ -293,6 +498,10 @@ export default function SubscriptionDialog({
     () => ptItems.find((item) => item.key === selectedPtKey),
     [ptItems, selectedPtKey],
   );
+  const manualPreviewKey = useMemo(
+    () => `manual:${manualShareUrl.trim()}:${manualReceiveCode.trim()}`,
+    [manualReceiveCode, manualShareUrl],
+  );
 
   const buildTvParams = () => {
     if (mediaType !== "tv" || tvScope === "all") return {};
@@ -314,6 +523,7 @@ export default function SubscriptionDialog({
       hdhive: emptySourceState(),
       tg: emptySourceState(),
     }));
+    setPreviewByKey({});
     setSelectedPan115Key((current) => (current === "manual" ? current : ""));
   };
 
@@ -335,6 +545,7 @@ export default function SubscriptionDialog({
     setPtLoaded(false);
     setPtError("");
     setSelectedPtKey("");
+    setPreviewByKey({});
     setSubmitting(false);
     setTransferringKey("");
     setUnlockingSlug("");
@@ -477,6 +688,38 @@ export default function SubscriptionDialog({
       await addLog("ERROR", `115 转存失败: ${msg}`);
     } finally {
       setTransferringKey("");
+    }
+  };
+
+  const handlePreviewShare = async (previewKey: string, shareUrl: string, receiveCode = "") => {
+    const normalizedUrl = shareUrl.trim();
+    if (!normalizedUrl) return;
+    setPreviewByKey((prev) => ({
+      ...prev,
+      [previewKey]: { ...emptySharePreviewState(), loading: true },
+    }));
+    try {
+      const response = await pan115Api.extractShareFiles(normalizedUrl, receiveCode.trim());
+      const preview = extractSharePreview(response.data);
+      setPreviewByKey((prev) => ({
+        ...prev,
+        [previewKey]: {
+          loading: false,
+          loaded: true,
+          error: "",
+          ...preview,
+        },
+      }));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+      setPreviewByKey((prev) => ({
+        ...prev,
+        [previewKey]: {
+          ...emptySharePreviewState(),
+          loaded: true,
+          error: `预览失败: ${msg}`,
+        },
+      }));
     }
   };
 
@@ -798,10 +1041,19 @@ export default function SubscriptionDialog({
                         style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }}
                       />
                     </label>
-                    <label className="flex cursor-pointer items-center gap-2 text-[10px] font-bold sm:col-span-2" style={{ color: "var(--txt-secondary)" }}>
-                      <input type="radio" checked={selectedPan115Key === "manual"} onChange={() => setSelectedPan115Key("manual")} className="accent-[var(--brand-primary)]" />
-                      选这条固定链接作为订阅来源
-                    </label>
+                    <div className="flex flex-wrap items-center justify-between gap-2 sm:col-span-2">
+                      <label className="flex cursor-pointer items-center gap-2 text-[10px] font-bold" style={{ color: "var(--txt-secondary)" }}>
+                        <input type="radio" checked={selectedPan115Key === "manual"} onChange={() => setSelectedPan115Key("manual")} className="accent-[var(--brand-primary)]" />
+                        选这条固定链接作为订阅来源
+                      </label>
+                      <button type="button" disabled={!manualShareUrl.trim() || previewByKey[manualPreviewKey]?.loading} onClick={() => void handlePreviewShare(manualPreviewKey, manualShareUrl, manualReceiveCode)} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black glass-hover disabled:opacity-50" style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+                        {previewByKey[manualPreviewKey]?.loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+                        预览文件
+                      </button>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <SharePreviewPanel preview={previewByKey[manualPreviewKey]} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -824,6 +1076,8 @@ export default function SubscriptionDialog({
                         const key = `${resource.sourceKey}:${resource.shareUrl || resource.url}`;
                         const lockedHdhive = Boolean(resource.slug && !resource.unlocked);
                         const busy = transferringKey === key;
+                        const preview = previewByKey[key];
+                        const previewBusy = Boolean(preview?.loading);
                         return (
                           <div key={key} className="rounded-xl p-2.5 space-y-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
                             <div className="flex items-start gap-2">
@@ -850,11 +1104,16 @@ export default function SubscriptionDialog({
                                   解锁
                                 </button>
                               )}
+                              <button type="button" disabled={previewBusy || lockedHdhive || !resource.shareUrl} onClick={() => void handlePreviewShare(key, resource.shareUrl || "", resource.receiveCode || "")} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black glass-hover disabled:opacity-50" style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+                                {previewBusy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+                                预览文件
+                              </button>
                               <button type="button" disabled={busy || lockedHdhive || !resource.shareUrl} onClick={() => void handleTransfer(resource)} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black text-white disabled:opacity-50" style={{ background: "var(--brand-primary)" }}>
                                 {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
                                 转存到 115
                               </button>
                             </div>
+                            <SharePreviewPanel preview={preview} />
                           </div>
                         );
                       })}

@@ -123,6 +123,58 @@ def _create_nextfind_tmdb_db(path):
         conn.close()
 
 
+def _insert_tmdb_media(
+    path,
+    *,
+    tmdb_id,
+    media_type="movie",
+    title,
+    original_title,
+    year,
+    popularity,
+    cast_text="",
+    title_pinyin="",
+    title_pinyin_initial="",
+):
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            """
+            insert into tmdb_media
+            (id, type, title, original_title, poster, year, release_date, vote_average,
+             popularity, genre_ids, status, cast_text, seasons, origin_country,
+             original_language, total_episodes, aired_episodes, is_ended,
+             title_pinyin, title_pinyin_initial)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tmdb_id,
+                media_type,
+                title,
+                original_title,
+                "",
+                year,
+                f"{year}-01-01",
+                7.0,
+                popularity,
+                json.dumps([878]),
+                "Released",
+                cast_text,
+                None,
+                json.dumps(["CN"]),
+                "zh",
+                0,
+                0,
+                0,
+                title_pinyin,
+                title_pinyin_initial,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @pytest.mark.asyncio
 async def test_local_tmdb_search_reads_nextfind_schema(tmp_path, monkeypatch):
     from app.core.config import settings
@@ -140,6 +192,50 @@ async def test_local_tmdb_search_reads_nextfind_schema(tmp_path, monkeypatch):
     assert payload["total_results"] == 1
     assert payload["items"][0]["tmdb_id"] == 535167
     assert payload["items"][0]["source_service"] == "local_tmdb"
+
+
+@pytest.mark.asyncio
+async def test_local_tmdb_search_prioritizes_relevance_over_popularity(tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.services.local_tmdb_service import local_tmdb_service
+
+    db_path = tmp_path / "tmdb_base.db"
+    _create_nextfind_tmdb_db(db_path)
+    _insert_tmdb_media(
+        db_path,
+        tmdb_id=999999,
+        title="流浪地球2",
+        original_title="The Wandering Earth II",
+        year=2023,
+        popularity=9999,
+        cast_text="吴京, 刘德华",
+        title_pinyin="liu lang di qiu 2 the wandering earth ii",
+        title_pinyin_initial="lldq2 the wandering earth ii",
+    )
+    monkeypatch.setattr(settings, "TMDB_LOCAL_DB_PATH", str(db_path))
+
+    payload = await local_tmdb_service.search_by_media_type("流浪地球", "movie")
+    initial_payload = await local_tmdb_service.search_by_media_type("lldq", "movie")
+
+    assert payload["total_results"] == 2
+    assert [item["tmdb_id"] for item in payload["items"][:2]] == [535167, 999999]
+    assert initial_payload["items"][0]["tmdb_id"] == 535167
+
+
+@pytest.mark.asyncio
+async def test_local_tmdb_search_matches_compact_pinyin_and_cast(tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.services.local_tmdb_service import local_tmdb_service
+
+    db_path = tmp_path / "tmdb_base.db"
+    _create_nextfind_tmdb_db(db_path)
+    monkeypatch.setattr(settings, "TMDB_LOCAL_DB_PATH", str(db_path))
+
+    pinyin_payload = await local_tmdb_service.search_by_media_type("liulangdiqiu", "movie")
+    cast_payload = await local_tmdb_service.search_multi("吴京")
+
+    assert pinyin_payload["items"][0]["tmdb_id"] == 535167
+    assert 535167 in {item["tmdb_id"] for item in cast_payload["items"]}
 
 
 @pytest.mark.asyncio

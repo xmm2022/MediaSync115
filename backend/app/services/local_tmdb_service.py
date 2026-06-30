@@ -187,6 +187,7 @@ class LocalTmdbService:
 
         try:
             where, params = self._build_search_where(query, media_type, year)
+            order_sql, order_params = self._build_search_order(query, year)
             count_sql = f"select count(*) from tmdb_media where {where}"
             total_results = int(conn.execute(count_sql, params).fetchone()[0] or 0)
             if total_results <= 0:
@@ -197,10 +198,10 @@ class LocalTmdbService:
                 select *
                 from tmdb_media
                 where {where}
-                order by popularity desc, vote_average desc, year desc
+                order by {order_sql}
                 limit ? offset ?
             """
-            rows = conn.execute(sql, [*params, page_size, offset]).fetchall()
+            rows = conn.execute(sql, [*params, *order_params, page_size, offset]).fetchall()
             items = [self._row_to_search_item(row) for row in rows]
             total_pages = max(1, (total_results + page_size - 1) // page_size)
             return {
@@ -230,14 +231,24 @@ class LocalTmdbService:
             f"%{query}%",
             f"%{query}%",
             f"%{lowered}%",
-            f"%{alpha or lowered}%",
+            f"%{lowered}%",
+            f"%{query}%",
         ]
         title_conditions = [
             "title like ?",
             "original_title like ?",
             "title_pinyin like ?",
             "title_pinyin_initial like ?",
+            "cast_text like ?",
         ]
+        if alpha:
+            title_conditions.extend(
+                [
+                    "replace(lower(coalesce(title_pinyin, '')), ' ', '') like ?",
+                    "replace(lower(coalesce(title_pinyin_initial, '')), ' ', '') like ?",
+                ]
+            )
+            params.extend([f"%{alpha}%", f"%{alpha}%"])
         if query.isdigit():
             title_conditions.append("cast(id as text) = ?")
             params.append(query)
@@ -251,6 +262,58 @@ class LocalTmdbService:
             where_parts.append("year = ?")
             params.append(year)
         return " and ".join(where_parts), params
+
+    def _build_search_order(self, query: str, year: int | None) -> tuple[str, list[Any]]:
+        lowered = query.lower()
+        alpha = re.sub(r"[^a-z0-9]", "", lowered)
+        id_query = query if query.isdigit() else ""
+        year_value = year if isinstance(year, int) and year > 1800 else None
+        order_sql = """
+            (
+                case when ? != '' and cast(id as text) = ? then 100000 else 0 end
+                + case when lower(coalesce(title, '')) = ? then 90000 else 0 end
+                + case when lower(coalesce(original_title, '')) = ? then 85000 else 0 end
+                + case when lower(coalesce(title, '')) like ? then 70000 else 0 end
+                + case when lower(coalesce(original_title, '')) like ? then 65000 else 0 end
+                + case when ? != '' and replace(lower(coalesce(title_pinyin, '')), ' ', '') = ? then 60000 else 0 end
+                + case when ? != '' and lower(coalesce(title_pinyin_initial, '')) = ? then 58000 else 0 end
+                + case when ? != '' and lower(coalesce(title_pinyin_initial, '')) like ? then 56000 else 0 end
+                + case when ? != '' and replace(lower(coalesce(title_pinyin, '')), ' ', '') like ? then 54000 else 0 end
+                + case when ? != '' and lower(coalesce(title_pinyin_initial, '')) like ? then 52000 else 0 end
+                + case when lower(coalesce(title_pinyin, '')) like ? then 50000 else 0 end
+                + case when lower(coalesce(title, '')) like ? then 45000 else 0 end
+                + case when lower(coalesce(original_title, '')) like ? then 43000 else 0 end
+                + case when lower(coalesce(cast_text, '')) like ? then 20000 else 0 end
+                + case when ? is not null and year = ? then 1000 else 0 end
+            ) desc,
+            popularity desc,
+            vote_average desc,
+            year desc
+        """
+        return order_sql, [
+            id_query,
+            id_query,
+            lowered,
+            lowered,
+            f"{lowered}%",
+            f"{lowered}%",
+            alpha,
+            alpha,
+            alpha,
+            alpha,
+            alpha,
+            f"{alpha} %",
+            alpha,
+            f"%{alpha}%",
+            alpha,
+            f"{alpha}%",
+            f"%{lowered}%",
+            f"%{lowered}%",
+            f"%{lowered}%",
+            f"%{lowered}%",
+            year_value,
+            year_value,
+        ]
 
     def _empty_search(self, query: str, page: int) -> dict[str, Any]:
         return {
