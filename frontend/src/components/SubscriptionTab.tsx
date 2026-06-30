@@ -14,6 +14,7 @@ import type { SyncDirectory } from "../types";
 interface SubscriptionTabProps {
   directories: SyncDirectory[];
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
+  onNavigateToMissing?: () => void;
 }
 
 type SubscriptionFilter = "all" | "missing" | "active" | "paused";
@@ -179,7 +180,7 @@ function posterUrl(sub: SubscriptionItem): string {
   return "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=400&q=80";
 }
 
-export default function SubscriptionTab({ directories, addLog }: SubscriptionTabProps) {
+export default function SubscriptionTab({ directories, addLog, onNavigateToMissing }: SubscriptionTabProps) {
   const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showOperations, setShowOperations] = useState(false);
@@ -824,7 +825,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                   <span>手动运行 / 诊断</span>
                 </h3>
                 <p className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-                  HDHive / Pansou / TG 用于 115 追新搜索；补缺集在订阅详情的补缺集标签中处理。
+                  HDHive / Pansou / TG 用于 115 追新搜索；缺集补齐已拆到独立的缺集管理页面。
                 </p>
               </div>
 
@@ -871,71 +872,43 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
         )}
       </AnimatePresence>
 
-      {/* 缺集总览：GET /api/subscriptions/missing-status/tv */}
-      {currentTabSupportsMissing && (
+      {currentTabSupportsMissing && onNavigateToMissing && (
       <div className="liquid-panel glass rounded-3xl p-5">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
           <div>
             <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
               <AlertCircle className="w-4 h-4 text-amber-500" />
-              <span>115 TV 缺集总览</span>
+              <span>缺集管理已独立</span>
               <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
                 {missingOverviewLoading ? "加载中..." : `待处理 ${missingAttentionRows.length} 项`}
               </span>
             </h3>
             <p className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-              缺集判断依赖 TMDB 已播剧集与 Emby 媒体库索引，补缺集操作与追新订阅分开处理。
+              这里继续管理订阅和追新规则；115 固定来源补缺与 MoviePilot/PT 精准补缺请到缺集管理统一处理。
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              void loadMissingOverview();
-              void loadSubscriptions();
-            }}
-            disabled={missingOverviewLoading}
-            className="text-[10px] font-bold text-brand-primary hover:bg-brand-primary/5 px-2 py-1 rounded-lg flex items-center gap-1 disabled:opacity-50 self-start sm:self-auto cursor-pointer"
-          >
-            <RefreshCw className={`w-3 h-3 ${missingOverviewLoading ? "animate-spin" : ""}`} />
-            刷新
-          </button>
-        </div>
-        {missingOverview && missingAttentionRows.length === 0 && !missingOverviewLoading && (
-          <p className="text-xs font-semibold py-2" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-            暂无缺集。若这里长期为空但媒体库明显不完整，请先检查 Emby 配置与媒体库索引同步。
-          </p>
-        )}
-        {missingOverview && missingAttentionRows.length > 0 && (
-          <div className="space-y-2">
-            {missingAttentionRows.map((m) => {
-              const unresolved = MISSING_UNRESOLVED_STATUSES.has(String(m.status || ""));
-              return (
-              <button
-                key={m.subscription_id}
-                type="button"
-                onClick={() => focusSubscriptionFromMissing(m.subscription_id)}
-                className="w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition-all glass-hover cursor-pointer"
-                style={unresolved
-                  ? { background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.25)" } as React.CSSProperties
-                  : { background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.25)" } as React.CSSProperties}>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold truncate" style={{ color: "var(--txt)" } as React.CSSProperties}>{m.title}</div>
-                  <div className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
-                    {unresolved ? (m.message || "缺集状态无法判断") : `已入库 ${m.existing_count} / 已播 ${m.aired_count}`}
-                  </div>
-                </div>
-                <div className="flex flex-col items-end shrink-0">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black"
-                    style={unresolved
-                      ? { background: "rgba(239,68,68,0.14)", color: "var(--accent-danger)" } as React.CSSProperties
-                      : { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" } as React.CSSProperties}>
-                    {unresolved ? "无法判断" : `缺 ${m.missing_count} 集`}
-                  </span>
-                </div>
-              </button>
-            );})}
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                void loadMissingOverview();
+                void loadSubscriptions();
+              }}
+              disabled={missingOverviewLoading}
+              className="text-[10px] font-bold text-brand-primary hover:bg-brand-primary/5 px-2 py-1 rounded-lg flex items-center gap-1 disabled:opacity-50 self-start sm:self-auto cursor-pointer"
+            >
+              <RefreshCw className={`w-3 h-3 ${missingOverviewLoading ? "animate-spin" : ""}`} />
+              刷新数字
+            </button>
+            <button
+              type="button"
+              onClick={onNavigateToMissing}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white cursor-pointer"
+            >
+              打开缺集管理
+            </button>
           </div>
-        )}
+        </div>
       </div>
       )}
 
@@ -1470,7 +1443,6 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                           style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
                           {[
                             { key: "follow" as const, label: "追新 / 转存", icon: Activity },
-                            { key: "missing" as const, label: "补缺集", icon: AlertCircle },
                           ].map((item) => {
                             const Icon = item.icon;
                             const active = detailPanelTab === item.key;

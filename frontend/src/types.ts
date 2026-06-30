@@ -9,6 +9,7 @@ export enum PageName {
   EXPLORE = "explore",
   ANIME = "anime",
   SUBSCRIPTION = "subscription",
+  MISSING = "missing",
   LIBRARY = "library",
   USAGE = "usage",
   AUTOMATIONS = "automations",

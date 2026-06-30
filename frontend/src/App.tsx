@@ -16,6 +16,7 @@ import SearchTab from "./components/SearchTab";
 import ExploreTab from "./components/ExploreTab";
 import AnimeTab from "./components/AnimeTab";
 import SubscriptionTab from "./components/SubscriptionTab";
+import MissingEpisodesTab from "./components/MissingEpisodesTab";
 import UsageTab from "./components/UsageTab";
 import AutomationsTab from "./components/AutomationsTab";
 import SettingsTab from "./components/SettingsTab";
@@ -34,6 +35,7 @@ import {
   Settings,
   Bell,
   CheckCircle2,
+  AlertCircle,
   AlertTriangle,
   Info,
   X,
@@ -295,6 +297,7 @@ export default function App() {
         { name: PageName.EXPLORE, label: "影视发现", icon: Search },
         { name: PageName.ANIME, label: "动漫追番", icon: Clapperboard },
         { name: PageName.SUBSCRIPTION, label: "订阅中心", icon: Rss },
+        { name: PageName.MISSING, label: "缺集管理", icon: AlertCircle },
         { name: PageName.LIBRARY, label: "片单 / 影人", icon: Bookmark },
       ],
     },
@@ -621,6 +624,22 @@ export default function App() {
                 <SubscriptionTab
                   directories={directories}
                   addLog={addLog}
+                  onNavigateToMissing={() => setActivePage(PageName.MISSING)}
+                />
+              </motion.div>
+            )}
+
+            {activePage === PageName.MISSING && (
+              <motion.div
+                key="missing"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+              >
+                <MissingEpisodesTab
+                  addLog={addLog}
+                  onNavigateToSubscriptions={() => setActivePage(PageName.SUBSCRIPTION)}
                 />
               </motion.div>
             )}
@@ -745,7 +764,7 @@ export default function App() {
       </div>
 
       {/* 4. Mobile Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass px-2 py-2 grid grid-cols-5 gap-1 shadow-[0_-8px_32px_rgba(17,12,46,0.06)] pb-safe-bottom">
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass px-2 py-2 grid grid-cols-6 gap-1 shadow-[0_-8px_32px_rgba(17,12,46,0.06)] pb-safe-bottom">
         {[
           { name: PageName.DASHBOARD, label: "主面板", icon: LayoutDashboard },
           { name: PageName.EXPLORE, label: "发现", icon: Search },
@@ -786,20 +805,20 @@ export default function App() {
         <button
           onClick={() => setMobileSidebarOpen(true)}
           className={`min-w-0 flex flex-col items-center gap-1 py-1 px-1 rounded-xl transition-all active:scale-95 ${
-            [PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
+            [PageName.MISSING, PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
               ? "text-brand-primary"
               : "text-[var(--txt-secondary)]"
           }`}
         >
           <div className={`p-1.5 rounded-lg transition-all ${
-            [PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
+            [PageName.MISSING, PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
               ? "bg-brand-primary/10 text-brand-primary"
               : "text-[var(--txt-muted)]"
           }`}>
             <Menu className="w-4.5 h-4.5" />
           </div>
           <span className={`text-[8px] font-black tracking-normal whitespace-nowrap ${
-            [PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
+            [PageName.MISSING, PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
               ? "text-brand-primary font-black"
               : "text-[var(--txt-muted)] font-bold"
           }`}>
