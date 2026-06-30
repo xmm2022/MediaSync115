@@ -146,6 +146,16 @@ class SubscriptionService:
             )
             .where(
                 Subscription.is_active == True,  # noqa: E712
+                or_(
+                    Subscription.provider.is_(None),
+                    Subscription.provider == "",
+                    Subscription.provider == "mediasync115",
+                ),
+                or_(
+                    Subscription.external_system.is_(None),
+                    Subscription.external_system == "",
+                    Subscription.external_system == "mediasync115",
+                ),
             )
             .order_by(Subscription.id.asc())
         )
@@ -1227,7 +1237,19 @@ class SubscriptionService:
                 Subscription.tv_include_specials,
                 has_successful_transfer,
             )
-            .where(Subscription.is_active == True)  # noqa: E712
+            .where(
+                Subscription.is_active == True,  # noqa: E712
+                or_(
+                    Subscription.provider.is_(None),
+                    Subscription.provider == "",
+                    Subscription.provider == "mediasync115",
+                ),
+                or_(
+                    Subscription.external_system.is_(None),
+                    Subscription.external_system == "",
+                    Subscription.external_system == "mediasync115",
+                ),
+            )
             .order_by(Subscription.id.asc())
         )
 
@@ -1487,6 +1509,16 @@ class SubscriptionService:
             return {"deleted": False, "reason": "订阅不存在"}
         if not sub.is_active:
             return {"deleted": False, "reason": "订阅未激活"}
+        provider = str(getattr(sub, "provider", "") or "mediasync115").strip()
+        external_system = str(getattr(sub, "external_system", "") or "").strip()
+        if provider not in {"", "mediasync115"} or external_system not in {
+            "",
+            "mediasync115",
+        }:
+            return {
+                "deleted": False,
+                "reason": "外部渠道订阅不参与 MediaSync115 自动清理",
+            }
 
         sub_has_transfer = await self._subscription_has_successful_transfer(db, sub.id)
         should_delete, reason = await self._evaluate_subscription_cleanup_eligibility(

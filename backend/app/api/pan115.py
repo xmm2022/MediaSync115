@@ -25,6 +25,17 @@ from app.services.transfer_guard_service import (
 
 logger = logging.getLogger(__name__)
 
+PAN115_SHARE_CODE_RE = re.compile(r"^[A-Za-z0-9]{5,64}(?:-[A-Za-z0-9]{4})?$")
+PAN115_SHARE_PATH_RE = re.compile(r"^/s/[A-Za-z0-9]+", re.I)
+PAN115_SHARE_HOSTS_WITH_S_PATH = {
+    "115.com",
+    "www.115.com",
+    "115cdn.com",
+    "www.115cdn.com",
+    "anxia.com",
+    "www.anxia.com",
+}
+
 
 def _sanitize_receive_code(value: str) -> str:
     """清洗 115 提取码，仅保留 4 位字母数字"""
@@ -74,6 +85,42 @@ def _sanitize_share_url(share_url: str) -> str:
         )
     except Exception:
         return re.sub(r"[^\x20-\x7E\u4e00-\u9fff/?=&:%._-]", "", raw).strip()
+
+
+def _is_pan115_share_identifier(value: str) -> bool:
+    cleaned = _sanitize_share_url(value)
+    if not cleaned:
+        return False
+    if re.search(r"https?://", cleaned, re.I) or re.match(
+        r"^(?:www\.)?(?:115(?:cdn)?\.com|anxia\.com)/", cleaned, re.I
+    ) or re.match(r"^share\.115\.com/", cleaned, re.I):
+        url_value = cleaned if re.match(r"^https?://", cleaned, re.I) else f"https://{cleaned}"
+        parsed = urlparse(url_value)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path or ""
+        if host in PAN115_SHARE_HOSTS_WITH_S_PATH:
+            return bool(PAN115_SHARE_PATH_RE.match(path))
+        if host == "share.115.com":
+            return bool(re.fullmatch(r"/[A-Za-z0-9]+/?", path))
+        return False
+    return bool(PAN115_SHARE_CODE_RE.fullmatch(cleaned.strip()))
+
+
+def _normalize_pan115_share_or_400(value: str) -> str:
+    cleaned = _sanitize_share_url(value)
+    if not _is_pan115_share_identifier(cleaned):
+        raise HTTPException(
+            status_code=400,
+            detail="仅支持 115 分享链接或分享码；夸克、PT、磁力等资源请使用对应渠道处理",
+        )
+    return cleaned
+
+
+def _normalize_pan115_share_code_or_400(value: str) -> str:
+    cleaned = str(value or "").strip()
+    if not cleaned or not re.fullmatch(r"[A-Za-z0-9]{5,64}", cleaned):
+        raise HTTPException(status_code=400, detail="无效的 115 分享码")
+    return cleaned
 
 
 async def _trigger_archive_if_enabled(trigger: str = "transfer") -> None:
@@ -185,6 +232,8 @@ class SaveShareToFolderRequest(BaseModel):
     parent_id: str = "0"
     receive_code: str = ""
     tmdb_id: Optional[int] = None
+    media_type: Optional[str] = None
+    sync_missing: bool = False
 
 
 class ShareExtractFilesRequest(BaseModel):
@@ -912,6 +961,7 @@ async def parse_share_link(share_url: str = Query(..., description="分享链接
     解析分享链接，获取分享信息
     """
     service = get_service()
+    share_url = _normalize_pan115_share_or_400(share_url)
     try:
         result = await service.parse_share_link(share_url)
         return result
@@ -933,6 +983,7 @@ async def get_share_file_list(
     返回分享链接中的文件列表
     """
     service = get_service()
+    share_code = _normalize_pan115_share_code_or_400(share_code)
     try:
         result = await service.get_share_file_list(
             share_code, receive_code, cid, offset, limit
@@ -950,11 +1001,12 @@ async def save_share_file(request: SaveShareRequest):
     将分享链接中的文件转存到网盘
     """
     service = get_service()
+    share_code = _normalize_pan115_share_code_or_400(request.share_code)
     try:
         async def operation() -> dict:
             target_pid = _get_transfer_default_folder_id()
             return await service.save_share_file(
-                request.share_code, request.file_id, target_pid, request.receive_code
+                share_code, request.file_id, target_pid, request.receive_code
             )
 
         result = await _run_exclusive_transfer("分享单文件转存", operation)
@@ -972,11 +1024,12 @@ async def save_share_files(request: SaveShareFilesRequest):
     将分享链接中的多个文件转存到网盘
     """
     service = get_service()
+    share_code = _normalize_pan115_share_code_or_400(request.share_code)
     try:
         async def operation() -> dict:
             target_pid = _get_transfer_default_folder_id()
             return await service.save_share_files(
-                request.share_code, request.file_ids, target_pid, request.receive_code
+                share_code, request.file_ids, target_pid, request.receive_code
             )
 
         result = await _run_exclusive_transfer("分享批量转存", operation)
@@ -998,6 +1051,7 @@ async def save_share_all(
     将分享链接中的所有文件转存到网盘
     """
     service = get_service()
+    share_code = _normalize_pan115_share_code_or_400(share_code)
     try:
         async def operation() -> dict:
             target_pid = _get_transfer_default_folder_id()
@@ -1016,26 +1070,31 @@ async def save_share_to_folder(request: SaveShareToFolderRequest):
     转存分享到指定文件夹
 
     将分享链接中的文件转存到指定名称的文件夹中（如果文件夹不存在会自动创建）
-    如果提供了 tmdb_id，则会使用 Emby 差集比对进行追更转存
+    只有显式 sync_missing=true 且 media_type=tv 时，才使用 Emby 差集比对进行剧集补全
     """
     service = get_service()
-    media_label = request.folder_name or request.share_url
-    source_hint = "TMDB" if request.tmdb_id else "手动"
+    share_url = _normalize_pan115_share_or_400(request.share_url)
+    media_label = request.folder_name or share_url
+    media_type = str(request.media_type or "").strip().lower()
+    use_missing_sync = bool(request.sync_missing and request.tmdb_id and media_type == "tv")
+    if request.sync_missing and not use_missing_sync:
+        raise HTTPException(status_code=400, detail="缺集同步仅支持带 tmdb_id 的 TV 资源")
+    source_hint = "TV缺集" if use_missing_sync else "手动"
     try:
         async def operation() -> dict:
             transfer_parent_id = _get_transfer_default_folder_id()
             last_error: Exception | None = None
             for attempt in range(4):
                 try:
-                    # 如果提供了 tmdb_id，说明这是一个剧集，进行查漏补缺式的转存
-                    if request.tmdb_id:
+                    # 缺集同步必须由调用方显式声明，不能仅凭 tmdb_id 推断。
+                    if use_missing_sync:
                         # sync_tv_show 需要预先解析好的 target_folder_id
                         target_folder_id = await service.get_or_create_folder(
                             transfer_parent_id, request.folder_name
                         )
                         result = await sync_service.sync_tv_show(
                             tmdb_id=request.tmdb_id,
-                            share_url=request.share_url,
+                            share_url=share_url,
                             target_folder_id=target_folder_id,
                             receive_code=request.receive_code,
                         )
@@ -1047,7 +1106,7 @@ async def save_share_to_folder(request: SaveShareToFolderRequest):
 
                     quality_filter = build_quality_filter_from_settings()
                     result = await service.save_share_to_folder(
-                        request.share_url,
+                        share_url,
                         request.folder_name,
                         transfer_parent_id,
                         request.receive_code,
@@ -1074,33 +1133,37 @@ async def save_share_to_folder(request: SaveShareToFolderRequest):
             raise ValueError("转存失败")
 
         result = await _run_exclusive_transfer("分享到文件夹转存", operation)
-        logger.info("[%s] 一键转存成功：%s", source_hint, media_label)
+        logger.info("[%s] 115 分享转存成功：%s", source_hint, media_label)
         asyncio.create_task(
             operation_log_service.log_background_event(
                 source_type="user_action",
                 module="pan115",
                 action="transfer.save_to_folder",
                 status="success",
-                message=f"[{source_hint}] 一键转存成功：{media_label}",
+                message=f"[{source_hint}] 115 分享转存成功：{media_label}",
                 extra={
                     "folder_name": request.folder_name,
                     "tmdb_id": request.tmdb_id,
+                    "media_type": media_type,
+                    "sync_missing": use_missing_sync,
                 },
             )
         )
         return result
     except Exception as e:
-        logger.warning("[%s] 一键转存失败：%s，错误：%s", source_hint, media_label, str(e))
+        logger.warning("[%s] 115 分享转存失败：%s，错误：%s", source_hint, media_label, str(e))
         asyncio.create_task(
             operation_log_service.log_background_event(
                 source_type="user_action",
                 module="pan115",
                 action="transfer.save_to_folder",
                 status="failed",
-                message=f"[{source_hint}] 一键转存失败：{media_label}，{e}",
+                message=f"[{source_hint}] 115 分享转存失败：{media_label}，{e}",
                 extra={
                     "folder_name": request.folder_name,
                     "tmdb_id": request.tmdb_id,
+                    "media_type": media_type,
+                    "sync_missing": use_missing_sync,
                 },
             )
         )
@@ -1115,11 +1178,11 @@ async def extract_share_files(request: ShareExtractFilesRequest):
     返回分享链接内的所有文件列表，供用户勾选转存
     """
     service = get_service()
+    share_url = _normalize_pan115_share_or_400(request.share_url)
     try:
         # 使用服务层的 parse_share_link 或者直接提取分享码，调用递归获取方法
         from p115client.util import share_extract_payload
 
-        share_url = _sanitize_share_url((request.share_url or "").strip())
         try:
             share_payload = share_extract_payload(share_url)
         except Exception:
@@ -1210,7 +1273,8 @@ async def save_share_files_to_folder(request: SaveShareFilesToFolderRequest):
     将用户勾选的部分文件转存到指定名称的文件夹中
     """
     service = get_service()
-    media_label = request.folder_name or request.share_url
+    share_url = _normalize_pan115_share_or_400(request.share_url)
+    media_label = request.folder_name or share_url
     try:
         async def operation() -> dict:
             transfer_parent_id = _get_transfer_default_folder_id()
@@ -1218,7 +1282,7 @@ async def save_share_files_to_folder(request: SaveShareFilesToFolderRequest):
             for attempt in range(4):
                 try:
                     result = await service.save_share_files_to_folder(
-                        request.share_url,
+                        share_url,
                         request.file_ids,
                         request.folder_name,
                         transfer_parent_id,

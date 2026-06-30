@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { toast, Toaster } from "sonner";
 import { PageName, SyncDirectory, SyncLog, type DetailContext } from "./types";
-import { logsApi, archiveApi, workflowApi, authApi, subscriptionApi } from "./api";
+import { logsApi, archiveApi, workflowApi, authApi, subscriptionApi, moviepilotApi } from "./api";
 import type { WorkflowItem } from "./api/types";
 import { AUTH_REQUIRED_EVENT, getApiErrorMessage } from "./api/errors";
 import { waitForBackendReady } from "./utils/health";
@@ -595,7 +595,11 @@ export default function App() {
               >
                 <ExploreTab
                   onNavigateToDetail={handleNavigateToDetail}
-                  onAddSubscription={async (item, board) => {
+                  onAddSubscription={async (item, board, channel) => {
+                    if (channel === "quark") {
+                      return { ok: false, message: "夸克订阅后端尚未接入" };
+                    }
+
                     const built = buildExploreSubscriptionPayload(item, board);
                     if (built.ok === false) {
                       await addLog("WARN", `榜单订阅失败：${built.message}`);
@@ -603,10 +607,19 @@ export default function App() {
                     }
 
                     try {
-                      await subscriptionApi.create(built.payload);
-                      await addLog("SUCCESS", `已订阅 [${built.payload.title}]，可在订阅中心查看。`);
+                      if (channel === "pt") {
+                        await moviepilotApi.createSubscription({
+                          ...built.payload,
+                          poster_path: item.poster_url,
+                          overview: item.intro,
+                        });
+                        await addLog("SUCCESS", `已创建 PT 下载订阅 [${built.payload.title}]，可在订阅中心查看。`);
+                      } else {
+                        await subscriptionApi.create(built.payload);
+                        await addLog("SUCCESS", `已创建 115 自动搜索订阅 [${built.payload.title}]，可在订阅中心查看。`);
+                      }
                       setActivePage(PageName.SUBSCRIPTION);
-                      return { ok: true, message: "已添加到订阅中心" };
+                      return { ok: true, message: channel === "pt" ? "已添加 PT 下载订阅" : "已添加 115 自动搜索订阅" };
                     } catch (err) {
                       const message = getApiErrorMessage(err, "创建订阅失败");
                       if (message.includes("already exists") || message.includes("已存在")) {

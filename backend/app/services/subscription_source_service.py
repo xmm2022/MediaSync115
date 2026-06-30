@@ -143,6 +143,13 @@ class SubscriptionSourceService:
         subscription = result.scalar_one_or_none()
         if subscription is None:
             raise ValueError("订阅不存在")
+        provider = str(getattr(subscription, "provider", "") or "mediasync115").strip()
+        external_system = str(getattr(subscription, "external_system", "") or "").strip()
+        if provider not in {"", "mediasync115"} or external_system not in {
+            "",
+            "mediasync115",
+        }:
+            raise ValueError("固定 115 来源仅支持 MediaSync115 订阅")
         if subscription.media_type != MediaType.TV:
             raise ValueError("固定来源仅支持电视剧订阅")
 

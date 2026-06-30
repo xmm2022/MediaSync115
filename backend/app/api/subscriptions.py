@@ -33,6 +33,70 @@ _tmdb_poster_path_pattern = re.compile(
     r"(?:https?:)?//image\.tmdb\.org/t/p/[^/]+(/.+)$", re.IGNORECASE
 )
 
+MEDIA_PROVIDER = "mediasync115"
+ANIME_PROVIDER = "anirss"
+
+
+def _exclude_anirss_clause():
+    return and_(
+        or_(Subscription.provider.is_(None), Subscription.provider != ANIME_PROVIDER),
+        or_(
+            Subscription.external_system.is_(None),
+            Subscription.external_system != ANIME_PROVIDER,
+        ),
+    )
+
+
+def _anirss_clause():
+    return or_(
+        Subscription.provider == ANIME_PROVIDER,
+        Subscription.external_system == ANIME_PROVIDER,
+    )
+
+
+def _mediasync115_clause():
+    return and_(
+        or_(
+            Subscription.provider.is_(None),
+            Subscription.provider == "",
+            Subscription.provider == MEDIA_PROVIDER,
+        ),
+        or_(
+            Subscription.external_system.is_(None),
+            Subscription.external_system == "",
+            Subscription.external_system == MEDIA_PROVIDER,
+        ),
+    )
+
+
+def _is_mediasync115_subscription(subscription: Subscription) -> bool:
+    provider = str(getattr(subscription, "provider", "") or MEDIA_PROVIDER).strip()
+    external_system = str(getattr(subscription, "external_system", "") or "").strip()
+    return provider in {"", MEDIA_PROVIDER} and external_system in {"", MEDIA_PROVIDER}
+
+
+def _apply_subscription_scope(query, scope: str):
+    normalized = str(scope or "media").strip().lower()
+    if normalized == "all":
+        return query
+    if normalized == "anime":
+        return query.where(_anirss_clause())
+    return query.where(_exclude_anirss_clause())
+
+
+def _apply_provider_filter(query, provider: str | None):
+    normalized = str(provider or "").strip().lower()
+    if not normalized:
+        return query
+    if normalized == MEDIA_PROVIDER:
+        return query.where(_mediasync115_clause())
+    return query.where(
+        or_(
+            Subscription.provider == normalized,
+            Subscription.external_system == normalized,
+        )
+    )
+
 
 def normalize_tmdb_poster_path(raw_path: str | None) -> str | None:
     value = str(raw_path or "").strip()
@@ -89,6 +153,10 @@ def _build_subscription_status_payload(
             "imdb_id": sub.imdb_id,
             "media_type": media_type_value,
             "title": sub.title,
+            "provider": sub.provider,
+            "external_system": sub.external_system,
+            "external_subscription_id": sub.external_subscription_id,
+            "external_status": sub.external_status,
         }
         items.append(item)
 
@@ -337,6 +405,10 @@ async def enrich_subscriptions_with_sources(
             "tv_episode_end": sub.tv_episode_end,
             "tv_follow_mode": sub.tv_follow_mode,
             "tv_include_specials": sub.tv_include_specials,
+            "provider": sub.provider,
+            "external_system": sub.external_system,
+            "external_subscription_id": sub.external_subscription_id,
+            "external_status": sub.external_status,
             "is_active": sub.is_active,
             "auto_download": sub.auto_download,
             "created_at": sub.created_at,
@@ -463,12 +535,18 @@ async def create_subscription(
 ):
     dedupe_conditions = []
     if subscription.douban_id:
-        dedupe_conditions.append(Subscription.douban_id == subscription.douban_id)
+        dedupe_conditions.append(
+            and_(
+                Subscription.douban_id == subscription.douban_id,
+                _mediasync115_clause(),
+            )
+        )
     if subscription.tmdb_id is not None:
         dedupe_conditions.append(
             and_(
                 Subscription.tmdb_id == subscription.tmdb_id,
                 Subscription.media_type == subscription.media_type,
+                _mediasync115_clause(),
             )
         )
 
@@ -618,9 +696,13 @@ async def _cleanup_subscription_if_eligible(subscription_id: int) -> None:
 async def list_subscriptions(
     is_active: Optional[bool] = None,
     media_type: Optional[MediaType] = None,
+    scope: str = Query("media", description="media=普通影视，anime=ANI-RSS，all=全部"),
+    provider: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Subscription)
+    query = _apply_subscription_scope(query, scope)
+    query = _apply_provider_filter(query, provider)
     if is_active is not None:
         query = query.where(Subscription.is_active == is_active)
     if media_type:
@@ -677,9 +759,13 @@ async def list_subscriptions(
 async def get_subscription_status_map(
     is_active: Optional[bool] = True,
     media_type: Optional[MediaType] = None,
+    scope: str = Query("media", description="media=普通影视，anime=ANI-RSS，all=全部"),
+    provider: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Subscription)
+    query = _apply_subscription_scope(query, scope)
+    query = _apply_provider_filter(query, provider)
     if is_active is not None:
         query = query.where(Subscription.is_active == is_active)
     if media_type:
@@ -783,6 +869,16 @@ async def scan_subscription_source(
     sub = result.scalar_one_or_none()
     if sub is None:
         raise HTTPException(status_code=404, detail="Subscription not found")
+    if not _is_mediasync115_subscription(sub):
+        raise HTTPException(
+            status_code=400,
+            detail="固定 115 来源仅支持 MediaSync115 订阅",
+        )
+    if sub.media_type != MediaType.TV or sub.tmdb_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="固定 115 来源扫描仅支持带 TMDB ID 的电视剧订阅",
+        )
     try:
         source = await subscription_source_service.get_source(
             db,
@@ -899,6 +995,7 @@ async def list_tv_missing_status(
             .where(
                 Subscription.media_type == MediaType.TV,
                 Subscription.is_active == True,  # noqa: E712
+                _mediasync115_clause(),
                 ~has_successful_transfer,
             )
             .order_by(Subscription.created_at.desc())
@@ -990,6 +1087,21 @@ async def get_tv_missing_status(
         raise HTTPException(status_code=404, detail="Subscription not found")
     if subscription.media_type != MediaType.TV:
         raise HTTPException(status_code=400, detail="仅支持电视剧订阅")
+    if not _is_mediasync115_subscription(subscription):
+        return {
+            "subscription_id": subscription.id,
+            "tmdb_id": subscription.tmdb_id,
+            "title": subscription.title,
+            "year": subscription.year,
+            "poster_path": subscription.poster_path,
+            "status": "unsupported_channel",
+            "message": "该订阅由外部渠道管理，不参与 MediaSync115 缺集转存逻辑",
+            "aired_episodes": [],
+            "existing_episodes": [],
+            "missing_episodes": [],
+            "missing_by_season": {},
+            "counts": {"aired": 0, "existing": 0, "missing": 0},
+        }
     if subscription.tmdb_id is None:
         return {
             "subscription_id": subscription.id,
@@ -1074,8 +1186,9 @@ async def update_subscription(
     for key, value in update_payload.items():
         setattr(subscription, key, value)
 
-    # 订阅默认始终开启自动转存，避免前后端状态不一致。
-    subscription.auto_download = True
+    if _is_mediasync115_subscription(subscription):
+        # 115 订阅默认始终开启自动转存，避免前后端状态不一致。
+        subscription.auto_download = True
 
     await db.commit()
     await db.refresh(subscription)
@@ -1090,7 +1203,10 @@ async def delete_subscriptions_by_type(
         raise HTTPException(status_code=400, detail="media_type 必须为 movie 或 tv")
 
     subs_result = await db.execute(
-        select(Subscription.id).where(Subscription.media_type == media_type)
+        select(Subscription.id).where(
+            Subscription.media_type == media_type,
+            _exclude_anirss_clause(),
+        )
     )
     sub_ids = [row[0] for row in subs_result.all()]
     if not sub_ids:
@@ -1132,12 +1248,15 @@ async def toggle_subscription(
     """直接切换订阅状态：已订阅则取消，未订阅则创建"""
     dedupe_conditions = []
     if request.douban_id:
-        dedupe_conditions.append(Subscription.douban_id == request.douban_id)
+        dedupe_conditions.append(
+            and_(Subscription.douban_id == request.douban_id, _mediasync115_clause())
+        )
     if request.tmdb_id is not None:
         dedupe_conditions.append(
             and_(
                 Subscription.tmdb_id == request.tmdb_id,
                 Subscription.media_type == request.media_type,
+                _mediasync115_clause(),
             )
         )
 

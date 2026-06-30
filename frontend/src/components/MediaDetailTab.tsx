@@ -7,19 +7,20 @@
  * 对应 Vue 旧版 MovieDetail(2031行)/TvDetail(2259行)，核心功能：
  *   1. 媒体信息头部（海报/标题/年份/评分/类型/概述/订阅/入库标记）
  *   2. 剧集：季选择器 + 分集网格 + 单集资源获取
- *   3. 多源资源浏览（115·pansou/hdhive/tg | 夸克 | 磁力）+ 筛选转存
+ *   3. 多源资源浏览（115·pansou/hdhive/tg | 夸克 | 磁力）+ 详情页转存
  *   4. 转存/解锁进度弹窗
  */
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  ArrowLeft, Star, Clock, Film, Tv, Download, Plus, Shield, ExternalLink,
+  ArrowLeft, Star, Clock, Film, Tv, Download, Shield, HardDrive, Cloud,
   CheckCircle, RefreshCw, Rss, FolderOpen, Users, Search,
 } from "lucide-react";
 import ErrorBanner from "./ui/ErrorBanner";
 import { motion } from "motion/react";
 import { searchApi } from "../api/search";
 import { pan115Api } from "../api/pan115";
+import { quarkApi } from "../api/quark";
 import { subscriptionApi } from "../api/subscription";
 import { settingsApi } from "../api/settings";
 import { moviepilotApi } from "../api/moviepilot";
@@ -129,6 +130,35 @@ const RESOURCE_SOURCES: { key: ResourceSourceKey; label: string }[] = [
   { key: "moviepilot_pt", label: "PT·MoviePilot" },
 ];
 
+const PAN115_RESOURCE_SOURCES = new Set<ResourceSourceKey>(["115_pansou", "115_hdhive", "115_tg"]);
+const QUARK_RESOURCE_SOURCES = new Set<ResourceSourceKey>(["quark_pansou", "quark_hdhive", "quark_tg"]);
+
+function looksLikePan115ShareUrl(url?: string) {
+  const value = String(url || "").toLowerCase();
+  return value.includes("115.com/") || value.includes("115cdn.com/");
+}
+
+function isPan115TransferableLink(link: MediaResourceLink, source: ResourceSourceKey) {
+  if (!link.shareUrl) return false;
+  if (PAN115_RESOURCE_SOURCES.has(source)) return true;
+  if (source !== "unified") return false;
+  const service = String(link.sourceService || "").toLowerCase();
+  return service.includes("115") || looksLikePan115ShareUrl(link.shareUrl);
+}
+
+function looksLikeQuarkShareUrl(url?: string) {
+  const value = String(url || "").toLowerCase();
+  return value.includes("pan.quark.cn/s/") || value.includes("drive.uc.cn/s/");
+}
+
+function isQuarkTransferableLink(link: MediaResourceLink, source: ResourceSourceKey) {
+  if (!link.shareUrl) return false;
+  if (QUARK_RESOURCE_SOURCES.has(source)) return true;
+  if (source !== "unified") return false;
+  const service = String(link.sourceService || "").toLowerCase();
+  return service.includes("quark") || service.includes("夸克") || looksLikeQuarkShareUrl(link.shareUrl);
+}
+
 const DETAIL_TAB_SOURCE_MAP: Record<string, ResourceSourceKey> = {
   pan115: "unified",
   pan115_pansou: "115_pansou",
@@ -224,6 +254,7 @@ export default function MediaDetailTab({
   );
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
+  const [subscriptionMenuOpen, setSubscriptionMenuOpen] = useState(false);
 
   // TV
   const [selectedSeason, setSelectedSeason] = useState(1);
@@ -275,10 +306,16 @@ export default function MediaDetailTab({
     try {
       const resp = await subscriptionApi.list({ is_active: true, media_type: mediaType });
       const rawList = resp.data as unknown;
-      const list: { tmdb_id?: number; [key: string]: unknown }[] = Array.isArray(rawList)
-        ? (rawList as { tmdb_id?: number }[])
-        : ((rawList as { items?: { tmdb_id?: number }[] })?.items || []);
-      setIsSubscribed(list.some((s) => s.tmdb_id === tmdbId));
+      const list: { tmdb_id?: number; provider?: string; external_system?: string; [key: string]: unknown }[] = Array.isArray(rawList)
+        ? (rawList as { tmdb_id?: number; provider?: string; external_system?: string }[])
+        : ((rawList as { items?: { tmdb_id?: number; provider?: string; external_system?: string }[] })?.items || []);
+      setIsSubscribed(list.some((s) => {
+        const provider = String(s.provider || "mediasync115").toLowerCase();
+        const externalSystem = String(s.external_system || "").toLowerCase();
+        return s.tmdb_id === tmdbId
+          && (!provider || provider === "mediasync115")
+          && (!externalSystem || externalSystem === "mediasync115");
+      }));
     } catch { /* ignore */ }
   }, [tmdbId, mediaType]);
 
@@ -418,20 +455,49 @@ export default function MediaDetailTab({
   // ---- Transfer ----
   const handleTransfer = async (link: MediaResourceLink, idx: number) => {
     const actionId = `transfer-${idx}`;
-    if (!link.shareUrl) {
-      setProgress({ visible: true, phase: "result", status: "warning", resourceLabel: link.name, message: "该资源无分享链接" });
+    const shareUrl = link.shareUrl;
+    if (!shareUrl || !isPan115TransferableLink(link, activeSource)) {
+      setProgress({ visible: true, phase: "result", status: "warning", resourceLabel: link.name, message: "该资源不是可转存的 115 分享链接" });
       return;
     }
     setTransferringId(actionId);
     setProgress({ visible: true, phase: "progress", status: "loading", resourceLabel: link.name, message: "正在转存至 115 网盘…" });
     try {
-      await pan115Api.saveShareToFolder(link.shareUrl, detail?.title || detail?.name || defaultTitle, "0", link.receiveCode || "", String(tmdbId));
+      await pan115Api.saveShareToFolder(shareUrl, detail?.title || detail?.name || defaultTitle, "0", link.receiveCode || "", null);
       setProgress({ visible: true, phase: "result", status: "success", resourceLabel: link.name, message: "转存成功！" });
       await addLog("SUCCESS", `已转存: ${link.name}`);
     } catch (err: unknown) {
       const detailMsg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
       setProgress({ visible: true, phase: "result", status: "failed", resourceLabel: link.name, message: `转存失败: ${detailMsg}` });
       await addLog("ERROR", `转存失败: ${detailMsg}`);
+    } finally {
+      setTransferringId(null);
+    }
+  };
+
+  const handleQuarkTransfer = async (link: MediaResourceLink, idx: number) => {
+    const actionId = `transfer-${idx}`;
+    const shareUrl = link.shareUrl;
+    if (!shareUrl || !isQuarkTransferableLink(link, activeSource)) {
+      setProgress({ visible: true, phase: "result", status: "warning", resourceLabel: link.name, message: "该资源不是可转存的夸克分享链接" });
+      return;
+    }
+    setTransferringId(actionId);
+    setProgress({ visible: true, phase: "progress", status: "loading", resourceLabel: link.name, message: "正在转存至夸克网盘…", actionType: "quark_transfer" });
+    try {
+      await quarkApi.saveShareToFolder({
+        share_url: shareUrl,
+        folder_name: detail?.title || detail?.name || defaultTitle,
+        receive_code: link.receiveCode || "",
+        tmdb_id: String(tmdbId),
+      });
+      setProgress({ visible: true, phase: "result", status: "success", resourceLabel: link.name, message: "夸克转存成功！" });
+      await addLog("SUCCESS", `已转存到夸克: ${link.name}`);
+    } catch (err: unknown) {
+      const detailMsg = (err as { response?: { data?: { detail?: string | { message?: string } } } })?.response?.data?.detail;
+      const message = typeof detailMsg === "object" ? detailMsg.message : detailMsg;
+      setProgress({ visible: true, phase: "result", status: "failed", resourceLabel: link.name, message: `夸克转存失败: ${message || String(err)}` });
+      await addLog("ERROR", `夸克转存失败: ${message || String(err)}`);
     } finally {
       setTransferringId(null);
     }
@@ -455,13 +521,35 @@ export default function MediaDetailTab({
   };
 
   // ---- Subscribe ----
-  const handleToggleSubscribe = async () => {
+  const handleSubscriptionChannel = async (channel: "pan115" | "pt" | "quark") => {
+    if (channel === "quark") {
+      await addLog("WARN", "夸克订阅后端尚未接入，请先在资源通道中使用夸克转存一次");
+      setSubscriptionMenuOpen(false);
+      return;
+    }
+
     setSubscribing(true);
     try {
       const title = detail?.title || detail?.name || defaultTitle;
-      await subscriptionApi.toggle({ tmdb_id: tmdbId, title, media_type: mediaType });
-      setIsSubscribed(!isSubscribed);
-      await addLog(isSubscribed ? "INFO" : "SUCCESS", isSubscribed ? `已取消订阅: ${title}` : `已添加订阅: ${title}`);
+      if (channel === "pan115") {
+        await subscriptionApi.toggle({ tmdb_id: tmdbId, title, media_type: mediaType });
+        setIsSubscribed(!isSubscribed);
+        await addLog(isSubscribed ? "INFO" : "SUCCESS", isSubscribed ? `已取消 115 自动搜索订阅: ${title}` : `已添加 115 自动搜索订阅: ${title}`);
+      } else {
+        const yearValue = detail?.release_date?.split("-")[0] || detail?.first_air_date?.split("-")[0] || undefined;
+        await moviepilotApi.createSubscription({
+          title,
+          media_type: mediaType,
+          tmdb_id: tmdbId,
+          poster_path: detail?.poster_path || defaultPoster,
+          overview: detail?.overview,
+          year: yearValue,
+          rating: detail?.vote_average,
+          auto_download: true,
+        });
+        await addLog("SUCCESS", `已创建 PT 下载订阅: ${title}`);
+      }
+      setSubscriptionMenuOpen(false);
     } catch (err: unknown) {
       await addLog("ERROR", `订阅操作失败: ${String(err)}`);
     } finally {
@@ -615,18 +703,53 @@ export default function MediaDetailTab({
                 )}
 
                 {/* Actions */}
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="relative flex flex-wrap gap-2 pt-1">
                   <button
-                    onClick={handleToggleSubscribe}
+                    onClick={() => setSubscriptionMenuOpen((open) => !open)}
                     disabled={subscribing}
                     className="px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
-                    style={isSubscribed
-                      ? { background: "rgba(34,197,94,0.14)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.3)" }
-                      : { background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }}
+                    style={{ background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }}
                   >
-                    {isSubscribed ? <CheckCircle className="w-3.5 h-3.5" /> : <Rss className="w-3.5 h-3.5" />}
-                    {isSubscribed ? "已订阅" : "添加订阅"}
+                    {subscribing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Rss className="w-3.5 h-3.5" />}
+                    订阅设置
                   </button>
+                  {subscriptionMenuOpen && (
+                    <div
+                      className="absolute left-0 top-12 z-30 w-[260px] rounded-2xl p-2 space-y-1"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "0 18px 40px rgba(15,23,42,.18)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSubscriptionChannel("pan115")}
+                        disabled={subscribing}
+                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-black flex items-center gap-2 transition-all glass-hover disabled:opacity-50"
+                        style={{ color: "var(--txt)" }}
+                      >
+                        {isSubscribed ? <CheckCircle className="w-4 h-4" style={{ color: "var(--accent-ok)" }} /> : <HardDrive className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />}
+                        <span>{isSubscribed ? "取消 115 自动搜索订阅" : "添加 115 自动搜索订阅"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSubscriptionChannel("quark")}
+                        disabled
+                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-black flex items-center gap-2 opacity-55 cursor-not-allowed"
+                        style={{ color: "var(--txt-muted)" }}
+                      >
+                        <Cloud className="w-4 h-4" />
+                        <span>夸克订阅（未接入）</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSubscriptionChannel("pt")}
+                        disabled={subscribing}
+                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-black flex items-center gap-2 transition-all glass-hover disabled:opacity-50"
+                        style={{ color: "var(--txt)" }}
+                      >
+                        <Download className="w-4 h-4" style={{ color: "var(--accent-info)" }} />
+                        <span>添加 PT 下载订阅</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -769,7 +892,8 @@ export default function MediaDetailTab({
                 {resources.map((link, idx) => {
                   const isTransferring = transferringId === `transfer-${idx}`;
                   const isUnlocking = unlockingSlug === `unlock-${idx}`;
-                  const disabled = !link.shareUrl;
+                  const canTransferToPan115 = isPan115TransferableLink(link, activeSource);
+                  const canTransferToQuark = isQuarkTransferableLink(link, activeSource);
 
                   return (
                     <div key={idx} className="glass rounded-xl p-3 space-y-1.5">
@@ -822,9 +946,9 @@ export default function MediaDetailTab({
                               解锁
                             </button>
                           )}
-                          {link.shareUrl && (
+                          {canTransferToPan115 && (
                             <button
-                              disabled={isTransferring || disabled}
+                              disabled={isTransferring}
                               onClick={() => handleTransfer(link, idx)}
                               className="px-2.5 py-1 rounded text-[9px] font-black tracking-wider flex items-center gap-1 disabled:opacity-50"
                               style={{ background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }}
@@ -832,10 +956,33 @@ export default function MediaDetailTab({
                               {isTransferring ? (
                                 <RefreshCw className="w-3 h-3 animate-spin" />
                               ) : (
-                                <Plus className="w-3 h-3" />
+                                <Download className="w-3 h-3" />
                               )}
-                              秒传
+                              转存到 115
                             </button>
+                          )}
+                          {canTransferToQuark && (
+                            <button
+                              disabled={isTransferring}
+                              onClick={() => handleQuarkTransfer(link, idx)}
+                              className="px-2.5 py-1 rounded text-[9px] font-black tracking-wider flex items-center gap-1 disabled:opacity-50"
+                              style={{ background: "var(--accent-info)", color: "#fff", border: "1px solid var(--accent-info)" }}
+                            >
+                              {isTransferring ? (
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Cloud className="w-3 h-3" />
+                              )}
+                              转存到夸克
+                            </button>
+                          )}
+                          {link.shareUrl && !canTransferToPan115 && !canTransferToQuark && (
+                            <span
+                              className="px-2.5 py-1 rounded text-[9px] font-black"
+                              style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)" }}
+                            >
+                              当前渠道暂不可转存
+                            </span>
                           )}
                         </div>
                       </div>
@@ -845,12 +992,12 @@ export default function MediaDetailTab({
               </div>
             )}
 
-            {/* Security badge */}
+            {/* Transfer hint */}
             <div className="rounded-2xl p-3 flex gap-2 items-center"
               style={{ background: "var(--brand-primary-bg-alpha)", border: "1px solid var(--brand-primary-border-alpha)" }}>
               <Shield className="w-4 h-4 shrink-0" style={{ color: "var(--brand-primary)" }} />
               <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--brand-primary)" }}>
-                本秒传通道完全加密！所有磁力经由您的 115 会话密钥直接发送至 115 官方云接口。
+                资源动作按渠道显示：115 链接转存到 115，夸克链接转存到夸克；PT 和磁力来源需使用对应下载能力处理。
               </p>
             </div>
           </div>

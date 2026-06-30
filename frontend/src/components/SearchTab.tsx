@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { MediaResource, MediaResourceLink, PageName, type DetailContext } from "../types";
-import { Search, Film, Tv, Play, Download, CheckCircle, Flame, Plus, Shield, ExternalLink, RefreshCw } from "lucide-react";
+import { Search, Film, Tv, Download, Flame, Shield, ExternalLink, RefreshCw } from "lucide-react";
 import ErrorBanner from "./ui/ErrorBanner";
 import { motion, AnimatePresence } from "motion/react";
 import { searchApi } from "../api/search";
-import { pan115Api } from "../api/pan115";
 import { mapSearchItemToResource, normalizeSearchPosterSrc, type SearchResourceItem } from "../utils/searchResources";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 import Pan115Progress, { type Pan115ProgressState, deriveDefaultProgressState } from "./Pan115Progress";
@@ -279,8 +278,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   const [resources, setResources] = useState<MediaResource[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<SearchCategory>("All");
   const [selectedResource, setSelectedResource] = useState<MediaResource | null>(null);
-  const [transferringLinkId, setTransferringLinkId] = useState<string | null>(null);
-  const [transferSuccessId, setTransferSuccessId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -722,7 +719,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
         phase: "result",
         status: "success",
         resourceLabel: linkName,
-        message: "HDHive 资源已解锁，现在可以一键转存到网盘。",
+        message: "HDHive 资源已解锁，请进入资源详情页选择具体链接转存。",
         actionType: "unlock",
       });
     } catch (err: any) {
@@ -738,68 +735,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
       });
     } finally {
       setUnlockingSlug(null);
-    }
-  };
-
-  // ---- Transfer handler ----
-  const handleTransfer = async (resource: MediaResource, link: MediaResourceLink, linkIndex: number) => {
-    const actionId = `${resource.id}-${linkIndex}`;
-    setTransferringLinkId(actionId);
-
-    // Guard: share URL is required for save-to-folder
-    if (!link.shareUrl) {
-      setProgress({
-        visible: true,
-        phase: "result",
-        status: "warning",
-        resourceLabel: link.name,
-        message: "该资源无分享链接，无法转存到 115 网盘。",
-      });
-      setTransferringLinkId(null);
-      return;
-    }
-
-    const folderName = resource.title || link.name || "MediaSync115";
-    const receiveCode = link.receiveCode || "";
-
-    setProgress({
-      visible: true,
-      phase: "progress",
-      status: "loading",
-      resourceLabel: link.name,
-      message: "正在转存至 115 网盘，请稍候…",
-    });
-
-    try {
-      await pan115Api.saveShareToFolder(
-        link.shareUrl,
-        folderName,
-        "0",
-        receiveCode,
-        String(resource.tmdb_id || ""),
-      );
-
-      setProgress({
-        visible: true,
-        phase: "result",
-        status: "success",
-        resourceLabel: link.name,
-        message: `已成功转存至「${folderName}」文件夹。`,
-      });
-      addLog("SUCCESS", `已提交转存: ${link.name}`);
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || err?.message || String(err);
-      console.error("Transfer error:", detail);
-      setProgress({
-        visible: true,
-        phase: "result",
-        status: "failed",
-        resourceLabel: link.name,
-        message: `转存失败: ${detail}`,
-      });
-      addLog("ERROR", `转存失败: ${detail}`);
-    } finally {
-      setTransferringLinkId(null);
     }
   };
 
@@ -880,11 +815,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
 
     return matchesSearch && matchesCategory;
   });
-
-  // ---- Determine if a link's transfer button should be disabled ----
-  const isTransferDisabled = (link: MediaResourceLink): boolean => {
-    return !link.shareUrl;
-  };
 
   return (
     <div id="search-tab-container" className="liquid-page space-y-6">
@@ -1310,10 +1240,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                   ) : (
                     <div className="space-y-2.5">
                       {selectedResource.links.map((link, idx) => {
-                        const actionId = `${selectedResource.id}-${idx}`;
-                        const isTransferring = transferringLinkId === actionId;
-                        const isSuccess = transferSuccessId === actionId;
-                        const disabled = isTransferDisabled(link);
                         const unlockAction = `unlock-${link.slug}-${idx}`;
                         const isUnlocking = unlockingSlug === unlockAction;
 
@@ -1374,41 +1300,12 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                               </div>
 
                               {link.shareUrl && (
-                              <button
-                                disabled={isTransferring || disabled}
-                                onClick={() => handleTransfer(selectedResource, link, idx)}
-                                className="px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wider transition-all flex items-center gap-1.5"
-                                style={
-                                  isSuccess
-                                    ? { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.35)" }
-                                    : disabled || isTransferring
-                                    ? { background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)", cursor: "not-allowed" }
-                                    : { background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }
-                                }
-                                title={disabled ? "该资源无分享链接，无法转存" : "一键转存到115网盘"}
-                              >
-                                {isSuccess ? (
-                                  <>
-                                    <CheckCircle className="w-3.5 h-3.5" />
-                                    <span>转存成功!</span>
-                                  </>
-                                ) : isTransferring ? (
-                                  <>
-                                    <span className="w-3 h-3 border-2 rounded-full animate-spin" style={{ borderColor: "var(--txt-muted)", borderTopColor: "transparent" }} />
-                                    <span>正在转存...</span>
-                                  </>
-                                ) : disabled ? (
-                                  <>
-                                    <ExternalLink className="w-3.5 h-3.5" />
-                                    <span>无链接</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Plus className="w-3.5 h-3.5" />
-                                    <span>115 一键秒传</span>
-                                  </>
-                                )}
-                              </button>
+                                <span
+                                  className="px-2.5 py-1 rounded-lg text-[9px] font-black"
+                                  style={{ background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)" }}
+                                >
+                                  详情页可转存
+                                </span>
                               )}
                             </div>
                           </div>
@@ -1418,11 +1315,11 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                   )}
                 </div>
 
-                {/* Cloud security badge */}
+                {/* Resource action hint */}
                 <div className="rounded-2xl p-3 flex gap-2 items-center" style={{ background: "var(--brand-primary-bg-alpha)", border: "1px solid var(--brand-primary-border-alpha)" }}>
                   <Shield className="w-4.5 h-4.5 shrink-0" style={{ color: "var(--brand-primary)" }} />
                   <p className="text-[10px] font-bold leading-tight" style={{ color: "var(--brand-primary)" }}>
-                    本秒传通道完全加密！所有磁力经由您的 115 会话密钥直接发送至 115 官方云接口，挂载不耗费您的本地网络。
+                    这里仅用于预览资源来源。需要转存、固定追更或订阅时，请进入资源详情页选择具体资源链接操作。
                   </p>
                 </div>
               </motion.div>
@@ -1431,7 +1328,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                 <Film className="w-10 h-10 mx-auto" style={{ color: "var(--txt-muted)" }} />
                 <div>
                   <p className="text-sm font-bold" style={{ color: "var(--txt-muted)" }}>请点击左侧影视资源</p>
-                  <p className="text-[11px] font-medium mt-1" style={{ color: "var(--txt-muted)" }}>即可查看影片完整详情、磁力解析度，并进行一键转存挂载</p>
+                  <p className="text-[11px] font-medium mt-1" style={{ color: "var(--txt-muted)" }}>可预览来源；转存和订阅请进入资源详情页操作</p>
                 </div>
               </div>
             )}

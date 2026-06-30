@@ -13,6 +13,9 @@ import {
   ExternalLink,
   RefreshCw,
   SlidersHorizontal,
+  HardDrive,
+  Cloud,
+  Download,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { searchApi } from "../api/search";
@@ -27,7 +30,7 @@ import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from ".
 
 interface ExploreTabProps {
   onNavigateToDetail: (ctx: DetailContext) => void;
-  onAddSubscription: (item: ExploreItem, board: ExploreBoardKey) => Promise<{ ok: boolean; message: string }>;
+  onAddSubscription: (item: ExploreItem, board: ExploreBoardKey, channel: SubscriptionChannel) => Promise<{ ok: boolean; message: string }>;
 }
 
 /*
@@ -59,6 +62,7 @@ const FALLBACK_POSTER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='176' viewBox='0 0 120 176'%3E%3Crect fill='%23e2e8f0' width='120' height='176'/%3E%3Ctext x='60' y='92' text-anchor='middle' fill='%2394a3b8' font-size='12'%3ENo Poster%3C/text%3E%3C/svg%3E";
 
 type DirectResourceSourceKey = "115_hdhive" | "115_tg" | "magnet_seedhub";
+type SubscriptionChannel = "pan115" | "quark" | "pt";
 
 const DIRECT_RESOURCE_SOURCES: { key: DirectResourceSourceKey; label: string; desc: string }[] = [
   { key: "115_hdhive", label: "115·HDHive", desc: "按关键词查询 HDHive 网盘资源" },
@@ -196,6 +200,7 @@ export default function ExploreTab({ onNavigateToDetail, onAddSubscription }: Ex
   const [sectionTitle, setSectionTitle] = useState("");
   const [actionState, setActionState] = useState<Record<string, { status: "submitting" | "success" | "error"; message: string }>>({});
   const [detailState, setDetailState] = useState<Record<string, { status: "loading" | "error"; message: string }>>({});
+  const [subscriptionMenuKey, setSubscriptionMenuKey] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ExploreItem[]>([]);
@@ -411,6 +416,27 @@ export default function ExploreTab({ onNavigateToDetail, onAddSubscription }: Ex
     }
   };
 
+  const handleBoardSubscription = async (
+    item: ExploreItem,
+    idx: number,
+    channel: SubscriptionChannel,
+  ) => {
+    const boardKey = `board:${item.id ?? idx}`;
+    setSubscriptionMenuKey(null);
+    setActionState((prev) => ({
+      ...prev,
+      [boardKey]: { status: "submitting", message: "正在创建订阅..." },
+    }));
+    const result = await onAddSubscription(item, activeBoard, channel);
+    setActionState((prev) => ({
+      ...prev,
+      [boardKey]: {
+        status: result.ok ? "success" : "error",
+        message: result.message,
+      },
+    }));
+  };
+
   const renderMediaCard = (
     item: ExploreItem,
     idx: number,
@@ -423,6 +449,7 @@ export default function ExploreTab({ onNavigateToDetail, onAddSubscription }: Ex
     const rating =
       item.rating != null ? (typeof item.rating === "number" ? item.rating.toFixed(1) : String(item.rating)) : null;
     const rankLabel = item.rank ?? idx + 1;
+    const boardActionKey = `board:${item.id ?? idx}`;
     const bKey = buildBadgeKey(item.media_type, item.tmdb_id);
     const badge = bKey ? <LibraryBadge status={options.badges[bKey]} /> : null;
     const leftPad = options.showRank ? "pl-4" : "";
@@ -430,7 +457,7 @@ export default function ExploreTab({ onNavigateToDetail, onAddSubscription }: Ex
     return (
       <div
         key={`${options.scope}-${item.id ?? idx}-${idx}`}
-        className="liquid-card glass glass-hover rounded-2xl p-4 flex gap-4 transition-all relative overflow-hidden"
+        className="liquid-card glass glass-hover rounded-2xl p-4 flex gap-4 transition-all relative overflow-visible"
       >
         {options.showRank && (
           <div
@@ -517,39 +544,61 @@ export default function ExploreTab({ onNavigateToDetail, onAddSubscription }: Ex
             </button>
 
             {options.showSubscription && (
-              <button
-                type="button"
-                onClick={async () => {
-                  const boardKey = `board:${item.id ?? idx}`;
-                  setActionState((prev) => ({
-                    ...prev,
-                    [boardKey]: { status: "submitting", message: "正在创建订阅..." },
-                  }));
-                  const result = await onAddSubscription(item, activeBoard);
-                  setActionState((prev) => ({
-                    ...prev,
-                    [boardKey]: {
-                      status: result.ok ? "success" : "error",
-                      message: result.message,
-                    },
-                  }));
-                }}
-                disabled={actionState[`board:${item.id ?? idx}`]?.status === "submitting"}
-                className="px-2.5 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white hover:bg-brand-primary-light hover:shadow-sm transition-all flex items-center gap-1 disabled:opacity-60 cursor-pointer"
-              >
-                {actionState[`board:${item.id ?? idx}`]?.status === "submitting" ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Plus className="w-3.5 h-3.5" />
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setSubscriptionMenuKey((key) => key === boardActionKey ? null : boardActionKey)}
+                  disabled={actionState[boardActionKey]?.status === "submitting"}
+                  className="px-2.5 py-1.5 rounded-lg text-[10px] font-black bg-brand-primary text-white hover:bg-brand-primary-light hover:shadow-sm transition-all flex items-center gap-1 disabled:opacity-60 cursor-pointer"
+                >
+                  {actionState[boardActionKey]?.status === "submitting" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {actionState[boardActionKey]?.status === "submitting"
+                      ? "订阅中"
+                      : actionState[boardActionKey]?.status === "success"
+                        ? "已添加"
+                        : "添加订阅"}
+                  </span>
+                </button>
+                {subscriptionMenuKey === boardActionKey && (
+                  <div
+                    className="absolute right-0 top-9 z-30 w-[230px] rounded-2xl p-2 space-y-1 text-left"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "0 18px 40px rgba(15,23,42,.18)" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleBoardSubscription(item, idx, "pan115")}
+                      className="w-full px-3 py-2 rounded-xl text-[10px] font-black flex items-center gap-2 transition-all glass-hover"
+                      style={{ color: "var(--txt)" }}
+                    >
+                      <HardDrive className="w-3.5 h-3.5" style={{ color: "var(--brand-primary)" }} />
+                      <span>115 自动搜索订阅</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled
+                      className="w-full px-3 py-2 rounded-xl text-[10px] font-black flex items-center gap-2 opacity-55 cursor-not-allowed"
+                      style={{ color: "var(--txt-muted)" }}
+                    >
+                      <Cloud className="w-3.5 h-3.5" />
+                      <span>夸克订阅（未接入）</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBoardSubscription(item, idx, "pt")}
+                      className="w-full px-3 py-2 rounded-xl text-[10px] font-black flex items-center gap-2 transition-all glass-hover"
+                      style={{ color: "var(--txt)" }}
+                    >
+                      <Download className="w-3.5 h-3.5" style={{ color: "var(--accent-info)" }} />
+                      <span>PT 下载订阅</span>
+                    </button>
+                  </div>
                 )}
-                <span>
-                  {actionState[`board:${item.id ?? idx}`]?.status === "submitting"
-                    ? "订阅中"
-                    : actionState[`board:${item.id ?? idx}`]?.status === "success"
-                      ? "已订阅"
-                      : "一键订阅"}
-                </span>
-              </button>
+              </div>
             )}
           </div>
 
@@ -558,16 +607,16 @@ export default function ExploreTab({ onNavigateToDetail, onAddSubscription }: Ex
               {detailState[stateKey]?.message}
             </p>
           )}
-          {options.showSubscription && actionState[`board:${item.id ?? idx}`] && actionState[`board:${item.id ?? idx}`]?.status !== "submitting" && (
+          {options.showSubscription && actionState[boardActionKey] && actionState[boardActionKey]?.status !== "submitting" && (
             <p
               className="text-[10px] font-bold mt-2 text-right"
               style={{
-                color: actionState[`board:${item.id ?? idx}`]?.status === "success"
+                color: actionState[boardActionKey]?.status === "success"
                   ? "var(--accent-ok)"
                   : "var(--accent-danger)",
               }}
             >
-              {actionState[`board:${item.id ?? idx}`]?.message}
+              {actionState[boardActionKey]?.message}
             </p>
           )}
         </div>

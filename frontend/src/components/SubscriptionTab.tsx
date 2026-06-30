@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import type { SubscriptionItem, SubscriptionSource, DownloadRecord, MoviePilotSubscriptionCreatePayload } from "../api/types";
 import { moviepilotApi, subscriptionApi } from "../api";
 import { getApiErrorMessage } from "../api/errors";
-import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity, Search, SlidersHorizontal } from "lucide-react";
+import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity, Search, SlidersHorizontal, HardDrive, Cloud, Download } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import EmptyState from "./ui/EmptyState";
 import type { SyncDirectory } from "../types";
@@ -16,14 +16,22 @@ interface SubscriptionTabProps {
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
 }
 
-type SubscriptionFilter = "all" | "missing" | "active" | "paused" | "moviepilot";
+type SubscriptionFilter = "all" | "missing" | "active" | "paused";
+type SubscriptionChannelTab = "overview" | "pan115" | "quark" | "pt";
+type ExecutionChannel = "pan115" | "quark" | "pt" | "anime" | "unknown";
 
 const SUBSCRIPTION_FILTERS: { key: SubscriptionFilter; label: string }[] = [
   { key: "all", label: "全部" },
   { key: "missing", label: "待处理" },
   { key: "active", label: "监听中" },
   { key: "paused", label: "已暂停" },
-  { key: "moviepilot", label: "MoviePilot" },
+];
+
+const SUBSCRIPTION_CHANNEL_TABS: { key: SubscriptionChannelTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { key: "overview", label: "总览", icon: Workflow },
+  { key: "pan115", label: "115 转存", icon: HardDrive },
+  { key: "quark", label: "夸克转存", icon: Cloud },
+  { key: "pt", label: "PT 下载", icon: Download },
 ];
 
 const MISSING_UNRESOLVED_STATUSES = new Set([
@@ -71,12 +79,77 @@ function deriveProgress(sub: SubscriptionItem): string {
   return sn ? `S${sn}` : "连载中";
 }
 
-/** Derive a human-readable source summary from the sources array. */
-function deriveRssSource(sub: SubscriptionItem): string {
+function getExecutionChannel(sub: SubscriptionItem): ExecutionChannel {
+  const provider = String(sub.provider || "").toLowerCase();
+  const externalSystem = String(sub.external_system || "").toLowerCase();
+  const sourceTypes = (sub.sources || []).map((source) => String(source.source_type || "").toLowerCase());
+  if (provider === "anirss" || externalSystem === "anirss") return "anime";
+  if (provider === "moviepilot" || externalSystem === "moviepilot") return "pt";
+  if (provider === "quark" || externalSystem === "quark" || sourceTypes.some((item) => item.includes("quark"))) return "quark";
+  if (!provider || provider === "mediasync115" || sourceTypes.some((item) => item.includes("pan115"))) return "pan115";
+  return "unknown";
+}
+
+function getExecutionLabel(sub: SubscriptionItem): string {
+  switch (getExecutionChannel(sub)) {
+    case "pan115": return "115 转存";
+    case "quark": return "夸克转存";
+    case "pt": return "PT 下载";
+    case "anime": return "动漫追番";
+    default: return "未知渠道";
+  }
+}
+
+function getSourceModeLabel(sub: SubscriptionItem): string {
+  const channel = getExecutionChannel(sub);
+  if (channel === "pt") return "MoviePilot";
+  if (channel === "anime") return "ANI-RSS";
+  const sourceTypes = (sub.sources || []).map((source) => String(source.source_type || "").toLowerCase());
+  if (channel === "pan115") {
+    return sourceTypes.some((item) => item.includes("manual_pan115_share"))
+      ? "固定 115 来源"
+      : "自动搜索";
+  }
+  if (channel === "quark") {
+    return sourceTypes.some((item) => item.includes("manual_quark_share"))
+      ? "固定夸克来源"
+      : "夸克资源";
+  }
+  return "未分类";
+}
+
+function matchesChannelTab(sub: SubscriptionItem, tab: SubscriptionChannelTab): boolean {
+  if (tab === "overview") return getExecutionChannel(sub) !== "anime";
+  if (tab === "pan115") return getExecutionChannel(sub) === "pan115";
+  if (tab === "quark") return getExecutionChannel(sub) === "quark";
+  return getExecutionChannel(sub) === "pt";
+}
+
+function supportsPan115Missing(sub: SubscriptionItem): boolean {
+  return getExecutionChannel(sub) === "pan115";
+}
+
+function formatDownloadResourceType(value?: string): string {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized === "pan115" || normalized === "115") return "115";
+  if (normalized === "moviepilot" || normalized === "pt") return "PT";
+  if (normalized === "quark") return "夸克";
+  if (normalized === "magnet") return "磁力";
+  if (normalized === "ed2k") return "ED2K";
+  return value || "记录";
+}
+
+/** Derive a human-readable fixed-source summary from the sources array. */
+function deriveSourceSummary(sub: SubscriptionItem): string {
   const srcs = sub.sources;
-  if (!srcs || srcs.length === 0) return "无来源";
+  const channel = getExecutionChannel(sub);
+  if (channel === "pt") return "MoviePilot 外部订阅";
+  if (channel === "anime") return "ANI-RSS 追番";
+  if (!srcs || srcs.length === 0) {
+    return channel === "pan115" ? "115 自动搜索" : "无固定来源";
+  }
   const first = srcs[0];
-  return first.display_name || first.source_type || "订阅来源";
+  return first.display_name || first.source_type || "固定来源";
 }
 
 /** Derive a display status string from is_active. */
@@ -98,6 +171,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const [showAddForm, setShowAddForm] = useState(false);
   const [showOperations, setShowOperations] = useState(false);
   const [subscriptionFilter, setSubscriptionFilter] = useState<SubscriptionFilter>("all");
+  const [activeChannelTab, setActiveChannelTab] = useState<SubscriptionChannelTab>("overview");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -207,14 +281,16 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
     setDetailDownloads([]);
     try {
       const tasks: Promise<unknown>[] = [];
-      if (sub.media_type === "tv") {
+      if (sub.media_type === "tv" && supportsPan115Missing(sub)) {
         tasks.push(
           subscriptionApi.getSubscriptionTvMissingStatus(sub.id).then((r) => setDetailMissing((r as { data?: Record<string, unknown> }).data ?? null)).catch(() => setDetailMissing(null)),
         );
       }
-      tasks.push(
-        subscriptionApi.listSources(sub.id).then((r) => setDetailSources((r as { data?: SubscriptionSource[] }).data ?? [])).catch(() => setDetailSources([])),
-      );
+      if (getExecutionChannel(sub) === "pan115") {
+        tasks.push(
+          subscriptionApi.listSources(sub.id).then((r) => setDetailSources((r as { data?: SubscriptionSource[] }).data ?? [])).catch(() => setDetailSources([])),
+        );
+      }
       tasks.push(
         subscriptionApi.getDownloads(sub.id).then((r) => setDetailDownloads((r as { data?: DownloadRecord[] }).data ?? [])).catch(() => setDetailDownloads([])),
       );
@@ -265,6 +341,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const focusSubscriptionFromMissing = (subscriptionId: number) => {
     const sub = subscriptions.find((item) => Number(item.id) === Number(subscriptionId));
     if (!sub) return;
+    setActiveChannelTab("pan115");
     setSubscriptionFilter("missing");
     expandSubscription(sub);
     window.setTimeout(() => {
@@ -304,7 +381,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
       setNewSourceUrl("");
       setNewSourceCode("");
       await loadDetail(sub);
-      await addLog("SUCCESS", `订阅 [${sub.title}] 新增来源`);
+      await addLog("SUCCESS", `订阅 [${sub.title}] 新增固定 115 来源`);
     } catch (err) {
       console.error("add source failed", err);
       setErrorMessage("新增来源失败");
@@ -335,7 +412,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const handleScanSource = async (sub: SubscriptionItem, src: SubscriptionSource) => {
     try {
       await subscriptionApi.scanSource(sub.id, String(src.id));
-      await addLog("INFO", `已触发来源 [${src.display_name || src.source_type}] 扫描`);
+      await addLog("INFO", `已触发固定 115 来源 [${src.display_name || src.source_type}] 扫描`);
       await loadDetail(sub);
     } catch (err) {
       console.error("scan source failed", err);
@@ -415,7 +492,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
         await addLog("SUCCESS", `成功创建 MoviePilot PT 订阅 [${title.trim()}]`);
       } else {
         await subscriptionApi.create(payload);
-        await addLog("SUCCESS", `成功创建订阅 [${title.trim()}]`);
+        await addLog("SUCCESS", `成功创建 115 转存订阅 [${title.trim()}]`);
       }
       // Reset form
       setTitle("");
@@ -511,56 +588,71 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const missingById = new Map(
     (missingOverview || []).map((item) => [Number(item.subscription_id), item]),
   );
-  const activeCount = subscriptions.filter((sub) => sub.is_active).length;
-  const pausedCount = subscriptions.length - activeCount;
-  const moviepilotCount = subscriptions.filter((sub) => sub.external_system === "moviepilot" || sub.provider === "moviepilot").length;
+  const mediaSubscriptions = subscriptions.filter((sub) => getExecutionChannel(sub) !== "anime");
+  const channelScopedSubscriptions = mediaSubscriptions.filter((sub) => matchesChannelTab(sub, activeChannelTab));
+  const activeCount = mediaSubscriptions.filter((sub) => sub.is_active).length;
+  const pausedCount = mediaSubscriptions.length - activeCount;
+  const pan115Count = mediaSubscriptions.filter((sub) => getExecutionChannel(sub) === "pan115").length;
+  const quarkCount = mediaSubscriptions.filter((sub) => getExecutionChannel(sub) === "quark").length;
+  const ptCount = mediaSubscriptions.filter((sub) => getExecutionChannel(sub) === "pt").length;
   const missingCount = missingOverview?.filter((item) => Number(item.missing_count || 0) > 0).length ?? 0;
   const unresolvedMissingCount = missingOverview?.filter((item) => MISSING_UNRESOLVED_STATUSES.has(String(item.status || ""))).length ?? 0;
-  const missingAttentionRows = (missingOverview || []).filter((item) =>
-    Number(item.missing_count || 0) > 0 || MISSING_UNRESOLVED_STATUSES.has(String(item.status || "")),
-  );
-  const lastUpdatedAt = subscriptions
+  const missingAttentionRows = (missingOverview || []).filter((item) => {
+    const sub = mediaSubscriptions.find((row) => Number(row.id) === Number(item.subscription_id));
+    if (!sub || !supportsPan115Missing(sub)) return false;
+    if (activeChannelTab !== "overview" && activeChannelTab !== "pan115") return false;
+    return Number(item.missing_count || 0) > 0 || MISSING_UNRESOLVED_STATUSES.has(String(item.status || ""));
+  });
+  const channelCounts = {
+    overview: mediaSubscriptions.length,
+    pan115: pan115Count,
+    quark: quarkCount,
+    pt: ptCount,
+  };
+  const channelLabel = SUBSCRIPTION_CHANNEL_TABS.find((item) => item.key === activeChannelTab)?.label || "总览";
+  const currentTabSupportsMissing = activeChannelTab === "overview" || activeChannelTab === "pan115";
+  const lastUpdatedAt = mediaSubscriptions
     .map((sub) => String(sub.updated_at || sub.created_at || ""))
     .filter(Boolean)
     .sort()
     .at(-1);
   const lastUpdatedLabel = lastUpdatedAt ? lastUpdatedAt.replace("T", " ").substring(0, 16) : "暂无";
-  const filteredSubscriptions = subscriptions.filter((sub) => {
+  const filteredSubscriptions = channelScopedSubscriptions.filter((sub) => {
     if (subscriptionFilter === "missing") {
+      if (!supportsPan115Missing(sub)) return false;
       const missingInfo = missingById.get(Number(sub.id));
       return Number(missingInfo?.missing_count || 0) > 0 || MISSING_UNRESOLVED_STATUSES.has(String(missingInfo?.status || ""));
     }
     if (subscriptionFilter === "active") return sub.is_active;
     if (subscriptionFilter === "paused") return !sub.is_active;
-    if (subscriptionFilter === "moviepilot") return sub.external_system === "moviepilot" || sub.provider === "moviepilot";
     return true;
   });
   const summaryCards = [
     {
       label: "活跃订阅",
       value: activeCount,
-      sub: `总计 ${subscriptions.length} 项`,
+      sub: `影视订阅 ${mediaSubscriptions.length} 项`,
       icon: <Rss className="w-4.5 h-4.5" />,
       color: "var(--brand-primary)",
     },
     {
-      label: "缺集待补",
+      label: "115 缺集",
       value: missingOverviewLoading ? "..." : missingCount,
       sub: unresolvedMissingCount > 0 ? `无法判断 ${unresolvedMissingCount} 项` : "联动 TMDB + Emby",
       icon: <AlertCircle className="w-4.5 h-4.5" />,
       color: "var(--accent-warn)",
     },
     {
-      label: "暂停订阅",
-      value: pausedCount,
-      sub: pausedCount > 0 ? "需要时可恢复" : "全部在监听",
-      icon: <Pause className="w-4.5 h-4.5" />,
-      color: pausedCount > 0 ? "var(--accent-warn)" : "var(--accent-ok)",
+      label: "渠道分布",
+      value: `${pan115Count}/${quarkCount}/${ptCount}`,
+      sub: "115 / 夸克 / PT",
+      icon: <HardDrive className="w-4.5 h-4.5" />,
+      color: "var(--accent-info)",
     },
     {
       label: "最近更新",
       value: lastUpdatedLabel,
-      sub: moviepilotCount > 0 ? `MoviePilot ${moviepilotCount} 项` : "MediaSync115",
+      sub: pausedCount > 0 ? `暂停 ${pausedCount} 项` : "全部在监听",
       icon: <Activity className="w-4.5 h-4.5" />,
       color: "var(--accent-info)",
     },
@@ -597,7 +689,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
             <span>订阅中心</span>
           </h2>
           <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
-            管理从影视发现、资源详情和 MoviePilot 接入的追更任务；缺集状态由 TMDB 播出数据与 Emby 媒体库索引共同计算。
+            管理普通影视追更任务；115 转存、夸克转存和 PT 下载在订阅中心内分渠道处理，动漫追番继续由 Bangumi + ANI-RSS 独立负责。
           </p>
         </div>
 
@@ -637,6 +729,33 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
         ))}
       </div>
 
+      <div className="liquid-segmented grid grid-cols-2 lg:grid-cols-4 gap-2 rounded-3xl p-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
+        {SUBSCRIPTION_CHANNEL_TABS.map((item) => {
+          const Icon = item.icon;
+          const active = activeChannelTab === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => {
+                setActiveChannelTab(item.key);
+                if (item.key === "pt" || item.key === "quark") {
+                  setSubscriptionFilter("all");
+                }
+              }}
+              className="px-3 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer"
+              style={active
+                ? { background: "var(--brand-primary)", color: "#fff" } as React.CSSProperties
+                : { background: "var(--surface)", color: "var(--txt-secondary)", border: "1px solid var(--border)" } as React.CSSProperties}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{item.label}</span>
+              <span className="text-[10px] font-black opacity-80">{channelCounts[item.key]}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <AnimatePresence>
         {showOperations && (
           <motion.div
@@ -652,7 +771,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                   <span>手动运行 / 诊断</span>
                 </h3>
                 <p className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-                  这些操作用于补救、诊断或强制扫描；日常追更仍由后台定时任务负责。
+                  HDHive / Pansou / TG 是 115 自动搜索来源；PT 状态由 MoviePilot 同步。
                 </p>
               </div>
 
@@ -665,10 +784,10 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                     disabled={runningChannel !== null}
                     className="px-3 py-2 rounded-xl text-[10px] font-black glass-hover transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                     style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-                    title={`后台运行 ${ch} 频道扫描`}
+                    title={`后台运行 115 ${ch} 来源扫描`}
                   >
                     {runningChannel === ch ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                    <span>{ch === "hdhive" ? "扫描 HDHive" : ch === "pansou" ? "扫描 Pansou" : "扫描 TG"}</span>
+                    <span>{ch === "hdhive" ? "115·HDHive" : ch === "pansou" ? "115·Pansou" : "115·TG"}</span>
                   </button>
                 ))}
                 <button
@@ -677,10 +796,10 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                   disabled={runningChannel !== null}
                   className="px-3 py-2 rounded-xl text-[10px] font-black text-white disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                   style={{ background: "var(--brand-primary)" }}
-                  title="后台运行全部频道扫描"
+                  title="后台运行全部 115 来源扫描"
                 >
                   {runningChannel === "all" ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                  <span>扫描全部频道</span>
+                  <span>扫描全部 115 来源</span>
                 </button>
                 <button
                   type="button"
@@ -700,18 +819,19 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
       </AnimatePresence>
 
       {/* 缺集总览：GET /api/subscriptions/missing-status/tv */}
+      {currentTabSupportsMissing && (
       <div className="liquid-panel glass rounded-3xl p-5">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
           <div>
             <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
               <AlertCircle className="w-4 h-4 text-amber-500" />
-              <span>TV 缺集总览</span>
+              <span>115 TV 缺集总览</span>
               <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
                 {missingOverviewLoading ? "加载中..." : `待处理 ${missingAttentionRows.length} 项`}
               </span>
             </h3>
             <p className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-              缺集判断依赖 TMDB 已播剧集与 Emby 媒体库索引；点击条目可展开对应订阅。
+              缺集判断依赖 TMDB 已播剧集与 Emby 媒体库索引，仅用于 115 自动搜索与固定 115 来源补全。
             </p>
           </div>
           <button
@@ -764,6 +884,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
           </div>
         )}
       </div>
+      )}
 
       {/* Add Subscription Form Drawer */}
       <AnimatePresence>
@@ -784,8 +905,8 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
               </p>
 
               <div className="space-y-2">
-                <label className="text-xs font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>订阅后端</label>
-                <div className="grid grid-cols-2 gap-2 rounded-2xl p-1" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                <label className="text-xs font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>执行渠道</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-2xl p-1" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
                   <button
                     type="button"
                     onClick={() => setSubscriptionProvider("mediasync115")}
@@ -794,7 +915,16 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                       ? { background: "var(--brand-primary)", color: "#fff" } as React.CSSProperties
                       : { color: "var(--txt-secondary)" } as React.CSSProperties}
                   >
-                    MediaSync115
+                    115 转存
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="px-3 py-2 rounded-xl text-xs font-black transition-all opacity-50 cursor-not-allowed"
+                    style={{ color: "var(--txt-muted)" } as React.CSSProperties}
+                    title="夸克持续订阅后端尚未接入"
+                  >
+                    夸克转存
                   </button>
                   <button
                     type="button"
@@ -804,7 +934,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                       ? { background: "var(--brand-primary)", color: "#fff" } as React.CSSProperties
                       : { color: "var(--txt-secondary)" } as React.CSSProperties}
                   >
-                    MoviePilot PT
+                    PT 下载
                   </button>
                 </div>
               </div>
@@ -1006,8 +1136,8 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                 />
                 <label htmlFor="autoDownload" className="text-xs font-bold select-none cursor-pointer" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
                   {subscriptionProvider === "moviepilot"
-                    ? "启用自动下载：由 MoviePilot 匹配 PT 资源后提交下载。"
-                    : "启用自动下载：发现新资源后自动转存至 115 网盘。（推荐开启）"}
+                    ? "启用 PT 下载：由 MoviePilot 匹配资源后提交下载。"
+                    : "启用 115 自动转存：发现新资源后自动转存至 115 网盘。（推荐开启）"}
                 </label>
               </div>
 
@@ -1042,9 +1172,9 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
             <Workflow className="w-4 h-4" style={{ color: "var(--brand-primary)" } as React.CSSProperties} />
-            <span>订阅任务</span>
+            <span>{channelLabel}</span>
             <span className="text-xs font-semibold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-              ({filteredSubscriptions.length}/{subscriptions.length} 项)
+              ({filteredSubscriptions.length}/{mediaSubscriptions.length} 项)
             </span>
           </h3>
           <div className="liquid-segmented flex flex-wrap gap-1">
@@ -1069,12 +1199,12 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
             <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-xs font-bold mt-3" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>正在加载订阅列表...</p>
           </div>
-        ) : subscriptions.length === 0 ? (
+        ) : mediaSubscriptions.length === 0 ? (
           <div className="glass rounded-3xl p-12 text-center">
             <EmptyState
               icon={<Rss className="w-10 h-10" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />}
               text="暂无订阅项目"
-              subtext="创建第一个订阅，自动追更并转存入盘。"
+              subtext="创建第一个普通影视订阅；动漫追番请到 Bangumi + ANI-RSS 页面管理。"
               cta={
                 <button
                   onClick={() => setShowAddForm(true)}
@@ -1100,12 +1230,15 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
               const status = deriveStatus(sub);
               const categoryLabel = deriveCategoryLabel(sub.media_type);
               const progress = deriveProgress(sub);
-              const rssSource = deriveRssSource(sub);
+              const sourceSummary = deriveSourceSummary(sub);
+              const executionLabel = getExecutionLabel(sub);
+              const sourceModeLabel = getSourceModeLabel(sub);
+              const showMissingLabel = supportsPan115Missing(sub);
               const lastUpdated = (sub.updated_at || sub.created_at || "").toString().replace("T", " ").substring(0, 19);
               const isExpanded = expandedId === sub.id;
               const missingInfo = missingById.get(Number(sub.id));
               const missingUnresolved = MISSING_UNRESOLVED_STATUSES.has(String(missingInfo?.status || ""));
-              const missingLabel = sub.media_type === "tv"
+              const missingLabel = sub.media_type === "tv" && showMissingLabel
                 ? missingOverviewLoading
                   ? "缺集计算中"
                   : !sub.tmdb_id
@@ -1183,34 +1316,28 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                         )}
                       </div>
 
-                      {/* Source summary */}
-                      <div className="flex items-center gap-1.5 text-[9px] font-semibold mt-2.5 truncate" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-                        <Rss className="w-3.5 h-3.5" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />
-                        <span className="truncate">{rssSource}</span>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded"
+                          style={{ background: "rgba(59,130,246,0.12)", color: "#3b82f6", border: "1px solid rgba(59,130,246,0.25)" } as React.CSSProperties}>
+                          {executionLabel}
+                        </span>
+                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded"
+                          style={{ background: "rgba(34,197,94,0.12)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.25)" } as React.CSSProperties}>
+                          {sourceModeLabel}
+                        </span>
+                        {sub.external_subscription_id && (
+                          <span className="text-[8px] font-black px-1.5 py-0.5 rounded"
+                            style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                            #{sub.external_subscription_id}
+                          </span>
+                        )}
                       </div>
-                      {(sub.provider || sub.external_system || sub.external_subscription_id) && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {sub.provider && sub.provider !== "mediasync115" && (
-                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase"
-                              style={{ background: "rgba(59,130,246,0.12)", color: "#3b82f6", border: "1px solid rgba(59,130,246,0.25)" } as React.CSSProperties}>
-                              {sub.provider}
-                            </span>
-                          )}
-                          {sub.external_system && (
-                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase"
-                              style={{ background: "rgba(34,197,94,0.12)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.25)" } as React.CSSProperties}>
-                              {sub.external_system}
-                            </span>
-                          )}
-                          {sub.external_subscription_id && (
-                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded"
-                              style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)" } as React.CSSProperties}>
-                              #{sub.external_subscription_id}
-                            </span>
-                          )}
+
+                      <div className="flex items-center gap-1.5 text-[9px] font-semibold mt-2 truncate" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+                        <Link2 className="w-3.5 h-3.5" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />
+                        <span className="truncate">{sourceSummary}</span>
+                      </div>
                         </div>
-                      )}
-                    </div>
 
                     {/* Action buttons footer */}
                     <div className="flex items-center justify-between pt-2.5 mt-2" style={{ borderTop: "1px solid var(--border)" } as React.CSSProperties}>
@@ -1329,14 +1456,15 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                           </div>
                         )}
 
-                        {/* 来源管理 */}
+                        {/* 固定 115 来源管理 */}
+                        {getExecutionChannel(sub) === "pan115" ? (
                         <div>
                           <div className="flex items-center gap-1.5 text-[10px] font-black mb-1.5" style={{ color: "var(--txt)" } as React.CSSProperties}>
                             <Link2 className="w-3.5 h-3.5 text-brand-primary" />
-                            <span>订阅来源 ({detailSources.length})</span>
+                            <span>固定 115 来源 ({detailSources.length})</span>
                           </div>
                           {detailSources.length === 0 ? (
-                            <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>暂无来源（仅靠系统自动扫描）</p>
+                            <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>暂无固定 115 来源，当前仅靠 HDHive / Pansou / TG 自动搜索。</p>
                           ) : (
                             <div className="space-y-1.5">
                               {detailSources.map(src => (
@@ -1388,7 +1516,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                           <div className="flex gap-1.5 mt-2">
                             <input
                               type="text"
-                              placeholder="分享链接 url"
+                              placeholder="115 分享链接 URL"
                               value={newSourceUrl}
                               onChange={(e) => setNewSourceUrl(e.target.value)}
                               className="flex-1 min-w-0 text-[10px] rounded-lg px-2 py-1.5 focus:outline-none focus:border-brand-primary"
@@ -1412,12 +1540,26 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                             </button>
                           </div>
                         </div>
+                        ) : (
+                          <div className="rounded-xl px-3 py-2"
+                            style={{ background: "var(--surface)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                            <div className="flex items-center gap-1.5 text-[10px] font-black" style={{ color: "var(--txt)" } as React.CSSProperties}>
+                              <Link2 className="w-3.5 h-3.5 text-brand-primary" />
+                              <span>{getExecutionChannel(sub) === "pt" ? "PT 来源" : "网盘来源"}</span>
+                            </div>
+                            <p className="text-[10px] font-semibold mt-1" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+                              {getExecutionChannel(sub) === "pt"
+                                ? "该订阅由 MoviePilot 管理，不使用 115 固定分享链接。"
+                                : "夸克固定来源尚未接入，不能复用 115 固定来源逻辑。"}
+                            </p>
+                          </div>
+                        )}
 
                         {/* 下载记录 */}
                         <div>
                           <div className="flex items-center gap-1.5 text-[10px] font-black mb-1.5" style={{ color: "var(--txt)" } as React.CSSProperties}>
                             <Database className="w-3.5 h-3.5" style={{ color: "var(--txt-secondary)" } as React.CSSProperties} />
-                            <span>下载记录 ({detailDownloads.length})</span>
+                            <span>{getExecutionChannel(sub) === "pt" ? "PT 下载记录" : "转存 / 下载记录"} ({detailDownloads.length})</span>
                           </div>
                           {detailDownloads.length === 0 ? (
                             <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>暂无下载记录</p>
@@ -1446,6 +1588,10 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded"
+                                      style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                                      {formatDownloadResourceType(dl.resource_type)}
+                                    </span>
                                     <span className="text-[9px] font-bold uppercase" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>{dl.status}</span>
                                     <button
                                       onClick={() => handleDeleteDownload(sub, dl)}

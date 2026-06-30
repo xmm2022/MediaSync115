@@ -21,8 +21,8 @@ export interface Pan115ProgressState {
   status: ProgressStatus;
   resourceLabel: string;
   message: string;
-  /** 'unlock' | 'transfer' — 用于自定义标题文本 */
-  actionType?: "unlock" | "transfer";
+  /** 用于按资源渠道自定义标题文本 */
+  actionType?: "unlock" | "transfer" | "quark_transfer";
 }
 
 interface Pan115ProgressProps {
@@ -45,7 +45,9 @@ export default function Pan115Progress({ state, onClose }: Pan115ProgressProps) 
 
   const title = (() => {
     if (state.phase === "progress") {
-      return state.actionType === "unlock" ? "HDHive 解锁中" : "115 转存中";
+      if (state.actionType === "unlock") return "HDHive 解锁中";
+      if (state.actionType === "quark_transfer") return "夸克转存中";
+      return "115 转存中";
     }
     if (state.status === "success") return "转存成功";
     if (state.status === "warning") return "转存提示";

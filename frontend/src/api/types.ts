@@ -97,6 +97,10 @@ export interface SubscriptionItem {
   external_subscription_id?: string;
   external_status?: string;
   sources?: SubscriptionSource[];
+  source_summary?: {
+    total: number;
+    enabled: number;
+  };
 }
 
 export interface SubscriptionSource {

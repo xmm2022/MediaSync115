@@ -3,13 +3,15 @@
 提供：
 - Cookie 配置（更新 / 状态查询 / 连通性检查）
 - 默认转存目录选择（目录浏览 / 持久化）
-- 分享转存（一键转存到指定目录）
+- 分享转存（夸克分享转存到指定目录）
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel
@@ -61,6 +63,34 @@ def _shorten_share_url(share_url: str) -> str:
     if "/s/" in raw:
         return raw[: raw.find("/s/") + 16] + "..."
     return raw[:60]
+
+
+def _is_quark_share_identifier(value: str) -> bool:
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    if re.match(r"^(?:www\.)?(?:pan\.quark\.cn|drive\.uc\.cn)/", raw, re.I):
+        raw = f"https://{raw}"
+    if not re.match(r"^https?://", raw, re.I):
+        return False
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or ""
+    return host in {"pan.quark.cn", "drive.uc.cn"} and bool(
+        re.match(r"^/s/[A-Za-z0-9_-]+", path)
+    )
+
+
+def _normalize_quark_share_or_400(value: str) -> str:
+    raw = str(value or "").strip()
+    if not _is_quark_share_identifier(raw):
+        raise HTTPException(
+            status_code=400,
+            detail="仅支持夸克/UC 分享链接；115、PT、磁力等资源请使用对应渠道处理",
+        )
+    if re.match(r"^(?:www\.)?(?:pan\.quark\.cn|drive\.uc\.cn)/", raw, re.I):
+        return f"https://{raw}"
+    return raw
 
 
 # ───── Cookie & 连通性 ─────
@@ -202,12 +232,13 @@ async def update_default_folder(payload: QuarkDefaultFolderRequest) -> dict[str,
 
 @router.post("/share/save-to-folder")
 async def save_share_to_folder(payload: QuarkSaveShareRequest) -> dict[str, Any]:
-    """一键转存夸克分享到默认目录或指定目录"""
+    """转存夸克分享到默认目录或指定目录"""
     if not quark_service.is_configured():
         raise HTTPException(
             status_code=412,
             detail={"code": "quark_cookie_missing", "message": "请先在设置页配置夸克 Cookie"},
         )
+    share_url = _normalize_quark_share_or_400(payload.share_url)
 
     target_fid = (payload.target_folder_id or "").strip()
     if not target_fid:
@@ -225,7 +256,7 @@ async def save_share_to_folder(payload: QuarkSaveShareRequest) -> dict[str, Any]
 
     try:
         result = await quark_service.save_share_to_folder(
-            share_url=payload.share_url,
+            share_url=share_url,
             target_folder_fid=target_fid,
             folder_name=payload.folder_name,
             passcode=payload.receive_code or "",
@@ -244,7 +275,7 @@ async def save_share_to_folder(payload: QuarkSaveShareRequest) -> dict[str, Any]
                 module="quark",
                 action="quark_error",
                 status="failed",
-                message=f"转存失败：Cookie 无效 | {_shorten_share_url(payload.share_url)}",
+                message=f"转存失败：Cookie 无效 | {_shorten_share_url(share_url)}",
             )
             raise HTTPException(
                 status_code=401,
@@ -263,7 +294,7 @@ async def save_share_to_folder(payload: QuarkSaveShareRequest) -> dict[str, Any]
             module="quark",
             action="quark_error",
             status="failed",
-            message=f"转存失败：{str(exc)[:120]} | {_shorten_share_url(payload.share_url)}",
+            message=f"转存失败：{str(exc)[:120]} | {_shorten_share_url(share_url)}",
         )
         raise HTTPException(status_code=502, detail=f"夸克转存失败: {str(exc)[:120]}")
 
@@ -278,7 +309,7 @@ async def save_share_to_folder(payload: QuarkSaveShareRequest) -> dict[str, Any]
                 f"{(payload.folder_name or '默认目录')}"
             ),
             extra={
-                "share_url": _shorten_share_url(payload.share_url),
+                "share_url": _shorten_share_url(share_url),
                 "target_folder_id": target_fid,
                 "folder_name": payload.folder_name,
                 "item_count": result.get("item_count"),
