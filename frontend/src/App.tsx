@@ -6,12 +6,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { toast, Toaster } from "sonner";
 import { PageName, SyncDirectory, SyncLog, type DetailContext } from "./types";
-import { logsApi, archiveApi, workflowApi, authApi, subscriptionApi, moviepilotApi } from "./api";
+import { logsApi, archiveApi, workflowApi, authApi } from "./api";
 import type { WorkflowItem } from "./api/types";
 import { AUTH_REQUIRED_EVENT, getApiErrorMessage } from "./api/errors";
 import { waitForBackendReady } from "./utils/health";
 import { ACTIVE_ARCHIVE_TASK_STATUS } from "./utils/runtimeDefaults";
-import { buildExploreSubscriptionPayload } from "./utils/exploreSubscription";
 import DashboardTab from "./components/DashboardTab";
 import SearchTab from "./components/SearchTab";
 import ExploreTab from "./components/ExploreTab";
@@ -595,44 +594,6 @@ export default function App() {
               >
                 <ExploreTab
                   onNavigateToDetail={handleNavigateToDetail}
-                  onAddSubscription={async (item, board, channel) => {
-                    if (channel === "quark") {
-                      return { ok: false, message: "夸克订阅后端尚未接入" };
-                    }
-
-                    const built = buildExploreSubscriptionPayload(item, board);
-                    if (built.ok === false) {
-                      await addLog("WARN", `榜单订阅失败：${built.message}`);
-                      return { ok: false, message: built.message };
-                    }
-
-                    try {
-                      if (channel === "pt") {
-                        await moviepilotApi.createSubscription({
-                          ...built.payload,
-                          poster_path: item.poster_url,
-                          overview: item.intro,
-                        });
-                        await addLog("SUCCESS", `已创建 PT 下载订阅 [${built.payload.title}]，可在订阅中心查看。`);
-                      } else {
-                        await subscriptionApi.create(built.payload);
-                        await addLog("SUCCESS", `已创建 115 自动搜索订阅 [${built.payload.title}]，可在订阅中心查看。`);
-                      }
-                      setActivePage(PageName.SUBSCRIPTION);
-                      return { ok: true, message: channel === "pt" ? "已添加 PT 下载订阅" : "已添加 115 自动搜索订阅" };
-                    } catch (err) {
-                      const message = getApiErrorMessage(err, "创建订阅失败");
-                      if (message.includes("already exists") || message.includes("已存在")) {
-                        await addLog("WARN", `[${built.payload.title}] 已在订阅中心内。`);
-                        setActivePage(PageName.SUBSCRIPTION);
-                        return { ok: true, message: "已在订阅中心内" };
-                      }
-
-                      console.error("Failed to quick subscribe:", err);
-                      await addLog("ERROR", `榜单订阅 [${built.payload.title}] 失败：${message}`);
-                      return { ok: false, message };
-                    }
-                  }}
                 />
               </motion.div>
             )}
