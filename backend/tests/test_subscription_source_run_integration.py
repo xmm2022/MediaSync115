@@ -1,41 +1,85 @@
 import pytest
+from sqlalchemy import delete
 
 
 @pytest.mark.asyncio
-async def test_run_scans_manual_sources_only_when_auto_download_enabled(monkeypatch):
-    from app.models.models import MediaType
-    from app.services.subscription_service import (
-        SubscriptionService,
-        SubscriptionSnapshot,
+async def test_subscription_check_does_not_scan_manual_missing_sources(monkeypatch):
+    """115 分享补缺源不参与订阅追新检查，只能由补缺入口手动扫描。"""
+    from app.core.database import async_session_maker, ensure_tables_exist
+    from app.models.models import MediaType, Subscription, SubscriptionSource
+    from app.services.subscription_service import SubscriptionService
+    from app.services.subscription_source_service import subscription_source_service
+
+    await ensure_tables_exist(
+        "subscriptions",
+        "subscription_sources",
+        "download_records",
+        "subscription_step_logs",
+        "subscription_execution_logs",
+        "operation_logs",
     )
+
+    tmdb_id = 900991
+    async with async_session_maker() as db:
+        await db.execute(
+            delete(SubscriptionSource).where(
+                SubscriptionSource.share_url.like("%autoscan-guard%")
+            )
+        )
+        await db.execute(delete(Subscription).where(Subscription.tmdb_id == tmdb_id))
+        sub = Subscription(
+            title="Auto Source Guard",
+            media_type=MediaType.TV,
+            tmdb_id=tmdb_id,
+            is_active=True,
+            auto_download=True,
+            tv_follow_mode="new",
+            provider="mediasync115",
+            external_system="mediasync115",
+        )
+        db.add(sub)
+        await db.flush()
+        db.add(
+            SubscriptionSource(
+                subscription_id=sub.id,
+                source_type="manual_pan115_share",
+                display_name="autoscan-guard",
+                share_url="https://115.com/s/autoscan-guard",
+                enabled=True,
+            )
+        )
+        await db.commit()
 
     service = SubscriptionService()
-    sub = SubscriptionSnapshot(
-        id=1,
-        tmdb_id=100,
-        douban_id=None,
-        title="Show",
-        media_type=MediaType.TV,
-        year="2026",
-        auto_download=False,
-        tv_scope="all",
-        tv_season_number=None,
-        tv_episode_start=None,
-        tv_episode_end=None,
-        tv_follow_mode="new",
-        tv_include_specials=False,
-        has_successful_transfer=False,
+
+    async def fake_cleanup(*_args, **_kwargs):
+        return {}
+
+    async def fake_fetch_resources(*_args, **_kwargs):
+        return [], [], {"summary": "no resources", "source_order": [], "attempts": []}
+
+    async def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("manual missing source scan must not run during subscription check")
+
+    monkeypatch.setattr(service, "_evaluate_pre_scan_cleanup", fake_cleanup)
+    monkeypatch.setattr(service, "_fetch_resources", fake_fetch_resources)
+    monkeypatch.setattr(
+        subscription_source_service,
+        "scan_manual_pan115_source",
+        fail_if_called,
     )
 
-    called = False
+    async with async_session_maker() as db:
+        result = await service.run_channel_check(db, "all", force_auto_download=True)
 
-    async def fake_scan(*args, **kwargs):
-        nonlocal called
-        called = True
-        return {"saved": 1, "failed": 0}
+    assert result["checked_count"] >= 1
+    assert result["failed_count"] == 0
 
-    monkeypatch.setattr(service, "_scan_fixed_sources_for_subscription", fake_scan)
-
-    assert service._should_scan_fixed_sources(sub, force_auto_download=False) is False
-    assert service._should_scan_fixed_sources(sub, force_auto_download=True) is True
-    assert called is False
+    async with async_session_maker() as db:
+        await db.execute(
+            delete(SubscriptionSource).where(
+                SubscriptionSource.share_url.like("%autoscan-guard%")
+            )
+        )
+        await db.execute(delete(Subscription).where(Subscription.tmdb_id == tmdb_id))
+        await db.commit()
