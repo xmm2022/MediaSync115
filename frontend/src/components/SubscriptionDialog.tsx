@@ -137,6 +137,19 @@ interface SharePreviewState {
   videoCount: number;
 }
 
+interface TvMissingPreviewState {
+  loading: boolean;
+  loaded: boolean;
+  status: string;
+  message: string;
+  missingEpisodeKeys: Set<string>;
+  counts: {
+    aired?: number;
+    existing?: number;
+    missing?: number;
+  };
+}
+
 interface MoviePilotTorrent {
   key: string;
   title: string;
@@ -171,6 +184,15 @@ const emptySharePreviewState = (): SharePreviewState => ({
   files: [],
   totalCount: 0,
   videoCount: 0,
+});
+
+const emptyTvMissingPreviewState = (): TvMissingPreviewState => ({
+  loading: false,
+  loaded: false,
+  status: "",
+  message: "",
+  missingEpisodeKeys: new Set<string>(),
+  counts: {},
 });
 
 const VIDEO_FILE_PATTERN = /\.(?:mkv|mp4|m4v|avi|mov|wmv|flv|webm|rmvb|ts|m2ts|iso)$/i;
@@ -283,6 +305,10 @@ function previewFileKey(file: SharePreviewFile, index: number): string {
   return firstText(file.id, file.file_id, file.fid, file.cid, file.path, file.name, String(index));
 }
 
+function previewFileId(file: SharePreviewFile): string {
+  return firstText(file.fid, file.file_id, file.id);
+}
+
 function previewFileSizeText(file: SharePreviewFile): string {
   const explicit = firstText(file.size_text, file.sizeText);
   if (explicit) return explicit;
@@ -303,6 +329,47 @@ function previewFileSizeBytes(file: SharePreviewFile): number {
   if (unit === "mb" || unit === "m") return value * 1024 ** 2;
   if (unit === "kb" || unit === "k") return value * 1024;
   return value;
+}
+
+function episodeKey(season: number, episode: number): string {
+  return `${season}:${episode}`;
+}
+
+function formatEpisodeLabel(season: number, episode: number): string {
+  return `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
+}
+
+function parsePreviewEpisode(fileName: string): { season: number; episode: number } | null {
+  const cleanName = String(fileName || "")
+    .replace(/\[.*?\]/g, "")
+    .replace(/\{.*?\}/g, "")
+    .replace(/\(.*?\)/g, "");
+  let match = cleanName.match(/S(\d+)\s*E(\d+)/i);
+  if (match) return { season: Number(match[1]), episode: Number(match[2]) };
+  match = cleanName.match(/第(\d+)季.*?第(\d+)集/);
+  if (match) return { season: Number(match[1]), episode: Number(match[2]) };
+  match = cleanName.match(/第(\d+)集/);
+  if (match) return { season: 1, episode: Number(match[1]) };
+  match = cleanName.match(/EP?(\d+)/i);
+  if (match) return { season: 1, episode: Number(match[1]) };
+  match = cleanName.match(/(?:[-_ ]|^\s*)(\d{1,4})\s*(?:\.mp4|\.mkv|\.avi|\.ts|\.rmvb|\.flv|\.m4v|\.webm)/i);
+  if (match) return { season: 1, episode: Number(match[1]) };
+  return null;
+}
+
+function extractMissingEpisodeKeys(rawData: unknown): Set<string> {
+  const payload = asRecord(rawData);
+  const keys = new Set<string>();
+  const pairs = Array.isArray(payload.missing_episodes) ? payload.missing_episodes : [];
+  pairs.forEach((pair) => {
+    if (!Array.isArray(pair) || pair.length !== 2) return;
+    const season = Number(pair[0]);
+    const episode = Number(pair[1]);
+    if (Number.isFinite(season) && Number.isFinite(episode)) {
+      keys.add(episodeKey(season, episode));
+    }
+  });
+  return keys;
 }
 
 function isPreviewDirectory(file: SharePreviewFile): boolean {
@@ -335,7 +402,21 @@ function scorePreviewVideoFile(file: SharePreviewFile): number {
   return score;
 }
 
-function SharePreviewPanel({ preview }: { preview?: SharePreviewState }) {
+function SharePreviewPanel({
+  preview,
+  missingEpisodeKeys,
+  missingStatusAvailable = false,
+  selectedFileIds,
+  onToggleSelected,
+  onSelectFileIds,
+}: {
+  preview?: SharePreviewState;
+  missingEpisodeKeys?: Set<string>;
+  missingStatusAvailable?: boolean;
+  selectedFileIds?: Set<string>;
+  onToggleSelected?: (fileId: string) => void;
+  onSelectFileIds?: (fileIds: string[]) => void;
+}) {
   if (!preview) return null;
   if (preview.loading) {
     return (
@@ -356,22 +437,48 @@ function SharePreviewPanel({ preview }: { preview?: SharePreviewState }) {
   if (!preview.loaded) return null;
 
   const videoFiles = preview.files.filter(isPreviewVideoFile);
-  const bestVideo = videoFiles.length > 0
-    ? [...videoFiles].sort((a, b) => scorePreviewVideoFile(b) - scorePreviewVideoFile(a))[0]
+  const missingVideoFiles = videoFiles.filter((file) => {
+    const parsed = parsePreviewEpisode(previewFileName(file));
+    return parsed && missingEpisodeKeys?.has(episodeKey(parsed.season, parsed.episode));
+  });
+  const missingVideoIds = missingVideoFiles.map(previewFileId).filter(Boolean);
+  const bestCandidates = missingVideoFiles.length > 0 ? missingVideoFiles : videoFiles;
+  const bestVideo = bestCandidates.length > 0
+    ? [...bestCandidates].sort((a, b) => scorePreviewVideoFile(b) - scorePreviewVideoFile(a))[0]
     : null;
   const visibleFiles = preview.files.slice(0, 6);
+  const matchedMissingCount = missingVideoFiles.length;
 
   return (
     <div className="rounded-lg p-2.5 space-y-2" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-      <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-black" style={{ color: "var(--txt-secondary)" }}>
-        <FileVideo className="h-3.5 w-3.5" style={{ color: "var(--brand-primary)" }} />
-        <span>{preview.totalCount} 个文件</span>
-        <span style={{ color: "var(--txt-muted)" }}>·</span>
-        <span>{preview.videoCount} 个视频</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-black" style={{ color: "var(--txt-secondary)" }}>
+          <FileVideo className="h-3.5 w-3.5" style={{ color: "var(--brand-primary)" }} />
+          <span>{preview.totalCount} 个文件</span>
+          <span style={{ color: "var(--txt-muted)" }}>·</span>
+          <span>{preview.videoCount} 个视频</span>
+          {missingStatusAvailable && (
+            <>
+              <span style={{ color: "var(--txt-muted)" }}>·</span>
+              <span style={{ color: matchedMissingCount > 0 ? "var(--accent-ok)" : "var(--txt-muted)" }}>命中缺集 {matchedMissingCount}</span>
+            </>
+          )}
+          {selectedFileIds && selectedFileIds.size > 0 && (
+            <>
+              <span style={{ color: "var(--txt-muted)" }}>·</span>
+              <span style={{ color: "var(--brand-primary)" }}>已选 {selectedFileIds.size}</span>
+            </>
+          )}
+        </div>
+        {missingVideoIds.length > 0 && onSelectFileIds && (
+          <button type="button" onClick={() => onSelectFileIds(missingVideoIds)} className="rounded-md px-2 py-1 text-[9px] font-black glass-hover" style={{ color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.28)" }}>
+            选中命中缺集
+          </button>
+        )}
       </div>
       {bestVideo && (
         <div className="min-w-0 rounded-md px-2 py-1.5 text-[10px] font-bold" style={{ background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)" }}>
-          <span className="block truncate">优先视频：{previewFileName(bestVideo)}</span>
+          <span className="block truncate">{missingVideoFiles.length > 0 ? "优先缺集视频" : "优先视频"}：{previewFileName(bestVideo)}</span>
           <span className="mt-0.5 block text-[9px]" style={{ color: "var(--txt-muted)" }}>{previewFileSizeText(bestVideo)}</span>
         </div>
       )}
@@ -382,11 +489,36 @@ function SharePreviewPanel({ preview }: { preview?: SharePreviewState }) {
           {visibleFiles.map((file, index) => {
             const isDir = isPreviewDirectory(file);
             const isVideo = isPreviewVideoFile(file);
+            const fileId = previewFileId(file);
+            const selectable = Boolean(fileId && isVideo && onToggleSelected);
+            const checked = Boolean(fileId && selectedFileIds?.has(fileId));
+            const parsedEpisode = isVideo ? parsePreviewEpisode(previewFileName(file)) : null;
+            const parsedKey = parsedEpisode ? episodeKey(parsedEpisode.season, parsedEpisode.episode) : "";
+            const hitMissing = Boolean(parsedKey && missingEpisodeKeys?.has(parsedKey));
             const Icon = isDir ? FolderOpen : isVideo ? FileVideo : File;
             return (
               <div key={previewFileKey(file, index)} className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5" style={{ background: "var(--surface-subtle)" }}>
+                {selectable && (
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => onToggleSelected?.(fileId)}
+                    className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-[var(--brand-primary)]"
+                    aria-label={`选择 ${previewFileName(file)}`}
+                  />
+                )}
                 <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: isVideo ? "var(--brand-primary)" : "var(--txt-muted)" }} />
                 <span className="min-w-0 flex-1 truncate text-[10px] font-semibold" style={{ color: "var(--txt)" }}>{previewFileName(file)}</span>
+                {parsedEpisode && (
+                  <span className="shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black" style={hitMissing ? { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" } : { background: "var(--surface)", color: "var(--txt-muted)" }}>
+                    {formatEpisodeLabel(parsedEpisode.season, parsedEpisode.episode)}{missingStatusAvailable ? (hitMissing ? " 缺" : " 非缺") : ""}
+                  </span>
+                )}
+                {isVideo && !parsedEpisode && missingStatusAvailable && (
+                  <span className="shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black" style={{ background: "rgba(245,158,11,0.14)", color: "var(--accent-warn)" }}>
+                    未识别
+                  </span>
+                )}
                 {!isDir && <span className="shrink-0 text-[9px] font-bold" style={{ color: "var(--txt-muted)" }}>{previewFileSizeText(file)}</span>}
               </div>
             );
@@ -470,6 +602,8 @@ export default function SubscriptionDialog({
   const [ptError, setPtError] = useState("");
   const [selectedPtKey, setSelectedPtKey] = useState("");
   const [previewByKey, setPreviewByKey] = useState<Record<string, SharePreviewState>>({});
+  const [selectedPreviewFileIds, setSelectedPreviewFileIds] = useState<Record<string, Set<string>>>({});
+  const [tvMissingPreview, setTvMissingPreview] = useState<TvMissingPreviewState>(emptyTvMissingPreviewState());
   const [submitting, setSubmitting] = useState(false);
   const [transferringKey, setTransferringKey] = useState("");
   const [unlockingSlug, setUnlockingSlug] = useState("");
@@ -502,6 +636,7 @@ export default function SubscriptionDialog({
     () => `manual:${manualShareUrl.trim()}:${manualReceiveCode.trim()}`,
     [manualReceiveCode, manualShareUrl],
   );
+  const tvMissingStatusAvailable = mediaType === "tv" && tvMissingPreview.loaded && tvMissingPreview.status === "ok";
 
   const buildTvParams = () => {
     if (mediaType !== "tv" || tvScope === "all") return {};
@@ -524,6 +659,7 @@ export default function SubscriptionDialog({
       tg: emptySourceState(),
     }));
     setPreviewByKey({});
+    setSelectedPreviewFileIds({});
     setSelectedPan115Key((current) => (current === "manual" ? current : ""));
   };
 
@@ -546,6 +682,8 @@ export default function SubscriptionDialog({
     setPtError("");
     setSelectedPtKey("");
     setPreviewByKey({});
+    setSelectedPreviewFileIds({});
+    setTvMissingPreview(emptyTvMissingPreviewState());
     setSubmitting(false);
     setTransferringKey("");
     setUnlockingSlug("");
@@ -635,6 +773,61 @@ export default function SubscriptionDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, channel]);
 
+  const fetchTvMissingPreview = async (force = false) => {
+    if (mediaType !== "tv" || !tmdbId) return;
+    if (tvMissingPreview.loading && !force) return;
+    const scope = tvScope === "episode" ? "episode_range" : tvScope;
+    const params: Record<string, unknown> = {
+      tv_scope: scope,
+      tv_follow_mode: "missing",
+      tv_include_specials: false,
+      refresh: force,
+    };
+    if (scope !== "all") {
+      params.tv_season_number = tvSeasonNumber;
+    }
+    if (scope === "episode_range") {
+      if (tvEpisodeStart !== "") params.tv_episode_start = Number(tvEpisodeStart);
+      if (tvEpisodeEnd !== "") params.tv_episode_end = Number(tvEpisodeEnd);
+    }
+
+    setTvMissingPreview((prev) => ({ ...prev, loading: true }));
+    try {
+      const response = await subscriptionApi.getTvMissingPreview(tmdbId, params);
+      const payload = asRecord(response.data);
+      const counts = asRecord(payload.counts);
+      setTvMissingPreview({
+        loading: false,
+        loaded: true,
+        status: firstText(payload.status),
+        message: firstText(payload.message),
+        missingEpisodeKeys: extractMissingEpisodeKeys(payload),
+        counts: {
+          aired: firstNumber(counts.aired),
+          existing: firstNumber(counts.existing),
+          missing: firstNumber(counts.missing),
+        },
+      });
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+      setTvMissingPreview({
+        ...emptyTvMissingPreviewState(),
+        loaded: true,
+        status: "error",
+        message: msg,
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!open || channel !== "pan115" || mediaType !== "tv") {
+      setTvMissingPreview(emptyTvMissingPreviewState());
+      return;
+    }
+    void fetchTvMissingPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, channel, mediaType, tmdbId, tvScope, tvSeasonNumber, tvEpisodeStart, tvEpisodeEnd]);
+
   const toggleSource = (source: Pan115SourceKey) => {
     setSelectedSources((prev) => {
       const exists = prev.includes(source);
@@ -668,6 +861,44 @@ export default function SubscriptionDialog({
     } finally {
       setUnlockingSlug("");
     }
+  };
+
+  const selectPreviewFileIds = (previewKey: string, fileIds: string[]) => {
+    const normalizedIds = Array.from(new Set(fileIds.map((item) => String(item || "").trim()).filter(Boolean)));
+    setSelectedPreviewFileIds((prev) => ({
+      ...prev,
+      [previewKey]: new Set(normalizedIds),
+    }));
+  };
+
+  const togglePreviewFileId = (previewKey: string, fileId: string) => {
+    const normalizedId = String(fileId || "").trim();
+    if (!normalizedId) return;
+    setSelectedPreviewFileIds((prev) => {
+      const nextSet = new Set(prev[previewKey] || []);
+      if (nextSet.has(normalizedId)) {
+        nextSet.delete(normalizedId);
+      } else {
+        nextSet.add(normalizedId);
+      }
+      return { ...prev, [previewKey]: nextSet };
+    });
+  };
+
+  const getSelectedPreviewFileIds = (previewKey: string): string[] => (
+    Array.from(selectedPreviewFileIds[previewKey] || [])
+  );
+
+  const suggestedMissingPreviewFileIds = (files: SharePreviewFile[]): string[] => {
+    if (!tvMissingStatusAvailable) return [];
+    return files
+      .filter((file) => {
+        if (!isPreviewVideoFile(file)) return false;
+        const parsed = parsePreviewEpisode(previewFileName(file));
+        return parsed && tvMissingPreview.missingEpisodeKeys.has(episodeKey(parsed.season, parsed.episode));
+      })
+      .map(previewFileId)
+      .filter(Boolean);
   };
 
   const handleTransfer = async (resource: Pan115Resource) => {
@@ -710,6 +941,10 @@ export default function SubscriptionDialog({
           ...preview,
         },
       }));
+      const suggestedIds = suggestedMissingPreviewFileIds(preview.files);
+      if (suggestedIds.length > 0 && !selectedPreviewFileIds[previewKey]?.size) {
+        selectPreviewFileIds(previewKey, suggestedIds);
+      }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
       setPreviewByKey((prev) => ({
@@ -740,6 +975,21 @@ export default function SubscriptionDialog({
     }
   };
 
+  const scanFixedSourceAfterCreate = async (subId: string, sourceId: string, sourceName: string) => {
+    if (mediaType !== "tv" || !subId || !sourceId) return;
+    try {
+      const response = await subscriptionApi.scanSource(subId, sourceId);
+      const stats = asRecord(asRecord(response.data).stats);
+      const transferredCount = firstNumber(stats.transferred_count, stats.transferredCount, 0) ?? 0;
+      const selectedCount = firstNumber(stats.selected_count, stats.selectedCount, transferredCount) ?? transferredCount;
+      const level = transferredCount > 0 ? "SUCCESS" : "INFO";
+      await addLog(level, `固定 115 来源缺集扫描完成: ${sourceName}，匹配 ${selectedCount} 个，转存 ${transferredCount} 个`);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+      await addLog("WARN", `固定 115 来源已绑定，但立即缺集扫描失败: ${msg}`);
+    }
+  };
+
   const createPan115Subscription = async () => {
     const posterPath = detail?.poster_path || defaultPoster;
     const createResp = await subscriptionApi.create({
@@ -758,22 +1008,28 @@ export default function SubscriptionDialog({
     const manualSelected = selectedSources.includes("manual") && selectedPan115Key === "manual";
     if (manualSelected) {
       if (!manualShareUrl.trim()) throw new Error("请填写固定 115 分享链接");
-      await subscriptionApi.createSource(subId, {
+      const sourceResp = await subscriptionApi.createSource(subId, {
         share_url: manualShareUrl.trim(),
         receive_code: manualReceiveCode.trim(),
         display_name: manualDisplayName.trim() || title,
+        selected_file_ids: getSelectedPreviewFileIds(manualPreviewKey),
       });
       await addLog("SUCCESS", `已添加 115 订阅并绑定固定链接: ${title}`);
+      const sourceId = String((sourceResp.data as { id?: string | number })?.id || "");
+      await scanFixedSourceAfterCreate(subId, sourceId, manualDisplayName.trim() || title);
       return;
     }
 
     if (selectedResource?.shareUrl) {
-      await subscriptionApi.createSource(subId, {
+      const sourceResp = await subscriptionApi.createSource(subId, {
         share_url: selectedResource.shareUrl,
         receive_code: selectedResource.receiveCode || "",
         display_name: selectedResource.name || title,
+        selected_file_ids: getSelectedPreviewFileIds(selectedPan115Key),
       });
       await addLog("SUCCESS", `已添加 115 订阅并绑定固定来源: ${title}`);
+      const sourceId = String((sourceResp.data as { id?: string | number })?.id || "");
+      await scanFixedSourceAfterCreate(subId, sourceId, selectedResource.name || title);
       return;
     }
 
@@ -1007,6 +1263,22 @@ export default function SubscriptionDialog({
                   ))}
                 </div>
 
+                {mediaType === "tv" && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2" style={tvMissingStatusAvailable ? { background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.24)" } : { background: "var(--surface)", border: "1px solid var(--border)" }}>
+                    <div className="min-w-0 text-[10px] font-bold" style={{ color: tvMissingStatusAvailable ? "var(--accent-ok)" : "var(--txt-muted)" }}>
+                      {tvMissingPreview.loading
+                        ? "正在计算当前 TV 范围缺集..."
+                        : tvMissingStatusAvailable
+                          ? `当前范围缺 ${tvMissingPreview.counts.missing ?? tvMissingPreview.missingEpisodeKeys.size} 集；文件预览会标出命中项`
+                          : `缺集状态不可用${tvMissingPreview.message ? `：${tvMissingPreview.message}` : ""}`}
+                    </div>
+                    <button type="button" onClick={() => void fetchTvMissingPreview(true)} disabled={tvMissingPreview.loading} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black glass-hover disabled:opacity-50" style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+                      <RefreshCw className={`h-3 w-3 ${tvMissingPreview.loading ? "animate-spin" : ""}`} />
+                      刷新缺集
+                    </button>
+                  </div>
+                )}
+
                 {selectedSources.includes("manual") && (
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px]">
                     <label className="space-y-1">
@@ -1052,7 +1324,14 @@ export default function SubscriptionDialog({
                       </button>
                     </div>
                     <div className="sm:col-span-2">
-                      <SharePreviewPanel preview={previewByKey[manualPreviewKey]} />
+                      <SharePreviewPanel
+                        preview={previewByKey[manualPreviewKey]}
+                        missingEpisodeKeys={tvMissingPreview.missingEpisodeKeys}
+                        missingStatusAvailable={tvMissingStatusAvailable}
+                        selectedFileIds={selectedPreviewFileIds[manualPreviewKey]}
+                        onToggleSelected={(fileId) => togglePreviewFileId(manualPreviewKey, fileId)}
+                        onSelectFileIds={(fileIds) => selectPreviewFileIds(manualPreviewKey, fileIds)}
+                      />
                     </div>
                   </div>
                 )}
@@ -1113,7 +1392,14 @@ export default function SubscriptionDialog({
                                 转存到 115
                               </button>
                             </div>
-                            <SharePreviewPanel preview={preview} />
+                            <SharePreviewPanel
+                              preview={preview}
+                              missingEpisodeKeys={tvMissingPreview.missingEpisodeKeys}
+                              missingStatusAvailable={tvMissingStatusAvailable}
+                              selectedFileIds={selectedPreviewFileIds[key]}
+                              onToggleSelected={(fileId) => togglePreviewFileId(key, fileId)}
+                              onSelectFileIds={(fileIds) => selectPreviewFileIds(key, fileIds)}
+                            />
                           </div>
                         );
                       })}

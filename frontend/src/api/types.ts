@@ -110,6 +110,7 @@ export interface SubscriptionSource {
   display_name?: string;
   share_url?: string;
   receive_code?: string;
+  selected_file_ids?: string[];
   enabled: boolean;
   last_scanned_at?: string;
   last_scan_status?: string;

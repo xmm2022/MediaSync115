@@ -18,6 +18,13 @@ async def test_subscription_source_tables_are_registered():
         tables = await conn.run_sync(
             lambda sync_conn: set(inspect(sync_conn).get_table_names())
         )
+        source_columns = await conn.run_sync(
+            lambda sync_conn: {
+                column["name"]
+                for column in inspect(sync_conn).get_columns("subscription_sources")
+            }
+        )
 
     assert "subscription_sources" in tables
     assert "subscription_source_files" in tables
+    assert "selected_file_ids" in source_columns

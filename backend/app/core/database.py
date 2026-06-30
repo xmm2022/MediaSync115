@@ -68,6 +68,10 @@ SUBSCRIPTION_COLUMN_SQL = {
     "external_status": "ALTER TABLE subscriptions ADD COLUMN external_status VARCHAR(50)",
 }
 
+SUBSCRIPTION_SOURCE_COLUMN_SQL = {
+    "selected_file_ids": "ALTER TABLE subscription_sources ADD COLUMN selected_file_ids TEXT",
+}
+
 
 def load_model_metadata() -> None:
     for module_name in MODEL_MODULES:
@@ -81,11 +85,18 @@ async def ensure_tables_exist(*table_names: str) -> bool:
         existing_tables = await conn.run_sync(
             lambda sync_conn: set(inspect(sync_conn).get_table_names())
         )
+        if "subscription_sources" in existing_tables:
+            await _ensure_subscription_source_columns_on_conn(conn)
         if table_names and all(
             table_name in existing_tables for table_name in table_names
         ):
             return False
         await conn.run_sync(Base.metadata.create_all)
+        existing_tables = await conn.run_sync(
+            lambda sync_conn: set(inspect(sync_conn).get_table_names())
+        )
+        if "subscription_sources" in existing_tables:
+            await _ensure_subscription_source_columns_on_conn(conn)
         return True
 
 
@@ -150,6 +161,7 @@ async def init_db():
     await ensure_tables_exist()
     await ensure_subscription_columns()
     await ensure_download_record_columns()
+    await ensure_subscription_source_columns()
     await ensure_performance_indexes()
 
 
@@ -198,6 +210,28 @@ async def ensure_download_record_columns() -> None:
                 "ON download_records (offline_info_hash)"
             )
         )
+
+
+async def _ensure_subscription_source_columns_on_conn(conn) -> None:
+    existing_columns = await conn.run_sync(
+        lambda sync_conn: {
+            column["name"]
+            for column in inspect(sync_conn).get_columns("subscription_sources")
+        }
+    )
+    for column_name, ddl in SUBSCRIPTION_SOURCE_COLUMN_SQL.items():
+        if column_name not in existing_columns:
+            await conn.execute(text(ddl))
+
+
+async def ensure_subscription_source_columns() -> None:
+    async with engine.begin() as conn:
+        existing_tables = await conn.run_sync(
+            lambda sync_conn: set(inspect(sync_conn).get_table_names())
+        )
+        if "subscription_sources" not in existing_tables:
+            return
+        await _ensure_subscription_source_columns_on_conn(conn)
 
 
 async def get_db():

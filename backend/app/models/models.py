@@ -145,6 +145,7 @@ class SubscriptionSource(Base):
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     share_url: Mapped[str] = mapped_column(Text, nullable=False)
     receive_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    selected_file_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_scan_status: Mapped[str] = mapped_column(

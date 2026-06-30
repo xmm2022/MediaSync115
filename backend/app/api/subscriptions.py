@@ -19,7 +19,11 @@ from app.models.models import (
 )
 from app.services.operation_log_service import operation_log_service
 from app.services.subscription_service import subscription_service
-from app.services.subscription_source_service import subscription_source_service
+from app.services.subscription_source_service import (
+    decode_selected_file_ids,
+    encode_selected_file_ids,
+    subscription_source_service,
+)
 from app.services.subscription_run_task_service import subscription_run_task_service
 from app.services.tmdb_service import tmdb_service
 from app.services.tv_missing_service import tv_missing_service
@@ -315,11 +319,13 @@ class SubscriptionSourceCreate(BaseModel):
     share_url: str
     receive_code: Optional[str] = None
     display_name: Optional[str] = None
+    selected_file_ids: Optional[List[str]] = None
 
 
 class SubscriptionSourceUpdate(BaseModel):
     enabled: Optional[bool] = None
     display_name: Optional[str] = None
+    selected_file_ids: Optional[List[str]] = None
 
 
 class DownloadRecordCreate(BaseModel):
@@ -350,6 +356,9 @@ def serialize_subscription_source(source) -> dict[str, Any]:
         "display_name": source.display_name,
         "share_url": source.share_url,
         "receive_code": source.receive_code,
+        "selected_file_ids": decode_selected_file_ids(
+            getattr(source, "selected_file_ids", None)
+        ),
         "enabled": bool(source.enabled),
         "last_scanned_at": source.last_scanned_at.isoformat()
         if source.last_scanned_at
@@ -798,6 +807,7 @@ async def create_subscription_source(
             share_url=payload.share_url,
             receive_code=payload.receive_code or "",
             display_name=payload.display_name or "",
+            selected_file_ids=payload.selected_file_ids or [],
         )
         await db.commit()
         await db.refresh(source)
@@ -829,6 +839,8 @@ async def update_subscription_source(
             next_name = str(payload.display_name or "").strip()
             if next_name:
                 source.display_name = next_name
+        if payload.selected_file_ids is not None:
+            source.selected_file_ids = encode_selected_file_ids(payload.selected_file_ids)
         source.updated_at = beijing_now()
         await db.commit()
         await db.refresh(source)
@@ -1071,6 +1083,60 @@ async def list_tv_missing_status(
             status_code=503,
             detail="数据库繁忙，请稍后重试（后台任务正在写入，访问量较大时建议调整订阅间隔）",
         )
+
+
+@router.get("/missing-status/tv/preview/{tmdb_id}")
+async def preview_tv_missing_status(
+    tmdb_id: int,
+    tv_scope: str = Query("all", pattern="^(all|season|episode_range)$"),
+    tv_season_number: Optional[int] = Query(None, ge=0),
+    tv_episode_start: Optional[int] = Query(None, ge=1),
+    tv_episode_end: Optional[int] = Query(None, ge=1),
+    tv_follow_mode: str = Query("missing", pattern="^(missing|new)$"),
+    tv_include_specials: bool = Query(False),
+    refresh: bool = Query(False, description="是否忽略缓存强制刷新"),
+):
+    """按未保存订阅的 TV 范围预览缺集状态，供固定来源文件预览标注命中集数。"""
+
+    if int(tmdb_id or 0) <= 0:
+        raise HTTPException(status_code=400, detail="无效的 TMDB ID")
+    season_number = tv_season_number if tv_scope in {"season", "episode_range"} else None
+    episode_start = tv_episode_start if tv_scope == "episode_range" else None
+    episode_end = tv_episode_end if tv_scope == "episode_range" else None
+    if episode_start is not None and episode_end is not None and episode_start > episode_end:
+        raise HTTPException(status_code=400, detail="起始集不能大于结束集")
+
+    try:
+        status = await tv_missing_service.get_tv_missing_status(
+            int(tmdb_id),
+            include_specials=bool(tv_include_specials),
+            refresh=bool(refresh),
+            season_number=season_number,
+            episode_start=episode_start,
+            episode_end=episode_end,
+            aired_only=tv_follow_mode == "new",
+        )
+    except Exception as exc:
+        status = {
+            "status": "error",
+            "message": f"获取缺集状态失败: {exc}",
+            "aired_episodes": [],
+            "existing_episodes": [],
+            "missing_episodes": [],
+            "missing_by_season": {},
+            "counts": {"aired": 0, "existing": 0, "missing": 0},
+        }
+
+    return {
+        "tmdb_id": int(tmdb_id),
+        "tv_scope": tv_scope,
+        "tv_season_number": season_number,
+        "tv_episode_start": episode_start,
+        "tv_episode_end": episode_end,
+        "tv_follow_mode": tv_follow_mode,
+        "tv_include_specials": bool(tv_include_specials),
+        **status,
+    }
 
 
 @router.get("/{subscription_id}/tv/missing-status")

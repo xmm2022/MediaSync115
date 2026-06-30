@@ -60,6 +60,9 @@ export const subscriptionApi = {
   getSubscriptionTvMissingStatus: (id: string, params?: Record<string, unknown>) =>
     api.get(`/subscriptions/${id}/tv/missing-status`, { params }),
 
+  getTvMissingPreview: (tmdbId: number, params?: Record<string, unknown>) =>
+    api.get(`/subscriptions/missing-status/tv/preview/${tmdbId}`, { params }),
+
   // ---- 来源管理 ----
   listSources: async (id: string) => {
     const response = await api.get(`/subscriptions/${id}/sources`);
@@ -70,11 +73,13 @@ export const subscriptionApi = {
     share_url: string;
     receive_code?: string;
     display_name?: string;
+    selected_file_ids?: string[];
   }) => api.post(`/subscriptions/${id}/sources`, data),
 
   updateSource: (id: string, sourceId: string, data: {
     enabled?: boolean;
     display_name?: string;
+    selected_file_ids?: string[];
   }) => api.patch(`/subscriptions/${id}/sources/${sourceId}`, data),
 
   deleteSource: (id: string, sourceId: string) =>

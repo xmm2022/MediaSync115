@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -79,21 +80,59 @@ def build_source_file_fingerprint(item: dict[str, Any]) -> str:
     return f"name:{name}|size:{_item_size(item)}"
 
 
+def _item_file_id(item: dict[str, Any]) -> str:
+    return str(item.get("fid") or item.get("file_id") or "").strip()
+
+
+def normalize_selected_file_ids(value: Any) -> list[str]:
+    if value is None:
+        return []
+    raw_items: list[Any]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            raw_items = parsed if isinstance(parsed, list) else [text]
+        except Exception:
+            raw_items = re.split(r"[,，\s]+", text)
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raw_items = [value]
+    selected = [str(item or "").strip() for item in raw_items]
+    return list(dict.fromkeys(item for item in selected if item))
+
+
+def encode_selected_file_ids(value: Any) -> str | None:
+    selected = normalize_selected_file_ids(value)
+    return json.dumps(selected, ensure_ascii=False) if selected else None
+
+
+def decode_selected_file_ids(value: Any) -> list[str]:
+    return normalize_selected_file_ids(value)
+
+
 def select_missing_episode_files(
     files: list[dict[str, Any]],
     *,
     missing_episodes: set[tuple[int, int]],
     quality_filter: dict[str, Any] | None = None,
+    selected_file_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     matched_candidates: dict[tuple[int, int], list[dict[str, Any]]] = {}
     parsed_count = 0
     unparsed_video_count = 0
+    allowed_ids = {str(item).strip() for item in selected_file_ids or set() if str(item).strip()}
     for item in files:
         if not isinstance(item, dict):
             continue
         filename = str(item.get("name") or "").strip()
-        fid = str(item.get("fid") or item.get("file_id") or "").strip()
+        fid = _item_file_id(item)
         if not filename or not fid:
+            continue
+        if allowed_ids and fid not in allowed_ids:
             continue
         if not is_video_filename(filename):
             continue
@@ -127,6 +166,7 @@ class SubscriptionSourceService:
         share_url: str,
         receive_code: str = "",
         display_name: str = "",
+        selected_file_ids: list[str] | None = None,
     ) -> SubscriptionSource:
         normalized_url = str(share_url or "").strip()
         if not normalized_url:
@@ -160,6 +200,7 @@ class SubscriptionSourceService:
             display_name=str(display_name or "").strip() or subscription.title,
             share_url=normalized_url,
             receive_code=final_receive_code or None,
+            selected_file_ids=encode_selected_file_ids(selected_file_ids),
             enabled=True,
             last_scan_status="never",
             last_transferred_count=0,
@@ -239,6 +280,7 @@ class SubscriptionSourceService:
                 share_code,
                 source.receive_code or "",
             )
+            configured_file_ids = set(decode_selected_file_ids(source.selected_file_ids))
             for item in all_files:
                 await self._upsert_source_file_state(
                     db,
@@ -262,15 +304,24 @@ class SubscriptionSourceService:
                         "skipped_reason": "already_transferred",
                     }
 
-                selected_items = pan_service._select_files_for_best_quality_transfer(
-                    all_files,
-                    quality_filter or {},
-                )
+                if configured_file_ids:
+                    selected_items = [
+                        item
+                        for item in all_files
+                        if isinstance(item, dict)
+                        and _item_file_id(item) in configured_file_ids
+                        and is_video_filename(str(item.get("name") or ""))
+                    ]
+                else:
+                    selected_items = pan_service._select_files_for_best_quality_transfer(
+                        all_files,
+                        quality_filter or {},
+                    )
                 selected_file_ids = list(
                     dict.fromkeys(
-                        str(item.get("fid") or item.get("file_id"))
+                        _item_file_id(item)
                         for item in selected_items
-                        if item.get("fid") or item.get("file_id")
+                        if _item_file_id(item)
                     )
                 )
                 if not selected_file_ids:
@@ -309,13 +360,14 @@ class SubscriptionSourceService:
                     all_files,
                     missing_episodes=missing_episodes,
                     quality_filter=quality_filter or {},
+                    selected_file_ids=configured_file_ids,
                 )
             )
             selected_file_ids = list(
                 dict.fromkeys(
-                    str(item.get("fid") or item.get("file_id"))
+                    _item_file_id(item)
                     for item in selected_items
-                    if item.get("fid") or item.get("file_id")
+                    if _item_file_id(item)
                 )
             )
 
@@ -361,6 +413,7 @@ class SubscriptionSourceService:
                 "selected_count": len(selected_file_ids),
                 "transferred_count": transferred_count,
                 "last_found_episode": latest_pair,
+                "selected_file_ids_configured": len(configured_file_ids),
             }
         except Exception as exc:
             source.last_scanned_at = now
