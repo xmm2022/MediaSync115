@@ -714,10 +714,12 @@ export default function App() {
                   mediaType={detailContext.mediaType}
                   defaultTitle={detailContext.title}
                   defaultPoster={detailContext.poster}
+                  returnTo={detailContext.returnTo}
                   onBack={() => {
                     setActivePage(detailContext.returnTo);
                     setDetailContext(null);
                   }}
+                  onNavigateToDetail={handleNavigateToDetail}
                   addLog={addLog}
                 />
               </motion.div>

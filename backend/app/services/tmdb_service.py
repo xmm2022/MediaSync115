@@ -311,6 +311,16 @@ class TmdbService:
         cache_key = f"tv:{tmdb_id}"
         return await self._get_cached(cache_key, f"/tv/{tmdb_id}", params)
 
+    async def get_recommendations(
+        self, media_type: str, tmdb_id: int, page: int = 1
+    ) -> dict[str, Any]:
+        normalized_type = "tv" if str(media_type or "").strip().lower() == "tv" else "movie"
+        params = self._required_params(page=page)
+        cache_key = f"recommendations:{normalized_type}:{tmdb_id}:{page}"
+        return await self._get_cached(
+            cache_key, f"/{normalized_type}/{tmdb_id}/recommendations", params
+        )
+
     async def get_tv_season_detail(
         self, tmdb_id: int, season_number: int
     ) -> dict[str, Any]:

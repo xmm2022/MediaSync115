@@ -195,6 +195,27 @@ export interface MoviePilotSubscriptionResponse {
   external_status?: string;
 }
 
+export interface MoviePilotDownloadPayload {
+  item?: Record<string, unknown>;
+  torrent?: Record<string, unknown>;
+  torrent_info?: Record<string, unknown>;
+  media?: Record<string, unknown>;
+  media_info?: Record<string, unknown>;
+  title?: string;
+  media_type?: string;
+  tmdb_id?: number;
+  douban_id?: string;
+  downloader?: string;
+  save_path?: string;
+  moviepilot_save_path?: string;
+}
+
+export interface MoviePilotDownloadResponse {
+  success: boolean;
+  message?: string | null;
+  data?: Record<string, unknown> | unknown[] | null;
+}
+
 export interface MoviePilotSyncResponse {
   subscriptions?: {
     items?: unknown[];
@@ -517,6 +538,23 @@ export interface ExploreItem {
   mapping_status?: string;
   source_url?: string;
   genres?: string[];
+}
+
+export interface RecommendationItem extends ExploreItem {
+  name?: string;
+  poster_path?: string;
+  overview?: string;
+  vote_average?: number;
+  release_date?: string;
+  first_air_date?: string;
+}
+
+export interface RecommendationResponse {
+  items: RecommendationItem[];
+  results?: RecommendationItem[];
+  page: number;
+  total_pages: number;
+  total_results?: number;
 }
 
 export interface ExploreSection {

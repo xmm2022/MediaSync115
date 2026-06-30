@@ -422,6 +422,160 @@ class MoviePilotProviderService:
         return {key: value for key, value in result.items() if value is not None}
 
     @staticmethod
+    def _mapping_or_empty(value: Any) -> dict[str, Any]:
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _extract_torrent_input(self, payload: dict[str, Any]) -> dict[str, Any]:
+        item = self._mapping_or_empty(payload.get("item"))
+        for container in (payload, item):
+            for key in ("torrent_info", "torrent"):
+                nested = self._mapping_or_empty(container.get(key))
+                if nested:
+                    return nested
+        return item or self._mapping_or_empty(payload.get("torrent")) or payload
+
+    def _extract_media_input(self, payload: dict[str, Any]) -> dict[str, Any]:
+        item = self._mapping_or_empty(payload.get("item"))
+        for container in (payload, item):
+            for key in ("media_info", "media"):
+                nested = self._mapping_or_empty(container.get(key))
+                if nested:
+                    return nested
+        return {}
+
+    @staticmethod
+    def _first_text(*values: Any) -> str:
+        for value in values:
+            text = str(value or "").strip()
+            if text:
+                return text
+        return ""
+
+    @staticmethod
+    def _first_number(*values: Any) -> float | None:
+        for value in values:
+            if value is None or value == "":
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    @staticmethod
+    def _first_int(*values: Any) -> int | None:
+        for value in values:
+            if value is None or value == "":
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def build_download_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        torrent_input = self._extract_torrent_input(payload)
+        media_input = self._extract_media_input(payload)
+        item = self._mapping_or_empty(payload.get("item"))
+
+        title = self._first_text(
+            torrent_input.get("title"),
+            torrent_input.get("name"),
+            torrent_input.get("torrent_name"),
+            item.get("title"),
+            item.get("name"),
+            payload.get("title"),
+        )
+        enclosure = self._first_text(
+            torrent_input.get("enclosure"),
+            torrent_input.get("torrent_url"),
+            torrent_input.get("download_url"),
+            torrent_input.get("url"),
+            torrent_input.get("link"),
+            item.get("enclosure"),
+            item.get("torrent_url"),
+            item.get("download_url"),
+            item.get("url"),
+            item.get("link"),
+        )
+        page_url = self._first_text(
+            torrent_input.get("page_url"),
+            torrent_input.get("detail_url"),
+            item.get("page_url"),
+            item.get("detail_url"),
+        )
+        if not title:
+            raise MoviePilotProviderError("MoviePilot 下载缺少种子标题")
+        if not enclosure:
+            raise MoviePilotProviderError("MoviePilot 下载缺少种子下载链接")
+
+        torrent_in: dict[str, Any] = {
+            **torrent_input,
+            "title": title,
+            "description": self._first_text(
+                torrent_input.get("description"),
+                torrent_input.get("subtitle"),
+                item.get("description"),
+            )
+            or None,
+            "enclosure": enclosure,
+            "page_url": page_url or None,
+            "site_name": self._first_text(
+                torrent_input.get("site_name"),
+                torrent_input.get("source"),
+                torrent_input.get("site"),
+                item.get("source"),
+            )
+            or None,
+            "pubdate": self._first_text(torrent_input.get("pubdate"), item.get("pubdate"))
+            or None,
+            "size": self._first_number(torrent_input.get("size"), item.get("size")) or 0,
+            "seeders": self._first_int(
+                torrent_input.get("seeders"),
+                torrent_input.get("seeds"),
+                item.get("seeders"),
+                item.get("seeds"),
+            )
+            or 0,
+        }
+        torrent_in = {key: value for key, value in torrent_in.items() if value is not None}
+
+        save_path = self._first_text(
+            payload.get("save_path"),
+            payload.get("moviepilot_save_path"),
+            runtime_settings_service.get_moviepilot_save_path(),
+        )
+        downloader = self._first_text(payload.get("downloader"))
+
+        result: dict[str, Any] = {
+            "torrent_in": torrent_in,
+            "downloader": downloader or None,
+            "save_path": save_path or None,
+        }
+        if media_input:
+            result["media_in"] = media_input
+        else:
+            tmdb_id = self._first_int(payload.get("tmdb_id"), item.get("tmdb_id"))
+            douban_id = self._first_text(payload.get("douban_id"), item.get("douban_id"))
+            if tmdb_id:
+                result["tmdbid"] = tmdb_id
+            if douban_id:
+                result["doubanid"] = douban_id
+
+        return {key: value for key, value in result.items() if value is not None}
+
+    async def push_download(self, payload: dict[str, Any]) -> dict[str, Any]:
+        mp_payload = self.build_download_payload(payload)
+        client = self._create_client()
+        try:
+            response = await client.add_download(mp_payload)
+        except MoviePilotClientError as exc:
+            raise MoviePilotProviderError(str(exc)) from exc
+        if isinstance(response, dict) and response.get("success") is False:
+            raise MoviePilotProviderError(str(response.get("message") or "MoviePilot 添加下载失败"))
+        return response
+
+    @staticmethod
     def _extract_external_subscription_id(response: dict[str, Any]) -> str:
         data = response.get("data") if isinstance(response, dict) else None
         if isinstance(data, dict):

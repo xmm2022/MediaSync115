@@ -109,6 +109,11 @@ class MoviePilotClient:
     async def create_subscribe(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", "/api/v1/subscribe/", json=payload)
 
+    async def add_download(self, payload: dict[str, Any]) -> dict[str, Any]:
+        path = "/api/v1/download/" if payload.get("media_in") else "/api/v1/download/add"
+        response = await self._request("POST", path, json=payload)
+        return response if isinstance(response, dict) else {}
+
     async def list_subscribes(self) -> list[dict[str, Any]]:
         payload = await self._request("GET", "/api/v1/subscribe/")
         return payload if isinstance(payload, list) else []

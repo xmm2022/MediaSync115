@@ -72,6 +72,40 @@ def test_moviepilot_create_subscription_route_delegates_to_service(
     }
 
 
+def test_moviepilot_download_route_delegates_to_service(
+    client: TestClient, monkeypatch
+) -> None:
+    from app.api import moviepilot as moviepilot_api
+
+    async def fake_push(payload):
+        assert payload["title"] == "Dune"
+        assert payload["tmdb_id"] == 438631
+        assert payload["torrent"]["enclosure"] == "https://example.test/dune.torrent"
+        return {"success": True, "data": {"download_id": "d1"}}
+
+    monkeypatch.setattr(
+        moviepilot_api.moviepilot_provider_service,
+        "push_download",
+        fake_push,
+    )
+
+    response = client.post(
+        "/api/moviepilot/downloads",
+        json={
+            "title": "Dune",
+            "media_type": "movie",
+            "tmdb_id": 438631,
+            "torrent": {
+                "title": "Dune.2021",
+                "enclosure": "https://example.test/dune.torrent",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "data": {"download_id": "d1"}}
+
+
 def test_moviepilot_sync_route_updates_local_metadata(
     client: TestClient, monkeypatch
 ) -> None:

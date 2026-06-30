@@ -45,6 +45,21 @@ class MoviePilotSubscriptionCreate(BaseModel):
     moviepilot_save_path: Optional[str] = None
 
 
+class MoviePilotDownloadCreate(BaseModel):
+    item: dict[str, Any] | None = None
+    torrent: dict[str, Any] | None = None
+    torrent_info: dict[str, Any] | None = None
+    media: dict[str, Any] | None = None
+    media_info: dict[str, Any] | None = None
+    title: Optional[str] = None
+    media_type: Optional[MediaType] = None
+    tmdb_id: Optional[int] = None
+    douban_id: Optional[str] = None
+    downloader: Optional[str] = None
+    save_path: Optional[str] = None
+    moviepilot_save_path: Optional[str] = None
+
+
 def _serialize_subscription(subscription: Any) -> dict[str, Any]:
     media_type = getattr(subscription, "media_type", None)
     if isinstance(media_type, MediaType):
@@ -104,6 +119,18 @@ async def create_moviepilot_subscription(
     except MoviePilotProviderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _serialize_subscription(subscription)
+
+
+@router.post("/downloads")
+async def push_moviepilot_download(
+    payload: MoviePilotDownloadCreate,
+) -> dict[str, Any]:
+    try:
+        return await moviepilot_provider_service.push_download(payload.model_dump())
+    except MoviePilotProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MoviePilotClientError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/subscriptions/sync")

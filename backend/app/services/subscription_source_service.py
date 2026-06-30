@@ -150,8 +150,6 @@ class SubscriptionSourceService:
             "mediasync115",
         }:
             raise ValueError("固定 115 来源仅支持 MediaSync115 订阅")
-        if subscription.media_type != MediaType.TV:
-            raise ValueError("固定来源仅支持电视剧订阅")
 
         final_receive_code = _sanitize_receive_code(
             receive_code
@@ -241,6 +239,71 @@ class SubscriptionSourceService:
                 share_code,
                 source.receive_code or "",
             )
+            for item in all_files:
+                await self._upsert_source_file_state(
+                    db,
+                    source=source,
+                    item=item,
+                    status="seen",
+                )
+
+            if getattr(subscription, "media_type", None) == MediaType.MOVIE:
+                if int(source.last_transferred_count or 0) > 0:
+                    source.last_scanned_at = now
+                    source.last_scan_status = "success"
+                    source.last_error = None
+                    source.updated_at = now
+                    await db.flush()
+                    return {
+                        "status": "success",
+                        "total_files": len(all_files),
+                        "selected_count": 0,
+                        "transferred_count": 0,
+                        "skipped_reason": "already_transferred",
+                    }
+
+                selected_items = pan_service._select_files_for_best_quality_transfer(
+                    all_files,
+                    quality_filter or {},
+                )
+                selected_file_ids = list(
+                    dict.fromkeys(
+                        str(item.get("fid") or item.get("file_id"))
+                        for item in selected_items
+                        if item.get("fid") or item.get("file_id")
+                    )
+                )
+                if not selected_file_ids:
+                    raise ValueError("分享中未找到可转存的视频文件")
+
+                await pan_service.save_share_files_directly(
+                    share_url=source.share_url,
+                    file_ids=selected_file_ids,
+                    parent_id=parent_folder_id,
+                    receive_code=source.receive_code or "",
+                )
+                for item in selected_items:
+                    await self._upsert_source_file_state(
+                        db,
+                        source=source,
+                        item=item,
+                        status="transferred",
+                    )
+
+                source.last_scanned_at = now
+                source.last_scan_status = "success"
+                source.last_error = None
+                source.last_found_episode = None
+                source.last_transferred_count = len(selected_file_ids)
+                source.updated_at = now
+                await db.flush()
+                return {
+                    "status": "success",
+                    "total_files": len(all_files),
+                    "selected_count": len(selected_file_ids),
+                    "transferred_count": len(selected_file_ids),
+                }
+
             selected_items, parsed_count, unparsed_video_count = (
                 select_missing_episode_files(
                     all_files,
@@ -255,14 +318,6 @@ class SubscriptionSourceService:
                     if item.get("fid") or item.get("file_id")
                 )
             )
-
-            for item in all_files:
-                await self._upsert_source_file_state(
-                    db,
-                    source=source,
-                    item=item,
-                    status="seen",
-                )
 
             transferred_count = 0
             if selected_file_ids:

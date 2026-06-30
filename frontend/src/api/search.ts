@@ -11,6 +11,7 @@ import type {
   ExploreQueueSubscribeRequest,
   ExploreQueueTask,
   HDHiveUnlockRequest,
+  RecommendationResponse,
 } from './types';
 import { extractRecord, withResponseData } from './response';
 
@@ -165,6 +166,9 @@ export const searchApi = {
   // ---- 统一资源 ----
   getMediaResources: (tmdbId: number, mediaType: string, season: number | null = null, refresh = false) =>
     api.get(`/search/${mediaType}/${tmdbId}/resources`, { params: { season, refresh }, timeout: 120000 }),
+
+  getRecommendations: (mediaType: 'movie' | 'tv', tmdbId: number, page = 1) =>
+    api.get<RecommendationResponse>(`/search/${mediaType}/${tmdbId}/recommendations`, { params: { page } }),
 
   // ---- 磁力任务 ----
   getSeedhubMagnetTask: (taskId: string) =>

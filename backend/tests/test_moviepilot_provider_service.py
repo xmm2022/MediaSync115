@@ -10,6 +10,7 @@ from app.services.moviepilot_provider_service import MoviePilotProviderService
 class FakeMoviePilotClient:
     def __init__(self) -> None:
         self.created_payloads: list[dict] = []
+        self.download_payloads: list[dict] = []
         self.subscribe_items: list[dict] = []
         self.download_items: list[dict] = []
         self.transfer_payload: dict = {"success": True, "data": {"list": [], "total": 0}}
@@ -17,6 +18,10 @@ class FakeMoviePilotClient:
     async def create_subscribe(self, payload: dict) -> dict:
         self.created_payloads.append(payload)
         return {"success": True, "message": "ok", "data": {"id": 88}}
+
+    async def add_download(self, payload: dict) -> dict:
+        self.download_payloads.append(payload)
+        return {"success": True, "data": {"download_id": "did-1"}}
 
     async def list_subscribes(self) -> list[dict]:
         return self.subscribe_items
@@ -63,6 +68,81 @@ def test_build_subscribe_payload_maps_tv_scope_to_moviepilot_schema() -> None:
     assert payload["include"] == "官方中字"
     assert payload["exclude"] == "CAM"
     assert payload["save_path"] == "/incoming/pt/tv"
+
+
+def test_build_download_payload_extracts_context_shape() -> None:
+    service = MoviePilotProviderService(client_factory=FakeMoviePilotClient)
+
+    payload = service.build_download_payload(
+        {
+            "item": {
+                "media_info": {
+                    "title": "Dune",
+                    "type": "movie",
+                    "tmdb_id": 438631,
+                    "year": "2021",
+                },
+                "torrent_info": {
+                    "title": "Dune.2021.1080p",
+                    "enclosure": "https://example.test/dune.torrent",
+                    "page_url": "https://example.test/detail",
+                    "site_name": "SiteA",
+                    "size": 1024,
+                    "seeders": 8,
+                },
+            },
+            "save_path": "/downloads/movie",
+        }
+    )
+
+    assert payload["media_in"]["tmdb_id"] == 438631
+    assert payload["torrent_in"]["title"] == "Dune.2021.1080p"
+    assert payload["torrent_in"]["enclosure"] == "https://example.test/dune.torrent"
+    assert payload["torrent_in"]["page_url"] == "https://example.test/detail"
+    assert payload["torrent_in"]["site_name"] == "SiteA"
+    assert payload["torrent_in"]["seeders"] == 8
+    assert payload["save_path"] == "/downloads/movie"
+
+
+def test_build_download_payload_falls_back_to_tmdbid_without_media_info() -> None:
+    service = MoviePilotProviderService(client_factory=FakeMoviePilotClient)
+
+    payload = service.build_download_payload(
+        {
+            "title": "Dune",
+            "tmdb_id": 438631,
+            "torrent": {
+                "name": "Dune.2021.2160p",
+                "torrent_url": "https://example.test/dune-4k.torrent",
+                "source": "SiteB",
+            },
+        }
+    )
+
+    assert "media_in" not in payload
+    assert payload["tmdbid"] == 438631
+    assert payload["torrent_in"]["title"] == "Dune.2021.2160p"
+    assert payload["torrent_in"]["enclosure"] == "https://example.test/dune-4k.torrent"
+    assert payload["torrent_in"]["site_name"] == "SiteB"
+
+
+@pytest.mark.asyncio
+async def test_push_download_delegates_to_client() -> None:
+    fake_client = FakeMoviePilotClient()
+    service = MoviePilotProviderService(client_factory=lambda: fake_client)
+
+    response = await service.push_download(
+        {
+            "tmdb_id": 438631,
+            "torrent": {
+                "title": "Dune.2021",
+                "enclosure": "https://example.test/dune.torrent",
+            },
+        }
+    )
+
+    assert response["success"] is True
+    assert fake_client.download_payloads[0]["torrent_in"]["title"] == "Dune.2021"
 
 
 @pytest.mark.asyncio

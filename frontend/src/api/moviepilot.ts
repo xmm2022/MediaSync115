@@ -1,6 +1,8 @@
 import api from './client';
 import type {
   MoviePilotConfig,
+  MoviePilotDownloadPayload,
+  MoviePilotDownloadResponse,
   MoviePilotHealth,
   MoviePilotSyncResponse,
   MoviePilotSubscriptionCreatePayload,
@@ -16,6 +18,9 @@ export const moviepilotApi = {
 
   createSubscription: (payload: MoviePilotSubscriptionCreatePayload) =>
     api.post<MoviePilotSubscriptionResponse>('/moviepilot/subscriptions', payload),
+
+  pushDownload: (payload: MoviePilotDownloadPayload) =>
+    api.post<MoviePilotDownloadResponse>('/moviepilot/downloads', payload, { timeout: 120000 }),
 
   syncSubscriptions: () => api.post<MoviePilotSyncResponse>('/moviepilot/subscriptions/sync'),
 

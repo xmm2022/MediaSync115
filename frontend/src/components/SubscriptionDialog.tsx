@@ -1,41 +1,47 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- *
- * SubscriptionDialog — 资源详情页的订阅弹窗
- *
- * 承载：
- *   1. 渠道选择（115 自动搜索 / 夸克 暂未接入 / PT 下载 MoviePilot）
- *   2. 115 渠道支持「绑定固定 115 分享链接」作为订阅来源（POST /subscriptions/{id}/sources）
- *   3. TV 类型支持订阅范围（tv_scope: all/season/episode + 季号/集段）
- *   4. 已订阅状态展示与取消入口
- *   5. PT 创建前对「已有 115 订阅会被后端改写 provider」的提示
- *
- * 后端约定：
- *   - 115 自动搜索订阅走 POST /api/subscriptions（带 tv_* 字段；toggle 不支持 tv_* 故不用）
- *   - 夸克订阅后端未接入，仅提示
- *   - PT 订阅走 POST /api/moviepilot/subscriptions
- *   - 取消订阅走 DELETE /api/subscriptions/{id}
- *   - 固定来源绑定走 POST /api/subscriptions/{id}/sources
  */
 
-import React, { useState, useEffect, useMemo } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import React, { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
-  HardDrive, Cloud, Download, CheckCircle, RefreshCw, Rss, Link2, AlertTriangle, Film, Tv, X,
+  AlertTriangle,
+  CheckCircle,
+  Cloud,
+  Download,
+  ExternalLink,
+  HardDrive,
+  Link2,
+  RefreshCw,
+  Rss,
+  Shield,
+  Tv,
+  X,
 } from "lucide-react";
-import { subscriptionApi } from "../api/subscription";
 import { moviepilotApi } from "../api/moviepilot";
+import { pan115Api } from "../api/pan115";
+import { searchApi } from "../api/search";
+import { subscriptionApi } from "../api/subscription";
 import type { MediaResourceLink } from "../types";
 
 export type SubscriptionChannel = "pan115" | "quark" | "pt";
 
 type TvScope = "all" | "season" | "episode";
+type Pan115SourceKey = "pansou" | "hdhive" | "tg" | "manual";
 
 interface TmdbSeason {
   season_number: number;
   name: string;
   episode_count: number;
+}
+
+interface TmdbDetail {
+  poster_path?: string;
+  overview?: string;
+  release_date?: string;
+  first_air_date?: string;
+  vote_average?: number;
 }
 
 interface SubscriptionDialogProps {
@@ -44,59 +50,226 @@ interface SubscriptionDialogProps {
   mediaType: "movie" | "tv";
   title: string;
   defaultPoster?: string;
-  detail?: {
-    poster_path?: string;
-    overview?: string;
-    release_date?: string;
-    first_air_date?: string;
-    vote_average?: number;
-  } | null;
+  detail?: TmdbDetail | null;
   seasons?: TmdbSeason[];
-  /** 当前资源通道里已拉取的资源链接，用于「绑定固定 115 分享链接」选择 */
-  resources: MediaResourceLink[];
-  /** 当前订阅状态：id 为 null = 未订阅 */
   pan115SubId: string | null;
   ptSubId: string | null;
+  pan115DefaultFolderName: string;
+  quarkDefaultFolderName: string;
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
   onClose: () => void;
-  /** 订阅状态变化后调用，用于父组件刷新 checkSubscription */
   onChanged: () => void | Promise<void>;
 }
 
-function posterUrl(path: string | undefined, size = "w300"): string {
+interface ResourceLinkRaw {
+  title?: string;
+  name?: string;
+  torrent_name?: string;
+  subtitle?: string;
+  size?: string | number;
+  size_text?: string;
+  seeds?: number;
+  seeders?: number;
+  pick_code?: string;
+  pickcode?: string;
+  share_link?: string;
+  share_url?: string;
+  url?: string;
+  link?: string;
+  download_url?: string;
+  torrent_url?: string;
+  receive_code?: string;
+  access_code?: string;
+  source_service?: string;
+  site?: string;
+  site_name?: string;
+  resolution?: string;
+  slug?: string;
+  unlocked?: boolean;
+  magnet?: string;
+  magnet_url?: string;
+  info_hash?: string;
+}
+
+interface Pan115Resource extends MediaResourceLink {
+  sourceKey: Pan115SourceKey;
+  sourceLabel: string;
+}
+
+interface SourceState {
+  loading: boolean;
+  loaded: boolean;
+  error: string;
+  items: Pan115Resource[];
+}
+
+interface MoviePilotTorrent {
+  key: string;
+  title: string;
+  size: string;
+  site: string;
+  seeders?: number;
+  pubdate: string;
+  pageUrl: string;
+  enclosure: string;
+  freeLabel: string;
+  raw: Record<string, unknown>;
+}
+
+const SOURCE_META: { key: Pan115SourceKey; label: string; desc: string }[] = [
+  { key: "pansou", label: "Pansou", desc: "聚合 115 分享" },
+  { key: "hdhive", label: "HDHive", desc: "需解锁后可用" },
+  { key: "tg", label: "TG", desc: "频道聚合资源" },
+  { key: "manual", label: "固定链接", desc: "手动粘贴分享" },
+];
+
+const emptySourceState = (): SourceState => ({
+  loading: false,
+  loaded: false,
+  error: "",
+  items: [],
+});
+
+function formatSizeValue(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value >= 1024 ** 4) return `${(value / (1024 ** 4)).toFixed(1)} TB`;
+    if (value >= 1024 ** 3) return `${(value / (1024 ** 3)).toFixed(1)} GB`;
+    if (value >= 1024 ** 2) return `${(value / (1024 ** 2)).toFixed(1)} MB`;
+    if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+    return `${value} B`;
+  }
+  const text = String(value || "").trim();
+  return text || "未知";
+}
+
+function extractResourceLinks(rawData: unknown): ResourceLinkRaw[] {
+  if (Array.isArray(rawData)) return rawData as ResourceLinkRaw[];
+  if (!rawData || typeof rawData !== "object") return [];
+  const payload = rawData as Record<string, unknown>;
+  return (payload.list as ResourceLinkRaw[])
+    || (payload.items as ResourceLinkRaw[])
+    || (payload.resources as ResourceLinkRaw[])
+    || (payload.links as ResourceLinkRaw[])
+    || [];
+}
+
+function mapPan115Links(rawData: unknown, sourceKey: Pan115SourceKey, sourceLabel: string): Pan115Resource[] {
+  return extractResourceLinks(rawData).map((rl) => {
+    const shareUrl = rl.share_link || rl.share_url || rl.url || rl.link || "";
+    const receiveMatch = String(shareUrl).match(/[?&](?:password|pwd|receive_code)=([^&#]+)/i);
+    return {
+      name: rl.title || rl.name || rl.torrent_name || rl.subtitle || "未命名资源",
+      size: typeof rl.size === "number" ? formatSizeValue(rl.size) : String(rl.size_text || rl.size || "未知"),
+      seeds: rl.seeds ?? rl.seeders,
+      pickcode: rl.pick_code || rl.pickcode,
+      url: shareUrl || rl.download_url || rl.torrent_url || "",
+      shareUrl,
+      receiveCode: rl.receive_code || rl.access_code || (receiveMatch ? decodeURIComponent(receiveMatch[1]) : ""),
+      sourceService: rl.source_service || rl.site_name || rl.site || sourceLabel,
+      resolution: rl.resolution,
+      slug: rl.slug,
+      unlocked: rl.unlocked,
+      sourceKey,
+      sourceLabel,
+    };
+  });
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function firstText(...values: unknown[]): string {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const numberValue = Number(value);
+    if (Number.isFinite(numberValue)) return numberValue;
+  }
+  return undefined;
+}
+
+function mapMoviePilotItems(rawData: unknown): MoviePilotTorrent[] {
+  const payload = asRecord(rawData);
+  const rows = Array.isArray(payload.items) ? payload.items : (Array.isArray(rawData) ? rawData : []);
+  return rows.map((row, idx) => {
+    const item = asRecord(row);
+    const torrent = asRecord(item.torrent_info || item.torrent || item);
+    const meta = asRecord(item.meta_info || item.meta || {});
+    const media = asRecord(item.media_info || item.media || {});
+    const title = firstText(torrent.title, torrent.name, torrent.torrent_name, meta.name, media.title, item.title, `PT 资源 ${idx + 1}`);
+    const enclosure = firstText(torrent.enclosure, torrent.torrent_url, torrent.download_url, torrent.url, item.enclosure, item.torrent_url);
+    const pageUrl = firstText(torrent.page_url, torrent.detail_url, item.page_url, item.detail_url);
+    const site = firstText(torrent.site_name, torrent.source, item.source, torrent.site, "MoviePilot");
+    const downloadFactor = firstNumber(torrent.downloadvolumefactor, torrent.download_volume_factor, item.downloadvolumefactor);
+    const uploadFactor = firstNumber(torrent.uploadvolumefactor, torrent.upload_volume_factor, item.uploadvolumefactor);
+    const freeLabel = downloadFactor === 0 ? "免费" : (downloadFactor && downloadFactor < 1 ? `${downloadFactor}x` : "");
+    return {
+      key: enclosure || pageUrl || `${title}-${idx}`,
+      title,
+      size: formatSizeValue(torrent.size ?? item.size),
+      site,
+      seeders: firstNumber(torrent.seeders, torrent.seeds, item.seeders, item.seeds),
+      pubdate: firstText(torrent.pubdate, item.pubdate, torrent.date_elapsed),
+      pageUrl,
+      enclosure,
+      freeLabel: freeLabel || (uploadFactor && uploadFactor > 1 ? `上传 ${uploadFactor}x` : ""),
+      raw: item,
+    };
+  });
+}
+
+function posterUrl(path: string | undefined, size = "w185"): string {
   if (!path) return "";
+  if (path.startsWith("http")) return path;
   return `https://image.tmdb.org/t/p/${size}${path}`;
 }
 
-/** 从 resources 里筛出可作为 115 固定来源的分享链接 */
-function pickPan115ShareLinks(resources: MediaResourceLink[]): MediaResourceLink[] {
-  const seen = new Set<string>();
-  const out: MediaResourceLink[] = [];
-  for (const r of resources) {
-    const url = String(r.shareUrl || "");
-    const value = url.toLowerCase();
-    if (!url || seen.has(url)) continue;
-    if (!value.includes("115.com/") && !value.includes("115cdn.com/")) continue;
-    seen.add(url);
-    out.push(r);
-  }
-  return out;
-}
-
 export default function SubscriptionDialog({
-  open, tmdbId, mediaType, title, defaultPoster, detail, seasons = [],
-  resources, pan115SubId, ptSubId, addLog, onClose, onChanged,
+  open,
+  tmdbId,
+  mediaType,
+  title,
+  defaultPoster,
+  detail,
+  seasons = [],
+  pan115SubId,
+  ptSubId,
+  pan115DefaultFolderName,
+  quarkDefaultFolderName,
+  addLog,
+  onClose,
+  onChanged,
 }: SubscriptionDialogProps) {
   const [channel, setChannel] = useState<SubscriptionChannel>("pan115");
+  const [selectedSources, setSelectedSources] = useState<Pan115SourceKey[]>(["pansou", "hdhive"]);
+  const [sourceState, setSourceState] = useState<Record<Pan115SourceKey, SourceState>>({
+    pansou: emptySourceState(),
+    hdhive: emptySourceState(),
+    tg: emptySourceState(),
+    manual: emptySourceState(),
+  });
+  const [selectedPan115Key, setSelectedPan115Key] = useState("");
+  const [manualShareUrl, setManualShareUrl] = useState("");
+  const [manualReceiveCode, setManualReceiveCode] = useState("");
+  const [manualDisplayName, setManualDisplayName] = useState("");
+  const [ptItems, setPtItems] = useState<MoviePilotTorrent[]>([]);
+  const [ptLoading, setPtLoading] = useState(false);
+  const [ptLoaded, setPtLoaded] = useState(false);
+  const [ptError, setPtError] = useState("");
+  const [selectedPtKey, setSelectedPtKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [transferringKey, setTransferringKey] = useState("");
+  const [unlockingSlug, setUnlockingSlug] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-
-  // 115 固定来源绑定
-  const [bindFixedLink, setBindFixedLink] = useState(false);
-  const [selectedShareUrl, setSelectedShareUrl] = useState<string>("");
-
-  // TV 订阅范围
   const [tvScope, setTvScope] = useState<TvScope>("all");
   const [tvSeasonNumber, setTvSeasonNumber] = useState<number>(1);
   const [tvEpisodeStart, setTvEpisodeStart] = useState<number | "">("");
@@ -104,25 +277,22 @@ export default function SubscriptionDialog({
 
   const isPan115Subscribed = pan115SubId !== null;
   const isPtSubscribed = ptSubId !== null;
+  const poster = posterUrl(detail?.poster_path || defaultPoster);
+  const year = detail?.release_date?.split("-")[0] || detail?.first_air_date?.split("-")[0] || "";
+  const rating = typeof detail?.vote_average === "number" ? detail.vote_average.toFixed(1) : "";
 
-  const pan115ShareLinks = useMemo(() => pickPan115ShareLinks(resources), [resources]);
-
-  // 弹窗打开时重置本地状态
-  useEffect(() => {
-    if (!open) return;
-    setError(null);
-    setInfo(null);
-    setSubmitting(false);
-    setBindFixedLink(false);
-    setSelectedShareUrl("");
-    setTvScope("all");
-    setTvSeasonNumber(seasons.find((s) => s.season_number > 0)?.season_number ?? 1);
-    setTvEpisodeStart("");
-    setTvEpisodeEnd("");
-    setChannel("pan115");
-  }, [open, seasons]);
-
-  if (!open) return null;
+  const resources = useMemo(
+    () => selectedSources.flatMap((source) => sourceState[source]?.items || []),
+    [selectedSources, sourceState],
+  );
+  const selectedResource = useMemo(
+    () => resources.find((item) => `${item.sourceKey}:${item.shareUrl || item.url}` === selectedPan115Key),
+    [resources, selectedPan115Key],
+  );
+  const selectedPtItem = useMemo(
+    () => ptItems.find((item) => item.key === selectedPtKey),
+    [ptItems, selectedPtKey],
+  );
 
   const buildTvParams = () => {
     if (mediaType !== "tv" || tvScope === "all") return {};
@@ -130,11 +300,184 @@ export default function SubscriptionDialog({
       return { tv_scope: "season", tv_season_number: tvSeasonNumber };
     }
     return {
-      tv_scope: "episode",
+      tv_scope: "episode_range",
       tv_season_number: tvSeasonNumber,
       ...(tvEpisodeStart !== "" ? { tv_episode_start: Number(tvEpisodeStart) } : {}),
       ...(tvEpisodeEnd !== "" ? { tv_episode_end: Number(tvEpisodeEnd) } : {}),
     };
+  };
+
+  const resetLoadedPan115Resources = () => {
+    setSourceState((prev) => ({
+      ...prev,
+      pansou: emptySourceState(),
+      hdhive: emptySourceState(),
+      tg: emptySourceState(),
+    }));
+    setSelectedPan115Key((current) => (current === "manual" ? current : ""));
+  };
+
+  const resetState = () => {
+    setChannel("pan115");
+    setSelectedSources(["pansou", "hdhive"]);
+    setSourceState({
+      pansou: emptySourceState(),
+      hdhive: emptySourceState(),
+      tg: emptySourceState(),
+      manual: emptySourceState(),
+    });
+    setSelectedPan115Key("");
+    setManualShareUrl("");
+    setManualReceiveCode("");
+    setManualDisplayName("");
+    setPtItems([]);
+    setPtLoading(false);
+    setPtLoaded(false);
+    setPtError("");
+    setSelectedPtKey("");
+    setSubmitting(false);
+    setTransferringKey("");
+    setUnlockingSlug("");
+    setError(null);
+    setInfo(null);
+    setTvScope("all");
+    setTvSeasonNumber(seasons.find((s) => s.season_number > 0)?.season_number ?? 1);
+    setTvEpisodeStart("");
+    setTvEpisodeEnd("");
+  };
+
+  useEffect(() => {
+    if (open) resetState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tmdbId]);
+
+  const fetchPan115Source = async (source: Pan115SourceKey) => {
+    if (source === "manual") return;
+    const current = sourceState[source];
+    if (current.loading || current.loaded) return;
+    const sourceLabel = SOURCE_META.find((item) => item.key === source)?.label || source;
+    setSourceState((prev) => ({
+      ...prev,
+      [source]: { ...prev[source], loading: true, error: "" },
+    }));
+    try {
+      const season = mediaType === "tv" && tvScope !== "all" ? tvSeasonNumber : null;
+      let response: { data: unknown };
+      if (source === "pansou") {
+        response = mediaType === "movie"
+          ? await searchApi.getMoviePan115Pansou(tmdbId)
+          : await searchApi.getTvPan115Pansou(tmdbId, 1, false, season);
+      } else if (source === "hdhive") {
+        response = mediaType === "movie"
+          ? await searchApi.getMoviePan115Hdhive(tmdbId)
+          : await searchApi.getTvPan115Hdhive(tmdbId, 1, false, season);
+      } else {
+        response = mediaType === "movie"
+          ? await searchApi.getMoviePan115Tg(tmdbId)
+          : await searchApi.getTvPan115Tg(tmdbId, 1, false, season);
+      }
+      setSourceState((prev) => ({
+        ...prev,
+        [source]: {
+          loading: false,
+          loaded: true,
+          error: "",
+          items: mapPan115Links(response.data, source, sourceLabel),
+        },
+      }));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+      setSourceState((prev) => ({
+        ...prev,
+        [source]: { ...prev[source], loading: false, loaded: true, error: msg, items: [] },
+      }));
+    }
+  };
+
+  useEffect(() => {
+    if (!open || channel !== "pan115") return;
+    selectedSources.forEach((source) => {
+      void fetchPan115Source(source);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, channel, selectedSources, tvScope, tvSeasonNumber]);
+
+  const fetchPtItems = async (force = false) => {
+    if (ptLoading || (ptLoaded && !force)) return;
+    setPtLoading(true);
+    setPtError("");
+    try {
+      const response = await moviepilotApi.search(title);
+      setPtItems(mapMoviePilotItems(response.data));
+      setPtLoaded(true);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+      setPtError(msg);
+      setPtLoaded(true);
+    } finally {
+      setPtLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (open && channel === "pt") void fetchPtItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, channel]);
+
+  const toggleSource = (source: Pan115SourceKey) => {
+    setSelectedSources((prev) => {
+      const exists = prev.includes(source);
+      const next = exists ? prev.filter((item) => item !== source) : [...prev, source];
+      if (exists && source !== "manual" && selectedPan115Key.startsWith(`${source}:`)) {
+        setSelectedPan115Key("");
+      }
+      return next;
+    });
+  };
+
+  const handleUnlock = async (resource: Pan115Resource) => {
+    if (!resource.slug) return;
+    setUnlockingSlug(resource.slug);
+    setError(null);
+    try {
+      await searchApi.unlockHdhiveResource(resource.slug);
+      setSourceState((prev) => ({
+        ...prev,
+        [resource.sourceKey]: {
+          ...prev[resource.sourceKey],
+          items: prev[resource.sourceKey].items.map((item) => (
+            item.slug === resource.slug ? { ...item, unlocked: true } : item
+          )),
+        },
+      }));
+      await addLog("SUCCESS", `HDHive 已解锁: ${resource.name}`);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+      setError(`解锁失败: ${msg}`);
+    } finally {
+      setUnlockingSlug("");
+    }
+  };
+
+  const handleTransfer = async (resource: Pan115Resource) => {
+    if (!resource.shareUrl) {
+      setError("该资源没有 115 分享链接，无法转存。");
+      return;
+    }
+    const key = `${resource.sourceKey}:${resource.shareUrl}`;
+    setTransferringKey(key);
+    setError(null);
+    try {
+      await pan115Api.saveShareToFolder(resource.shareUrl, title, "0", resource.receiveCode || "", null);
+      await addLog("SUCCESS", `已转存到 115: ${resource.name}`);
+      setInfo(`已转存到 115：${resource.name}`);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+      setError(`转存失败: ${msg}`);
+      await addLog("ERROR", `115 转存失败: ${msg}`);
+    } finally {
+      setTransferringKey("");
+    }
   };
 
   const handleCancel = async (channelType: SubscriptionChannel) => {
@@ -144,7 +487,7 @@ export default function SubscriptionDialog({
     setError(null);
     try {
       await subscriptionApi.delete(id);
-      await addLog("INFO", `已取消${channelType === "pan115" ? " 115 自动搜索" : " PT 下载"}订阅: ${title}`);
+      await addLog("INFO", `已取消${channelType === "pan115" ? " 115" : " PT"}订阅: ${title}`);
       await onChanged();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
@@ -154,91 +497,114 @@ export default function SubscriptionDialog({
     }
   };
 
+  const createPan115Subscription = async () => {
+    const posterPath = detail?.poster_path || defaultPoster;
+    const createResp = await subscriptionApi.create({
+      tmdb_id: tmdbId,
+      title,
+      media_type: mediaType,
+      ...(posterPath ? { poster_path: posterPath } : {}),
+      ...(detail?.overview ? { overview: detail.overview } : {}),
+      ...(year ? { year } : {}),
+      ...(typeof detail?.vote_average === "number" ? { rating: detail.vote_average } : {}),
+      auto_download: true,
+      ...buildTvParams(),
+    });
+    const subId = String((createResp.data as { id?: string | number })?.id || "");
+
+    const manualSelected = selectedSources.includes("manual") && selectedPan115Key === "manual";
+    if (manualSelected) {
+      if (!manualShareUrl.trim()) throw new Error("请填写固定 115 分享链接");
+      await subscriptionApi.createSource(subId, {
+        share_url: manualShareUrl.trim(),
+        receive_code: manualReceiveCode.trim(),
+        display_name: manualDisplayName.trim() || title,
+      });
+      await addLog("SUCCESS", `已添加 115 订阅并绑定固定链接: ${title}`);
+      return;
+    }
+
+    if (selectedResource?.shareUrl) {
+      await subscriptionApi.createSource(subId, {
+        share_url: selectedResource.shareUrl,
+        receive_code: selectedResource.receiveCode || "",
+        display_name: selectedResource.name || title,
+      });
+      await addLog("SUCCESS", `已添加 115 订阅并绑定固定来源: ${title}`);
+      return;
+    }
+
+    await addLog("SUCCESS", `已添加 115 自动搜索订阅: ${title}`);
+  };
+
+  const createPtSubscription = async () => {
+    const posterPath = detail?.poster_path || defaultPoster;
+    await moviepilotApi.createSubscription({
+      title,
+      media_type: mediaType,
+      tmdb_id: tmdbId,
+      ...(posterPath ? { poster_path: posterPath } : {}),
+      ...(detail?.overview ? { overview: detail.overview } : {}),
+      ...(year ? { year } : {}),
+      ...(typeof detail?.vote_average === "number" ? { rating: detail.vote_average } : {}),
+      auto_download: true,
+    });
+    await addLog("SUCCESS", `已创建 MoviePilot TMDB 订阅: ${title}`);
+  };
+
+  const pushPtDownload = async (item: MoviePilotTorrent) => {
+    await moviepilotApi.pushDownload({
+      item: item.raw,
+      title,
+      media_type: mediaType,
+      tmdb_id: tmdbId,
+    });
+    await addLog("SUCCESS", `已推送 MoviePilot 下载: ${item.title}`);
+  };
+
   const handleSubmit = async () => {
     setError(null);
     setInfo(null);
-
-    if (channel === "quark") {
-      setInfo("夸克订阅暂未接入。可在资源通道先把夸克分享链接转存一次，再由系统调度扫描。");
-      return;
-    }
-
-    if (channel === "pt" && isPan115Subscribed) {
-      const ok = window.confirm(
-        `检测到「${title}」已存在 115 自动搜索订阅。\n\n` +
-        `创建 MoviePilot PT 订阅会让后端将同一个 TMDB 订阅的归属从 MediaSync115 改写为 MoviePilot，` +
-        `此后本系统定时扫描将不再处理它（115 自动搜索会失效，改由 MoviePilot 调度 PT 下载）。\n\n` +
-        `确认继续创建 PT 订阅？`,
-      );
-      if (!ok) return;
-    }
-
-    if (channel === "pan115" && bindFixedLink && !selectedShareUrl) {
-      setError("请选择一条 115 分享链接作为固定来源，或关闭「绑定固定来源」开关。");
-      return;
-    }
+    if (channel === "quark") return;
+    if (channel === "pan115" && isPan115Subscribed) return;
+    if (channel === "pt" && isPtSubscribed && !selectedPtItem) return;
 
     setSubmitting(true);
     try {
-      const tvParams = buildTvParams();
-      const posterPath = detail?.poster_path || defaultPoster;
-      const year = detail?.release_date?.split("-")[0] || detail?.first_air_date?.split("-")[0] || undefined;
-
       if (channel === "pan115") {
-        // 用 create 而非 toggle：toggle 不支持 tv_* 字段
-        const createResp = await subscriptionApi.create({
-          tmdb_id: tmdbId,
-          title,
-          media_type: mediaType,
-          ...(posterPath ? { poster_path: posterPath } : {}),
-          ...(detail?.overview ? { overview: detail.overview } : {}),
-          ...(year ? { year } : {}),
-          ...(typeof detail?.vote_average === "number" ? { rating: detail.vote_average } : {}),
-          auto_download: true,
-          ...tvParams,
-        });
-        const created = createResp.data as { id?: string };
-        const subId = created?.id ? String(created.id) : "";
-
-        // 绑定固定来源（后端要求 TV 订阅 + tmdb_id 非空才能扫描，但绑定接口本身 POST /sources 不限类型）
-        if (bindFixedLink && selectedShareUrl && subId) {
-          const link = pan115ShareLinks.find((l) => l.shareUrl === selectedShareUrl);
-          await subscriptionApi.createSource(subId, {
-            share_url: selectedShareUrl,
-            receive_code: link?.receiveCode || "",
-            display_name: link?.name || title,
-          });
-          await addLog("SUCCESS", `已添加 115 订阅并绑定固定来源: ${title}`);
-        } else {
-          await addLog("SUCCESS", `已添加 115 自动搜索订阅: ${title}`);
-        }
+        await createPan115Subscription();
+      } else if (selectedPtItem) {
+        await pushPtDownload(selectedPtItem);
       } else {
-        // PT
-        await moviepilotApi.createSubscription({
-          title,
-          media_type: mediaType,
-          tmdb_id: tmdbId,
-          ...(posterPath ? { poster_path: posterPath } : {}),
-          ...(detail?.overview ? { overview: detail.overview } : {}),
-          ...(year ? { year } : {}),
-          ...(typeof detail?.vote_average === "number" ? { rating: detail.vote_average } : {}),
-          auto_download: true,
-          ...tvParams,
-        });
-        await addLog("SUCCESS", `已创建 PT 下载订阅: ${title}`);
+        await createPtSubscription();
       }
       await onChanged();
       onClose();
     } catch (err: unknown) {
-      const detailMsg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
-      setError(`操作失败: ${detailMsg}`);
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (err as Error)?.message || String(err);
+      setError(`操作失败: ${msg}`);
     } finally {
       setSubmitting(false);
     }
   };
 
+  if (!open) return null;
+
+  const submitLabel = channel === "pt"
+    ? (selectedPtItem ? "推送下载" : "创建 TMDB 订阅")
+    : channel === "quark"
+      ? "暂未接入"
+      : isPan115Subscribed
+        ? "已订阅 115"
+        : "创建 115 订阅";
+
   const ChannelCard = ({
-    channelKey, icon, label, desc, subscribed, accentColor,
+    channelKey,
+    icon,
+    label,
+    desc,
+    subscribed,
+    accentColor,
   }: {
     channelKey: SubscriptionChannel;
     icon: React.ReactNode;
@@ -251,11 +617,7 @@ export default function SubscriptionDialog({
       type="button"
       onClick={() => setChannel(channelKey)}
       disabled={channelKey === "quark"}
-      className={`relative w-full text-left rounded-2xl p-3 transition-all ${
-        channel === channelKey
-          ? "ring-2"
-          : "glass-hover"
-      } ${channelKey === "quark" ? "opacity-55 cursor-not-allowed" : "cursor-pointer"}`}
+      className={`rounded-2xl p-3 text-left transition-all ${channelKey === "quark" ? "opacity-55 cursor-not-allowed" : "cursor-pointer glass-hover"}`}
       style={{
         background: channel === channelKey ? "var(--surface-subtle)" : "var(--surface)",
         border: "1px solid var(--border)",
@@ -263,28 +625,27 @@ export default function SubscriptionDialog({
       }}
     >
       <div className="flex items-start gap-2.5">
-        <span className="shrink-0 mt-0.5" style={{ color: accentColor }}>{icon}</span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-black" style={{ color: "var(--txt)" }}>{label}</span>
+        <span className="mt-0.5 shrink-0" style={{ color: accentColor }}>{icon}</span>
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 text-xs font-black" style={{ color: "var(--txt)" }}>
+            {label}
             {subscribed && (
-              <span className="text-[9px] font-black px-1.5 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" }}>
+              <span className="rounded px-1.5 py-0.5 text-[9px]" style={{ background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" }}>
                 已订阅
               </span>
             )}
-            {channelKey === "quark" && (
-              <span className="text-[9px] font-bold" style={{ color: "var(--txt-muted)" }}>未接入</span>
-            )}
-          </div>
-          <p className="text-[10px] font-semibold leading-relaxed mt-1" style={{ color: "var(--txt-muted)" }}>{desc}</p>
-        </div>
+          </span>
+          <span className="mt-1 block text-[10px] font-semibold leading-relaxed" style={{ color: "var(--txt-muted)" }}>
+            {desc}
+          </span>
+        </span>
       </div>
     </button>
   );
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -295,269 +656,350 @@ export default function SubscriptionDialog({
         />
 
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          initial={{ opacity: 0, scale: 0.96, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          exit={{ opacity: 0, scale: 0.96, y: 16 }}
           transition={{ type: "spring", stiffness: 380, damping: 30 }}
-          className="relative w-full max-w-[560px] glass-heavy glass-iridescent rounded-3xl p-6 z-10 space-y-4 max-h-[90vh] overflow-y-auto"
+          className="relative z-10 max-h-[92vh] w-full max-w-[720px] overflow-y-auto rounded-3xl p-4 sm:p-5 space-y-4 glass-heavy glass-iridescent"
         >
-          {/* Header */}
           <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-xl shrink-0 flex items-center justify-center" style={{ background: "var(--brand-primary-bg-alpha-heavy)", border: "1px solid var(--brand-primary-border-alpha)" }}>
-                <Rss className="w-5 h-5" style={{ color: "var(--brand-primary)" }} />
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="h-16 w-11 shrink-0 overflow-hidden rounded-xl" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                {poster ? (
+                  <img src={poster} alt={title} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <Rss className="m-auto mt-5 h-5 w-5" style={{ color: "var(--txt-muted)" }} />
+                )}
               </div>
               <div className="min-w-0">
-                <h2 className="text-sm font-black tracking-tight truncate" style={{ color: "var(--txt)" }}>添加订阅</h2>
-                <p className="text-[10px] font-semibold truncate" style={{ color: "var(--txt-muted)" }}>{title}</p>
+                <h2 className="truncate text-base font-black" style={{ color: "var(--txt)" }}>添加订阅</h2>
+                <p className="truncate text-xs font-bold" style={{ color: "var(--txt-secondary)" }}>{title}</p>
+                <p className="mt-1 text-[10px] font-semibold" style={{ color: "var(--txt-muted)" }}>
+                  {[year, mediaType === "tv" ? "剧集" : "电影", rating ? `${rating} 分` : ""].filter(Boolean).join(" · ")}
+                </p>
               </div>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center glass-hover"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg glass-hover"
               style={{ color: "var(--txt-muted)", border: "1px solid var(--border)" }}
+              aria-label="关闭"
             >
-              <X className="w-4 h-4" />
+              <X className="h-4 w-4" />
             </button>
           </div>
 
-          {/* 已订阅状态 / 取消入口 */}
           {(isPan115Subscribed || isPtSubscribed) && (
-            <div className="rounded-2xl p-3 space-y-2" style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)" }}>
-              <div className="flex items-center gap-1.5 text-[11px] font-black" style={{ color: "var(--accent-ok)" }}>
-                <CheckCircle className="w-3.5 h-3.5" />
-                <span>当前已订阅</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {isPan115Subscribed && (
-                  <button
-                    type="button"
-                    onClick={() => void handleCancel("pan115")}
-                    disabled={submitting}
-                    className="px-2.5 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1.5 transition-all glass-hover disabled:opacity-50"
-                    style={{ color: "var(--accent-danger)", background: "var(--surface)", border: "1px solid var(--border)" }}
-                  >
-                    取消 115 订阅
-                  </button>
-                )}
-                {isPtSubscribed && (
-                  <button
-                    type="button"
-                    onClick={() => void handleCancel("pt")}
-                    disabled={submitting}
-                    className="px-2.5 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1.5 transition-all glass-hover disabled:opacity-50"
-                    style={{ color: "var(--accent-danger)", background: "var(--surface)", border: "1px solid var(--border)" }}
-                  >
-                    取消 PT 订阅
-                  </button>
-                )}
+            <div className="rounded-2xl p-3" style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)" }}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[11px] font-black" style={{ color: "var(--accent-ok)" }}>
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  <span>当前已订阅{isPan115Subscribed ? " 115" : ""}{isPan115Subscribed && isPtSubscribed ? " ·" : ""}{isPtSubscribed ? " PT" : ""}</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {isPan115Subscribed && (
+                    <button type="button" onClick={() => void handleCancel("pan115")} disabled={submitting} className="rounded-lg px-2.5 py-1.5 text-[10px] font-black glass-hover disabled:opacity-50" style={{ color: "var(--accent-danger)", background: "var(--surface)", border: "1px solid var(--border)" }}>
+                      取消 115
+                    </button>
+                  )}
+                  {isPtSubscribed && (
+                    <button type="button" onClick={() => void handleCancel("pt")} disabled={submitting} className="rounded-lg px-2.5 py-1.5 text-[10px] font-black glass-hover disabled:opacity-50" style={{ color: "var(--accent-danger)", background: "var(--surface)", border: "1px solid var(--border)" }}>
+                      取消 PT
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
 
-          {/* 渠道选择 */}
-          <div className="space-y-2">
-            <span className="text-[10px] font-black uppercase tracking-wider" style={{ color: "var(--txt-muted)" }}>选择渠道</span>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <ChannelCard
               channelKey="pan115"
-              icon={<HardDrive className="w-4 h-4" />}
-              label="115 自动搜索"
-              desc="由本系统定时按 TMDB 搜索 115 资源并自动转存；可绑定固定分享链接作为来源。"
+              icon={<HardDrive className="h-4 w-4" />}
+              label="115"
+              desc="自动搜索或绑定固定 115 分享来源。"
               subscribed={isPan115Subscribed}
               accentColor="var(--brand-primary)"
             />
             <ChannelCard
               channelKey="pt"
-              icon={<Download className="w-4 h-4" />}
-              label="PT 下载（MoviePilot）"
-              desc="把订阅交给 MoviePilot 调度 PT 下载；不占用 115 自动搜索。"
+              icon={<Download className="h-4 w-4" />}
+              label="PT"
+              desc="选择种子立即推送，或创建 TMDB 订阅。"
               subscribed={isPtSubscribed}
               accentColor="var(--accent-info)"
             />
             <ChannelCard
               channelKey="quark"
-              icon={<Cloud className="w-4 h-4" />}
-              label="夸克订阅"
-              desc="后端尚未接入夸克订阅扫描，请先在资源通道转存夸克分享。"
+              icon={<Cloud className="h-4 w-4" />}
+              label="夸克"
+              desc="订阅渠道暂未接入。"
               subscribed={false}
               accentColor="var(--txt-muted)"
             />
           </div>
 
-          {/* 115 渠道：固定来源绑定 */}
           {channel === "pan115" && (
-            <div className="rounded-2xl p-3 space-y-2.5" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={bindFixedLink}
-                  onChange={(e) => setBindFixedLink(e.target.checked)}
-                  className="mt-0.5 accent-[var(--brand-primary)]"
-                />
-                <span className="min-w-0">
-                  <span className="text-xs font-black flex items-center gap-1" style={{ color: "var(--txt)" }}>
-                    <Link2 className="w-3.5 h-3.5" style={{ color: "var(--brand-primary)" }} />
-                    绑定固定 115 分享链接
-                  </span>
-                  <span className="text-[10px] font-semibold leading-relaxed block mt-0.5" style={{ color: "var(--txt-muted)" }}>
-                    勾选后订阅扫描会固定扫这条分享链接（后端 POST /sources），不靠 TMDB 模糊搜索。需要在上方资源通道先切到 115 来源并展开。
-                  </span>
-                </span>
-              </label>
-
-              {bindFixedLink && (
-                <div>
-                  {pan115ShareLinks.length === 0 ? (
-                    <p className="text-[10px] font-bold px-2 py-1.5 rounded" style={{ background: "rgba(245,158,11,0.12)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.3)" }}>
-                      当前资源通道没有可绑定的 115 分享链接。请先在上方切到 115 来源并确保有分享链接。
-                    </p>
-                  ) : (
-                    <select
-                      value={selectedShareUrl}
-                      onChange={(e) => setSelectedShareUrl(e.target.value)}
-                      className="w-full rounded-xl px-2.5 py-2 text-[10px] font-bold focus:outline-none"
-                      style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }}
+            <div className="space-y-3">
+              <div className="rounded-2xl p-3 space-y-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                <div className="flex flex-wrap gap-2">
+                  {SOURCE_META.map((source) => (
+                    <label
+                      key={source.key}
+                      className="flex cursor-pointer items-start gap-2 rounded-xl px-2.5 py-2"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
                     >
-                      <option value="">请选择一条 115 分享链接…</option>
-                      {pan115ShareLinks.map((l) => (
-                        <option key={l.shareUrl} value={l.shareUrl}>
-                          {(l.name || "未命名") + (l.size ? ` · ${l.size}` : "") + (l.resolution ? ` · ${l.resolution}` : "")}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                      <input
+                        type="checkbox"
+                        checked={selectedSources.includes(source.key)}
+                        onChange={() => toggleSource(source.key)}
+                        className="mt-0.5 accent-[var(--brand-primary)]"
+                      />
+                      <span>
+                        <span className="block text-[10px] font-black" style={{ color: "var(--txt)" }}>{source.label}</span>
+                        <span className="block text-[9px] font-semibold" style={{ color: "var(--txt-muted)" }}>{source.desc}</span>
+                      </span>
+                    </label>
+                  ))}
                 </div>
+
+                {selectedSources.includes("manual") && (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px]">
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>115 分享链接</span>
+                      <input
+                        value={manualShareUrl}
+                        onChange={(event) => {
+                          setManualShareUrl(event.target.value);
+                          setSelectedPan115Key("manual");
+                        }}
+                        placeholder="https://115.com/s/..."
+                        className="w-full rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+                        style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }}
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>提取码</span>
+                      <input
+                        value={manualReceiveCode}
+                        onChange={(event) => setManualReceiveCode(event.target.value)}
+                        className="w-full rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+                        style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }}
+                      />
+                    </label>
+                    <label className="space-y-1 sm:col-span-2">
+                      <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>显示名称</span>
+                      <input
+                        value={manualDisplayName}
+                        onChange={(event) => setManualDisplayName(event.target.value)}
+                        placeholder={title}
+                        className="w-full rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none"
+                        style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }}
+                      />
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-[10px] font-bold sm:col-span-2" style={{ color: "var(--txt-secondary)" }}>
+                      <input type="radio" checked={selectedPan115Key === "manual"} onChange={() => setSelectedPan115Key("manual")} className="accent-[var(--brand-primary)]" />
+                      选这条固定链接作为订阅来源
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1 no-scrollbar">
+                {selectedSources.filter((source) => source !== "manual").map((source) => {
+                  const state = sourceState[source];
+                  const label = SOURCE_META.find((item) => item.key === source)?.label || source;
+                  return (
+                    <div key={source} className="rounded-2xl p-3 space-y-2" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-xs font-black" style={{ color: "var(--txt)" }}>{label}</h3>
+                        {state.loading && <RefreshCw className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--txt-muted)" }} />}
+                      </div>
+                      {state.error && <p className="text-[10px] font-bold" style={{ color: "var(--accent-danger)" }}>{state.error}</p>}
+                      {!state.loading && state.loaded && state.items.length === 0 && !state.error && (
+                        <p className="rounded-xl px-3 py-2 text-[10px] font-semibold" style={{ color: "var(--txt-muted)", background: "var(--surface-subtle)", border: "1px dashed var(--border)" }}>暂无资源</p>
+                      )}
+                      {state.items.map((resource) => {
+                        const key = `${resource.sourceKey}:${resource.shareUrl || resource.url}`;
+                        const lockedHdhive = Boolean(resource.slug && !resource.unlocked);
+                        const busy = transferringKey === key;
+                        return (
+                          <div key={key} className="rounded-xl p-2.5 space-y-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                            <div className="flex items-start gap-2">
+                              <input
+                                type="radio"
+                                className="mt-1 accent-[var(--brand-primary)]"
+                                checked={selectedPan115Key === key}
+                                disabled={lockedHdhive}
+                                onChange={() => setSelectedPan115Key(key)}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="break-all text-xs font-bold leading-snug" style={{ color: "var(--txt)" }}>{resource.name}</p>
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  <span className="rounded px-1.5 py-0.5 text-[8px] font-bold" style={{ background: "var(--surface)", color: "var(--txt-secondary)" }}>{resource.size}</span>
+                                  {resource.resolution && <span className="rounded px-1.5 py-0.5 text-[8px] font-bold" style={{ background: "rgba(99,102,241,0.14)", color: "var(--accent-info)" }}>{resource.resolution}</span>}
+                                  {resource.slug && <span className="rounded px-1.5 py-0.5 text-[8px] font-bold" style={resource.unlocked ? { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" } : { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" }}>{resource.unlocked ? "已解锁" : "待解锁"}</span>}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-1.5">
+                              {resource.slug && !resource.unlocked && (
+                                <button type="button" disabled={unlockingSlug === resource.slug} onClick={() => void handleUnlock(resource)} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black text-white disabled:opacity-50" style={{ background: "var(--accent-warn)" }}>
+                                  {unlockingSlug === resource.slug ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Shield className="h-3 w-3" />}
+                                  解锁
+                                </button>
+                              )}
+                              <button type="button" disabled={busy || lockedHdhive || !resource.shareUrl} onClick={() => void handleTransfer(resource)} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black text-white disabled:opacity-50" style={{ background: "var(--brand-primary)" }}>
+                                {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                                转存到 115
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {channel === "pt" && (
+            <div className="rounded-2xl p-3 space-y-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-black" style={{ color: "var(--txt)" }}>MoviePilot 种子</h3>
+                <button type="button" onClick={() => { setPtLoaded(false); setPtItems([]); void fetchPtItems(true); }} disabled={ptLoading} className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-black glass-hover disabled:opacity-50" style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+                  <RefreshCw className={`h-3.5 w-3.5 ${ptLoading ? "animate-spin" : ""}`} />
+                  刷新
+                </button>
+              </div>
+              {ptError && <p className="text-[10px] font-bold" style={{ color: "var(--accent-danger)" }}>{ptError}</p>}
+              {ptLoading ? (
+                <div className="py-8 text-center">
+                  <RefreshCw className="mx-auto h-5 w-5 animate-spin" style={{ color: "var(--txt-muted)" }} />
+                  <p className="mt-2 text-[10px] font-semibold" style={{ color: "var(--txt-muted)" }}>搜索 MoviePilot...</p>
+                </div>
+              ) : ptItems.length === 0 ? (
+                <p className="rounded-xl px-3 py-4 text-center text-[10px] font-semibold" style={{ color: "var(--txt-muted)", background: "var(--surface)", border: "1px dashed var(--border)" }}>暂无种子；不选择种子时可创建 TMDB 订阅</p>
+              ) : (
+                <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1 no-scrollbar">
+                  {ptItems.map((item) => (
+                    <div key={item.key} className="rounded-xl p-2.5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                      <label className="flex cursor-pointer items-start gap-2">
+                        <input type="radio" checked={selectedPtKey === item.key} onChange={() => setSelectedPtKey(item.key)} className="mt-1 accent-[var(--brand-primary)]" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block break-all text-xs font-bold leading-snug" style={{ color: "var(--txt)" }}>{item.title}</span>
+                          <span className="mt-1 flex flex-wrap gap-1">
+                            <span className="rounded px-1.5 py-0.5 text-[8px] font-bold" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{item.site}</span>
+                            <span className="rounded px-1.5 py-0.5 text-[8px] font-bold" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>{item.size}</span>
+                            {item.seeders != null && <span className="rounded px-1.5 py-0.5 text-[8px] font-bold" style={{ background: "rgba(34,197,94,0.14)", color: "var(--accent-ok)" }}>做种 {item.seeders}</span>}
+                            {item.freeLabel && <span className="rounded px-1.5 py-0.5 text-[8px] font-bold" style={{ background: "rgba(245,158,11,0.14)", color: "var(--accent-warn)" }}>{item.freeLabel}</span>}
+                            {item.pubdate && <span className="rounded px-1.5 py-0.5 text-[8px] font-bold" style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)" }}>{item.pubdate}</span>}
+                          </span>
+                        </span>
+                      </label>
+                      {item.pageUrl && (
+                        <div className="mt-2 flex justify-end">
+                          <a href={item.pageUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black glass-hover" style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
+                            <ExternalLink className="h-3 w-3" />
+                            详情页
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {selectedPtKey && (
+                <button type="button" onClick={() => setSelectedPtKey("")} className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>
+                  清除种子选择，改为创建 TMDB 订阅
+                </button>
               )}
             </div>
           )}
 
-          {/* TV 订阅范围 */}
-          {mediaType === "tv" && channel !== "quark" && (
+          {mediaType === "tv" && channel === "pan115" && (
             <div className="rounded-2xl p-3 space-y-2.5" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-1.5">
-                <Tv className="w-3.5 h-3.5" style={{ color: "var(--brand-primary)" }} />
+                <Tv className="h-3.5 w-3.5" style={{ color: "var(--brand-primary)" }} />
                 <span className="text-xs font-black" style={{ color: "var(--txt)" }}>TV 订阅范围</span>
               </div>
-              <div className="flex gap-1.5">
-                {([
-                  { key: "all", label: "全季" },
-                  { key: "season", label: "指定季" },
-                  { key: "episode", label: "集段" },
-                ] as const).map((opt) => (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    onClick={() => setTvScope(opt.key)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${
-                      tvScope === opt.key ? "text-white" : "glass-hover"
-                    }`}
-                    style={tvScope === opt.key
-                      ? { background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }
-                      : { background: "var(--surface)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-                  >
+              <div className="flex flex-wrap gap-1.5">
+                {([{ key: "all", label: "全季" }, { key: "season", label: "指定季" }, { key: "episode", label: "集段" }] as const).map((opt) => (
+                  <button key={opt.key} type="button" onClick={() => { setTvScope(opt.key); resetLoadedPan115Resources(); }} className={`rounded-lg px-3 py-1.5 text-[10px] font-black transition-all ${tvScope === opt.key ? "" : "glass-hover"}`} style={tvScope === opt.key ? { background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" } : { background: "var(--surface)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
                     {opt.label}
                   </button>
                 ))}
               </div>
-
               {tvScope !== "all" && (
                 <div className="grid grid-cols-3 gap-2">
                   <label className="space-y-1">
-                    <span className="text-[10px] font-bold block" style={{ color: "var(--txt-muted)" }}>季号</span>
-                    <select
-                      value={tvSeasonNumber}
-                      onChange={(e) => setTvSeasonNumber(Number(e.target.value))}
-                      className="w-full rounded-xl px-2 py-1.5 text-[10px] font-bold focus:outline-none"
-                      style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }}
-                    >
+                    <span className="block text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>季号</span>
+                    <select value={tvSeasonNumber} onChange={(event) => { setTvSeasonNumber(Number(event.target.value)); resetLoadedPan115Resources(); }} className="w-full rounded-xl px-2 py-1.5 text-[10px] font-bold focus:outline-none" style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }}>
                       {seasons.filter((s) => s.season_number > 0).map((s) => (
-                        <option key={s.season_number} value={s.season_number}>
-                          S{s.season_number} ({s.episode_count || "?"}集)
-                        </option>
+                        <option key={s.season_number} value={s.season_number}>S{s.season_number} ({s.episode_count || "?"}集)</option>
                       ))}
                     </select>
                   </label>
                   {tvScope === "episode" && (
                     <>
                       <label className="space-y-1">
-                        <span className="text-[10px] font-bold block" style={{ color: "var(--txt-muted)" }}>起始集</span>
-                        <input
-                          type="number"
-                          min={1}
-                          value={tvEpisodeStart}
-                          onChange={(e) => setTvEpisodeStart(e.target.value === "" ? "" : Number(e.target.value))}
-                          placeholder="如 1"
-                          className="w-full rounded-xl px-2 py-1.5 text-[10px] font-bold focus:outline-none"
-                          style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }}
-                        />
+                        <span className="block text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>起始集</span>
+                        <input type="number" min={1} value={tvEpisodeStart} onChange={(event) => setTvEpisodeStart(event.target.value === "" ? "" : Number(event.target.value))} className="w-full rounded-xl px-2 py-1.5 text-[10px] font-bold focus:outline-none" style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }} />
                       </label>
                       <label className="space-y-1">
-                        <span className="text-[10px] font-bold block" style={{ color: "var(--txt-muted)" }}>结束集</span>
-                        <input
-                          type="number"
-                          min={1}
-                          value={tvEpisodeEnd}
-                          onChange={(e) => setTvEpisodeEnd(e.target.value === "" ? "" : Number(e.target.value))}
-                          placeholder="如 12"
-                          className="w-full rounded-xl px-2 py-1.5 text-[10px] font-bold focus:outline-none"
-                          style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }}
-                        />
+                        <span className="block text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>结束集</span>
+                        <input type="number" min={1} value={tvEpisodeEnd} onChange={(event) => setTvEpisodeEnd(event.target.value === "" ? "" : Number(event.target.value))} className="w-full rounded-xl px-2 py-1.5 text-[10px] font-bold focus:outline-none" style={{ color: "var(--txt)", background: "var(--surface)", border: "1px solid var(--border)" }} />
                       </label>
                     </>
                   )}
                 </div>
               )}
-              <p className="text-[9px] font-semibold" style={{ color: "var(--txt-muted)" }}>
-                不选「全季」即精确订阅某季/某集段；后端按 tv_scope/tv_season_number/tv_episode_* 处理。
-              </p>
             </div>
           )}
 
-          {/* PT 改写 provider 提示 */}
-          {channel === "pt" && isPan115Subscribed && (
-            <div className="rounded-2xl p-2.5 flex gap-2 items-start" style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.3)" }}>
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--accent-warn)" }} />
-              <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--accent-warn)" }}>
-                已有 115 自动搜索订阅。创建 PT 订阅会让后端把同一 TMDB 订阅改写为 MoviePilot 归属，本系统 115 自动扫描将不再处理它。提交时仍会再次确认。
-              </p>
+          {channel === "quark" && (
+            <div className="rounded-2xl p-3 text-[10px] font-semibold" style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)" }}>
+              夸克订阅暂未接入。夸克分享转存仍在 115 网盘页的分享链接转存中处理。
             </div>
           )}
 
-          {/* 信息/错误提示 */}
+          <div className="rounded-2xl p-3" style={{ background: "var(--brand-primary-bg-alpha)", border: "1px solid var(--brand-primary-border-alpha)" }}>
+            <div className="flex items-start gap-2">
+              <Shield className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--brand-primary)" }} />
+              <div className="min-w-0 space-y-1 text-[10px] font-bold">
+                <p style={{ color: "var(--brand-primary)" }}>115 转存目标：{pan115DefaultFolderName || "根目录（未配置）"}</p>
+                <p style={{ color: "var(--txt-muted)" }}>夸克转存目标：{quarkDefaultFolderName || "根目录（未配置）"}</p>
+              </div>
+            </div>
+          </div>
+
           {info && (
-            <div className="rounded-2xl p-2.5 flex gap-2 items-start" style={{ background: "rgba(99,102,241,0.10)", border: "1px solid rgba(99,102,241,0.3)" }}>
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--accent-info)" }} />
-              <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--accent-info)" }}>{info}</p>
+            <div className="rounded-2xl p-2.5 text-[10px] font-semibold" style={{ background: "rgba(99,102,241,0.10)", color: "var(--accent-info)", border: "1px solid rgba(99,102,241,0.3)" }}>
+              {info}
             </div>
           )}
           {error && (
-            <div className="rounded-2xl p-2.5 flex gap-2 items-start" style={{ background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.3)" }}>
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--accent-danger)" }} />
+            <div className="flex items-start gap-2 rounded-2xl p-2.5" style={{ background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.3)" }}>
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--accent-danger)" }} />
               <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--accent-danger)" }}>{error}</p>
             </div>
           )}
 
-          {/* 提交 */}
           <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="px-4 py-2 rounded-xl text-xs font-black transition-all glass-hover disabled:opacity-50"
-              style={{ color: "var(--txt-secondary)", background: "var(--surface)", border: "1px solid var(--border)" }}
-            >
+            <button type="button" onClick={onClose} disabled={submitting} className="rounded-xl px-4 py-2 text-xs font-black glass-hover disabled:opacity-50" style={{ color: "var(--txt-secondary)", background: "var(--surface)", border: "1px solid var(--border)" }}>
               关闭
             </button>
             <button
               type="button"
-              onClick={handleSubmit}
-              disabled={submitting || channel === "quark" || (channel === "pan115" && isPan115Subscribed) || (channel === "pt" && isPtSubscribed)}
-              className="px-5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+              onClick={() => void handleSubmit()}
+              disabled={submitting || channel === "quark" || (channel === "pan115" && isPan115Subscribed) || (channel === "pt" && isPtSubscribed && !selectedPtItem)}
+              className="flex items-center gap-1.5 rounded-xl px-5 py-2 text-xs font-black transition-all active:scale-95 disabled:opacity-50"
               style={{ background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }}
             >
-              {submitting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : (channel === "pt" ? <Download className="w-3.5 h-3.5" /> : <Rss className="w-3.5 h-3.5" />)}
-              {channel === "pt" ? "创建 PT 订阅" : channel === "quark" ? "暂未接入" : isPan115Subscribed ? "已订阅 115" : "创建 115 订阅"}
+              {submitting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : (channel === "pt" ? <Download className="h-3.5 w-3.5" /> : <Rss className="h-3.5 w-3.5" />)}
+              {submitLabel}
             </button>
           </div>
         </motion.div>

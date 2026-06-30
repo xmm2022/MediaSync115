@@ -2369,6 +2369,69 @@ async def get_movie(tmdb_id: int):
         raise HTTPException(status_code=502, detail=f"TMDB 详情获取失败: {str(exc)}")
 
 
+@router.get("/{media_type}/{tmdb_id}/recommendations")
+async def get_tmdb_recommendations(
+    media_type: str,
+    tmdb_id: int,
+    page: int = Query(1, ge=1),
+):
+    """获取 TMDB 相似推荐，返回结构对齐前端探索卡片。"""
+    normalized_type = str(media_type or "").strip().lower()
+    if normalized_type not in {"movie", "tv"}:
+        raise HTTPException(status_code=400, detail="media_type must be movie or tv")
+    try:
+        payload = await tmdb_service.get_recommendations(
+            normalized_type, int(tmdb_id), page=page
+        )
+        raw_items = (
+            payload.get("results") if isinstance(payload.get("results"), list) else []
+        )
+        items: list[dict[str, Any]] = []
+        for index, raw in enumerate(raw_items, start=1):
+            if not isinstance(raw, dict):
+                continue
+            title = str(raw.get("title") or raw.get("name") or "").strip()
+            release_date = str(raw.get("release_date") or "").strip()
+            first_air_date = str(raw.get("first_air_date") or "").strip()
+            year = (release_date or first_air_date)[:4]
+            poster_path = str(raw.get("poster_path") or "").strip()
+            items.append(
+                {
+                    "rank": index,
+                    "id": raw.get("id"),
+                    "tmdb_id": raw.get("id"),
+                    "media_type": normalized_type,
+                    "title": title,
+                    "name": title,
+                    "overview": raw.get("overview") or "",
+                    "intro": raw.get("overview") or "",
+                    "poster_path": poster_path,
+                    "poster_url": (
+                        f"https://image.tmdb.org/t/p/w342{poster_path}"
+                        if poster_path
+                        else ""
+                    ),
+                    "vote_average": raw.get("vote_average"),
+                    "rating": raw.get("vote_average"),
+                    "release_date": release_date,
+                    "first_air_date": first_air_date,
+                    "year": year,
+                    "source_service": "tmdb",
+                }
+            )
+        return {
+            "items": items,
+            "results": items,
+            "page": payload.get("page") or page,
+            "total_pages": payload.get("total_pages") or (1 if items else 0),
+            "total_results": payload.get("total_results") or len(items),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 def _build_pan115_response(
     tmdb_id: int,
     media_type: str,

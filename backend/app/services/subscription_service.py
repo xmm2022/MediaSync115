@@ -662,6 +662,34 @@ class SubscriptionService:
                             async with result_lock:
                                 result["auto_saved_count"] += fixed_saved
                                 result["auto_failed_count"] += fixed_failed
+                            if sub.media_type == MediaType.MOVIE and fixed_saved > 0:
+                                await self._delete_subscription_with_records(inner_db, sub_id)
+                                await operation_log_service.log_background_event(
+                                    source_type="background_task",
+                                    module="subscriptions",
+                                    action="subscription.item.cleanup_after_fixed_source",
+                                    status="success",
+                                    message=f"[{sub_title}] 电影固定来源转存完成，自动删除订阅",
+                                    trace_id=run_id,
+                                    extra={
+                                        "subscription_id": sub_id,
+                                        "title": sub_title,
+                                        "reason": "movie_fixed_source_transferred",
+                                    },
+                                )
+                                await self._create_step_log(
+                                    inner_db,
+                                    run_id=run_id,
+                                    channel=normalized_channel,
+                                    subscription_id=sub_id,
+                                    subscription_title=sub_title,
+                                    step="subscription_cleanup_movie_fixed_source",
+                                    status="success",
+                                    message="电影固定来源转存完成，订阅已自动清理",
+                                    payload={"fixed_saved": fixed_saved},
+                                )
+                                async with result_lock:
+                                    self._apply_cleanup_stats(result, sub.media_type)
 
                         await self._create_step_log(
                             inner_db,
@@ -2890,8 +2918,10 @@ class SubscriptionService:
         *,
         force_auto_download: bool = False,
     ) -> bool:
-        return sub.media_type == MediaType.TV and sub.tmdb_id is not None and (
-            bool(sub.auto_download) or bool(force_auto_download)
+        return (
+            sub.media_type in {MediaType.MOVIE, MediaType.TV}
+            and sub.tmdb_id is not None
+            and (bool(sub.auto_download) or bool(force_auto_download))
         )
 
     async def _scan_fixed_sources_for_subscription(
@@ -2925,43 +2955,45 @@ class SubscriptionService:
         parent_folder_id = str(default_folder.get("folder_id") or "0")
         quality_filter = self._resolve_subscription_quality_filter(sub)
 
-        tv_missing_result = tv_missing_snapshot
-        if tv_missing_result is None:
-            tv_missing_result = await tv_missing_service.get_tv_missing_status(
-                sub.tmdb_id,
-                include_specials=bool(sub.tv_include_specials),
-                season_number=sub.tv_season_number
-                if sub.tv_scope in {"season", "episode_range"}
-                else None,
-                episode_start=sub.tv_episode_start
-                if sub.tv_scope == "episode_range"
-                else None,
-                episode_end=sub.tv_episode_end
-                if sub.tv_scope == "episode_range"
-                else None,
-                aired_only=sub.tv_follow_mode == "new",
-            )
-        if str(tv_missing_result.get("status") or "") != "ok":
-            await self._create_step_log(
-                db,
-                run_id=run_id,
-                channel=channel,
-                subscription_id=sub.id,
-                subscription_title=sub.title,
-                step="fixed_source_missing_status_unavailable",
-                status="warning",
-                message=(
-                    "固定来源跳过：缺集状态不可用"
-                    f"（{tv_missing_result.get('message') or '未知错误'}）"
-                ),
-            )
-            return {"saved": 0, "failed": 0, "checked": len(sources)}
+        missing_episodes: set[tuple[int, int]] = set()
+        if sub.media_type == MediaType.TV:
+            tv_missing_result = tv_missing_snapshot
+            if tv_missing_result is None:
+                tv_missing_result = await tv_missing_service.get_tv_missing_status(
+                    sub.tmdb_id,
+                    include_specials=bool(sub.tv_include_specials),
+                    season_number=sub.tv_season_number
+                    if sub.tv_scope in {"season", "episode_range"}
+                    else None,
+                    episode_start=sub.tv_episode_start
+                    if sub.tv_scope == "episode_range"
+                    else None,
+                    episode_end=sub.tv_episode_end
+                    if sub.tv_scope == "episode_range"
+                    else None,
+                    aired_only=sub.tv_follow_mode == "new",
+                )
+            if str(tv_missing_result.get("status") or "") != "ok":
+                await self._create_step_log(
+                    db,
+                    run_id=run_id,
+                    channel=channel,
+                    subscription_id=sub.id,
+                    subscription_title=sub.title,
+                    step="fixed_source_missing_status_unavailable",
+                    status="warning",
+                    message=(
+                        "固定来源跳过：缺集状态不可用"
+                        f"（{tv_missing_result.get('message') or '未知错误'}）"
+                    ),
+                )
+                return {"saved": 0, "failed": 0, "checked": len(sources)}
 
-        missing_episodes = {
-            (int(pair[0]), int(pair[1]))
-            for pair in (tv_missing_result.get("missing_episodes") or [])
-            if isinstance(pair, (list, tuple)) and len(pair) == 2
-        }
+            missing_episodes = {
+                (int(pair[0]), int(pair[1]))
+                for pair in (tv_missing_result.get("missing_episodes") or [])
+                if isinstance(pair, (list, tuple)) and len(pair) == 2
+            }
 
         saved = 0
         failed = 0

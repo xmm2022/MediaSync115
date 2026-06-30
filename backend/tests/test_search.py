@@ -105,3 +105,42 @@ class TestSearch:
 
         assert response.status_code == 502
         assert "Couldn't connect to the backend server" in response.json()["detail"]
+
+    def test_tmdb_recommendations_maps_items(self, client: TestClient, monkeypatch) -> None:
+        from app.api import search as search_api
+
+        async def fake_get_recommendations(media_type: str, tmdb_id: int, page: int = 1):
+            assert media_type == "movie"
+            assert tmdb_id == 438631
+            assert page == 2
+            return {
+                "page": 2,
+                "total_pages": 5,
+                "total_results": 1,
+                "results": [
+                    {
+                        "id": 11,
+                        "title": "Dune: Part Two",
+                        "poster_path": "/poster.jpg",
+                        "vote_average": 8.2,
+                        "release_date": "2024-03-01",
+                        "overview": "Arrakis continues.",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(
+            search_api.tmdb_service,
+            "get_recommendations",
+            fake_get_recommendations,
+        )
+
+        response = client.get("/api/search/movie/438631/recommendations?page=2")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["page"] == 2
+        assert data["total_pages"] == 5
+        assert data["items"][0]["tmdb_id"] == 11
+        assert data["items"][0]["media_type"] == "movie"
+        assert data["items"][0]["poster_url"].endswith("/poster.jpg")
