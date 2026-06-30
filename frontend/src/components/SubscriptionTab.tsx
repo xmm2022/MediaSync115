@@ -453,15 +453,15 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   };
 
   return (
-    <div id="subscription-tab-container" className="space-y-6">
+    <div id="subscription-tab-container" className="liquid-page space-y-6">
 
       {/* Error banner */}
       {errorMessage && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl px-5 py-3 flex items-center gap-2.5"
-          style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "var(--accent-danger)" } as React.CSSProperties}
+          className="glass-heavy glass-iridescent rounded-2xl px-5 py-3 flex items-center gap-2.5"
+          style={{ border: "1px solid rgba(239,68,68,0.3)", color: "var(--accent-danger)" } as React.CSSProperties}
         >
           <AlertCircle className="w-4 h-4 shrink-0" style={{ color: "var(--accent-danger)" } as React.CSSProperties} />
           <span className="text-xs font-bold" style={{ color: "var(--accent-danger)" } as React.CSSProperties}>{errorMessage}</span>
@@ -476,7 +476,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
       )}
 
       {/* Subscription Banner Title */}
-      <div className="glass-heavy rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" } as React.CSSProperties}>
             <Rss className="w-6.5 h-6.5" style={{ color: "var(--brand-primary)" } as React.CSSProperties} />
@@ -489,7 +489,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
 
         <div className="flex flex-col sm:flex-row gap-2 shrink-0">
           {/* 频道扫描按钮 */}
-          <div className="flex gap-1">
+          <div className="liquid-segmented flex gap-1">
             {(["hdhive", "pansou", "tg"] as const).map(ch => (
               <button
                 key={ch}
@@ -541,7 +541,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
       </div>
 
       {/* 缺集总览：GET /api/subscriptions/missing-status/tv */}
-      <div className="glass rounded-3xl p-5">
+      <div className="liquid-panel glass rounded-3xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
             <AlertCircle className="w-4 h-4 text-amber-500" />
@@ -596,7 +596,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <form onSubmit={handleAddSubscription} className="glass glass-hover rounded-3xl p-5 space-y-4 transition-all">
+            <form onSubmit={handleAddSubscription} className="liquid-panel glass glass-hover rounded-3xl p-5 space-y-4 transition-all">
               <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
                 <Workflow className="w-4 h-4 text-brand-primary" />
                 <span>创建新订阅</span>

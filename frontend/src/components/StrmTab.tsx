@@ -149,20 +149,24 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <RefreshCw className="w-6 h-6 animate-spin" style={{ color: "var(--brand-primary)" }} />
+      <div className="liquid-page flex items-center justify-center py-20">
+        <div className="glass-heavy glass-iridescent rounded-3xl p-10">
+          <RefreshCw className="w-6 h-6 animate-spin" style={{ color: "var(--brand-primary)" }} />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="liquid-page space-y-6">
       {error && (
-        <ErrorBanner message={error} onRetry={() => load()} onDismiss={() => setError(null)} />
+        <div className="glass-heavy glass-iridescent rounded-3xl p-4">
+          <ErrorBanner message={error} onRetry={() => load()} onDismiss={() => setError(null)} />
+        </div>
       )}
 
       {/* 标题 */}
-      <div className="glass-heavy rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
             <Film className="w-6.5 h-6.5" style={{ color: "var(--brand-primary)" }} />
@@ -195,7 +199,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
 
       {/* 运行时状态 */}
       {config?.runtime && (
-        <div className="glass rounded-3xl p-4">
+        <div className="liquid-panel glass rounded-3xl p-4">
           <h3 className="text-sm font-black flex items-center gap-2 mb-3" style={{ color: "var(--txt)" }}>
             <Settings2 className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
             <span>运行时状态</span>
@@ -212,7 +216,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
       )}
 
       {/* 配置表单 */}
-      <div className="glass rounded-3xl p-5 space-y-4">
+      <div className="liquid-panel glass rounded-3xl p-5 space-y-4">
         <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
           <Settings2 className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
           <span>STRM 配置</span>
@@ -276,7 +280,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
       </div>
 
       {/* 归档入口 */}
-      <div className="glass rounded-3xl p-5 space-y-3">
+      <div className="liquid-panel glass rounded-3xl p-5 space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Folder className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
@@ -307,7 +311,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
 
       {/* 诊断结果 */}
       {diagnose != null && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-3xl p-5 space-y-2">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="liquid-panel glass rounded-3xl p-5 space-y-2">
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <ScanLine className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
             <span>诊断结果</span>

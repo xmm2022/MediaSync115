@@ -1,5 +1,5 @@
 /**
- * 主题切换 hook —— 持久化到 localStorage，默认深色玻璃拟态。
+ * 主题切换 hook —— 持久化到 localStorage，默认明亮液态玻璃。
  * 切换会在 <html data-theme> 上挂 'dark' | 'light'，index.css 据此重渲全部主题 token。
  */
 import { useEffect, useState } from "react";

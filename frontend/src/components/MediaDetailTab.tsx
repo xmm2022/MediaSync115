@@ -521,7 +521,7 @@ export default function MediaDetailTab({
   const bKey = buildBadgeKey(mediaType, tmdbId);
 
   return (
-    <div className="space-y-6">
+    <div className="liquid-page space-y-6">
       <Pan115Progress state={progress} onClose={() => setProgress(deriveDefaultProgressState())} />
 
       {/* Back button */}
@@ -535,18 +535,18 @@ export default function MediaDetailTab({
       </button>
 
       {loading ? (
-        <div className="glass-heavy rounded-3xl p-12 text-center">
+        <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-12 text-center">
           <div className="w-8 h-8 border-4 rounded-full animate-spin mx-auto" style={{ borderColor: "var(--brand-primary)", borderTopColor: "transparent" }} />
           <p className="text-xs font-bold mt-3" style={{ color: "var(--txt-muted)" }}>加载详情中…</p>
         </div>
       ) : error ? (
-        <div className="glass-heavy rounded-3xl p-8 text-center">
+        <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-8 text-center">
           <ErrorBanner variant="block" message={error} onRetry={() => loadDetail()} />
         </div>
       ) : (
         <>
           {/* ====== HEADER ====== */}
-          <div className="glass-heavy rounded-3xl p-6">
+          <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6">
             <div className="flex flex-col md:flex-row gap-6">
               {/* Poster */}
               <div className="w-40 h-60 md:w-48 md:h-72 rounded-2xl overflow-hidden shrink-0 mx-auto md:mx-0"
@@ -634,7 +634,7 @@ export default function MediaDetailTab({
 
           {/* ====== 演员表（简略） ====== */}
           {cast.length > 0 && (
-            <div className="glass rounded-2xl p-4">
+            <div className="liquid-panel glass rounded-2xl p-4">
               <button
                 onClick={() => setShowFullCast(!showFullCast)}
                 className="flex items-center gap-2 w-full text-left text-xs font-black"
@@ -663,7 +663,7 @@ export default function MediaDetailTab({
 
           {/* ====== TV Season Selector ====== */}
           {mediaType === "tv" && seasons.length > 0 && (
-            <div className="glass rounded-2xl p-4 space-y-3">
+            <div className="liquid-panel glass rounded-2xl p-4 space-y-3">
               <h3 className="text-xs font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
                 <Tv className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
                 季选择
@@ -715,7 +715,7 @@ export default function MediaDetailTab({
           )}
 
           {/* ====== 资源通道 ====== */}
-          <div className="glass-heavy rounded-3xl p-5 space-y-4">
+          <div className="liquid-panel glass-heavy glass-iridescent rounded-3xl p-5 space-y-4">
             <div className="flex items-center gap-2">
               <Download className="w-5 h-5" style={{ color: "var(--brand-primary)" }} />
               <h3 className="font-headline text-lg font-black" style={{ color: "var(--txt)" }}>资源通道</h3>

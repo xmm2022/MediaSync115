@@ -634,12 +634,12 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   const completedCount = offlineTasks.filter(t => t.status === 2).length;
 
   return (
-    <div id="pan115-files-tab" className="space-y-6">
+    <div id="pan115-files-tab" className="liquid-page space-y-6">
       {/* ====== 转存/解锁进度弹窗 ====== */}
       <Pan115Progress state={progress} onClose={() => setProgress(deriveDefaultProgressState())} />
 
       {/* ====== 标题横幅 ====== */}
-      <div className="glass-heavy rounded-3xl p-6">
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6">
         <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
           <Layers className="w-6 h-6" style={{ color: "var(--brand-primary)" }} />
           <span>115 网盘管理</span>
@@ -652,7 +652,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       {/* ====== 状态概览卡片 ====== */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Cookie 状态 + QR 登录 */}
-        <div className="glass rounded-2xl p-4 space-y-2">
+        <div className="liquid-stat-card glass rounded-2xl p-4 space-y-2">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4" style={{ color: cookieStatus?.valid ? "var(--accent-ok)" : "var(--accent-danger)" }} />
             <span className="text-xs font-black" style={{ color: "var(--txt)" }}>Cookie 状态</span>
@@ -700,7 +700,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
         </div>
 
         {/* 用户信息 */}
-        <div className="glass rounded-2xl p-4 space-y-2">
+        <div className="liquid-stat-card glass rounded-2xl p-4 space-y-2">
           <div className="flex items-center gap-2">
             <User className="w-4 h-4" style={{ color: "var(--txt-secondary)" }} />
             <span className="text-xs font-black" style={{ color: "var(--txt)" }}>用户信息</span>
@@ -723,7 +723,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
         </div>
 
         {/* 离线配额 */}
-        <div className="glass rounded-2xl p-4 space-y-2">
+        <div className="liquid-stat-card glass rounded-2xl p-4 space-y-2">
           <div className="flex items-center gap-2">
             <Download className="w-4 h-4" style={{ color: "var(--accent-info)" }} />
             <span className="text-xs font-black" style={{ color: "var(--txt)" }}>离线配额</span>
@@ -756,7 +756,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
         </div>
 
         {/* 风控健康 */}
-        <div className="glass rounded-2xl p-4 space-y-2">
+        <div className="liquid-stat-card glass rounded-2xl p-4 space-y-2">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4" style={{ color: riskDisplay.color }} />
             <span className="text-xs font-black" style={{ color: "var(--txt)" }}>风控状态</span>
@@ -779,7 +779,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* ====== 左侧：文件浏览器 ====== */}
         <div className="lg:col-span-3 space-y-4">
-          <div className="glass-heavy rounded-2xl p-4 space-y-4">
+          <div className="liquid-panel glass-heavy glass-iridescent rounded-2xl p-4 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
                 <FolderOpen className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
@@ -1024,7 +1024,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
         {/* ====== 右侧：离线下载 + 默认文件夹 ====== */}
         <div className="lg:col-span-2 space-y-4">
           {/* 离线下载管理 */}
-          <div className="glass-heavy rounded-2xl p-4 space-y-4">
+          <div className="liquid-panel glass-heavy glass-iridescent rounded-2xl p-4 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
                 <Download className="w-4 h-4" style={{ color: "var(--accent-info)" }} />

@@ -18,7 +18,6 @@ const sDangerSoft: CSSProperties = { background: "rgba(239,68,68,0.12)", color: 
 const sOkBadge: CSSProperties = { background: "rgba(34,197,94,0.16)", color: "var(--accent-ok)" };
 const sWarnBadge: CSSProperties = { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" };
 const sInput: CSSProperties = { background: "var(--bg-elev)", color: "var(--txt)", border: "1px solid var(--border)" };
-const sModal: CSSProperties = { background: "var(--bg-elev)", border: "1px solid var(--border-strong)" };
 
 function formatSchedulerJobTime(value?: string | null) {
   if (!value) return "未排期";
@@ -87,12 +86,14 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
   };
 
   return (
-    <div className="space-y-6">
+    <div className="liquid-page space-y-6">
       {error && (
-        <ErrorBanner icon={null} message={error} onRetry={() => load()} retrying={loading} onDismiss={() => setError(null)} />
+        <div className="glass-heavy glass-iridescent rounded-3xl p-4">
+          <ErrorBanner icon={null} message={error} onRetry={() => load()} retrying={loading} onDismiss={() => setError(null)} />
+        </div>
       )}
 
-      <div className="glass-heavy rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color:"var(--txt)" }}>
             <Clock className="w-6.5 h-6.5" style={{ color:"var(--accent-info)" }} />
@@ -116,7 +117,7 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
       </div>
 
       {/* Job Keys / Jobs 概览 */}
-      <div className="glass rounded-3xl p-5">
+      <div className="liquid-panel glass rounded-3xl p-5">
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
           <section className="min-w-0">
             <h3 className="text-sm font-black flex items-center gap-2 mb-3" style={{ color:"var(--txt)" }}>
@@ -180,7 +181,7 @@ export default function SchedulerTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS
       </div>
 
       {/* 任务列表 */}
-      <div className="glass rounded-3xl p-5">
+      <div className="liquid-panel glass rounded-3xl p-5">
         <h3 className="text-sm font-black mb-3" style={{ color:"var(--txt)" }}>自定义定时任务 ({tasks.length})</h3>
         {loading ? (
           <p className="text-xs font-semibold" style={{ color:"var(--txt-muted)" }}>加载中…</p>
@@ -310,7 +311,7 @@ function SchedulerForm({
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         onClick={(e) => e.stopPropagation()}
-        className="rounded-2xl p-6 w-full max-w-lg space-y-4" style={sModal}
+        className="glass-heavy glass-iridescent rounded-3xl p-6 w-full max-w-lg space-y-4"
       >
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black" style={{ color:"var(--txt)" }}>{initial ? "编辑定时任务" : "新建定时任务"}</h3>

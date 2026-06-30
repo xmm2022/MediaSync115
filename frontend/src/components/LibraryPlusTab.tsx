@@ -54,8 +54,8 @@ export default function LibraryPlusTab({ addLog }: { addLog: (l: "INFO" | "SUCCE
   const [sub, setSub] = useState<Sub>("watchlist");
 
   return (
-    <div className="space-y-6">
-      <div className="glass-heavy rounded-3xl p-6">
+    <div className="liquid-page space-y-6">
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6">
         <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
           <Bookmark className="w-6.5 h-6.5 text-rose-500" />
           <span>片单 / 影人 / 许可证</span>
@@ -64,7 +64,7 @@ export default function LibraryPlusTab({ addLog }: { addLog: (l: "INFO" | "SUCCE
       </div>
 
       {/* 子标签 */}
-      <div className="flex gap-2">
+      <div className="liquid-toolbar flex flex-wrap gap-2">
         {([
           { k: "watchlist", label: "片单", icon: Bookmark },
           { k: "person", label: "关注影人", icon: Users },
@@ -92,7 +92,7 @@ export default function LibraryPlusTab({ addLog }: { addLog: (l: "INFO" | "SUCCE
 
       {/* 高级工具 (全局) */}
       {sub === "watchlist" && (
-        <div className="glass rounded-2xl p-4 space-y-2">
+        <div className="liquid-panel glass rounded-2xl p-4 space-y-2">
           <p className="text-[10px] font-black" style={{ color:"var(--txt-muted)" }}>高级: 导入/预览</p>
           <div className="flex flex-wrap gap-1.5">
             <button onClick={async () => { try { const r = await watchlistApi.listForStatus(); await addLog("SUCCESS", `状态映射: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}

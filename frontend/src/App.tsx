@@ -353,17 +353,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen font-body flex flex-col md:flex-row relative overflow-x-hidden" style={{ background: "var(--bg)", color: "var(--txt)" }}>
-      {/* Dynamic ambient glassmorphism blur background lights */}
-      <div className="absolute top-[-10%] left-[-10%] w-[45vw] h-[45vw] min-w-[300px] min-h-[300px] rounded-full blur-[100px] pointer-events-none z-0" style={{ background: "radial-gradient(circle at 30% 30%, var(--ambient-1), transparent 70%)" }} />
-      <div className="absolute bottom-[15%] right-[-10%] w-[40vw] h-[40vw] min-w-[280px] min-h-[280px] rounded-full blur-[100px] pointer-events-none z-0" style={{ background: "radial-gradient(circle at 70% 70%, var(--ambient-2), transparent 70%)" }} />
-      <div className="absolute top-[35%] left-[50%] w-[30vw] h-[30vw] min-w-[200px] min-h-[200px] rounded-full blur-[80px] pointer-events-none z-0" style={{ background: "radial-gradient(circle, var(--ambient-3), transparent 70%)" }} />
-
+    <div className="liquid-app-shell min-h-screen font-body flex flex-col md:flex-row relative overflow-x-hidden" style={{ color: "var(--txt)" }}>
       {/* Mobile Backdrop Overlay */}
       {mobileSidebarOpen && (
         <div
           className="fixed inset-0 z-45 md:hidden"
-          style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
+          style={{ background: "rgba(11,8,30,.34)", backdropFilter: "blur(4px)" }}
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
@@ -375,7 +370,7 @@ export default function App() {
         {/* Brand header */}
         <div className="px-6 py-6 border-b flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-brand-primary/10 text-brand-primary flex items-center justify-center font-black shadow-xs">
+            <div className="glass-iridescent w-9 h-9 rounded-xl text-brand-primary flex items-center justify-center font-black shadow-xs">
               <Activity className="w-5 h-5" />
             </div>
             <div>
@@ -391,7 +386,8 @@ export default function App() {
 
           <button
             onClick={() => setMobileSidebarOpen(false)}
-            className="md:hidden p-1.5 hover:bg-gray-50 rounded-lg text-gray-400"
+            className="md:hidden p-1.5 rounded-lg glass-hover"
+            style={{ color: "var(--txt-muted)" }}
           >
             <X className="w-4.5 h-4.5" />
           </button>
@@ -548,7 +544,7 @@ export default function App() {
         </header>
 
         {/* Dynamic Inner Router Views */}
-        <main className="px-4 sm:px-6 py-8 pb-36 md:pb-8 flex-1 w-full max-w-6xl mx-auto">
+        <main className="px-4 sm:px-6 lg:px-8 py-8 pb-36 md:pb-8 flex-1 w-full max-w-none">
           {/* Backend not ready banner */}
           {backendError && (
             <div className="mb-6 p-4 rounded-xl text-sm font-semibold" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "var(--accent-danger)" }}>
@@ -778,7 +774,7 @@ export default function App() {
       </div>
 
       {/* 4. Mobile Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass px-2 py-2 grid grid-cols-5 gap-1 shadow-[0_-8px_32px_rgba(0,0,0,0.04)] pb-safe-bottom">
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass px-2 py-2 grid grid-cols-5 gap-1 shadow-[0_-8px_32px_rgba(17,12,46,0.06)] pb-safe-bottom">
         {[
           { name: PageName.DASHBOARD, label: "主面板", icon: LayoutDashboard },
           { name: PageName.SEARCH, label: "秒传搜索", icon: Search },
@@ -877,7 +873,7 @@ function LoginScreen({
   onSubmit,
 }: LoginScreenProps) {
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 py-10 relative overflow-hidden" style={{ background: "var(--bg)", color: "var(--txt)" }}>
+    <div className="liquid-app-shell min-h-screen flex items-center justify-center px-6 py-10 relative overflow-hidden" style={{ color: "var(--txt)" }}>
       <button
         type="button"
         onClick={onToggleTheme}
@@ -888,12 +884,9 @@ function LoginScreen({
         {theme === "dark" ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
       </button>
 
-      <div className="absolute top-[-10%] left-[-8%] w-[42vw] h-[42vw] min-w-[260px] min-h-[260px] rounded-full blur-[100px] pointer-events-none" style={{ background: "radial-gradient(circle at 30% 30%, var(--ambient-1), transparent 70%)" }} />
-      <div className="absolute bottom-[-12%] right-[-10%] w-[40vw] h-[40vw] min-w-[240px] min-h-[240px] rounded-full blur-[100px] pointer-events-none" style={{ background: "radial-gradient(circle at 70% 70%, var(--ambient-2), transparent 70%)" }} />
-
-      <div className="glass-heavy w-full max-w-sm rounded-2xl p-6 relative z-10">
+      <div className="glass-heavy glass-iridescent w-full max-w-sm rounded-3xl p-6 relative z-10">
         <div className="space-y-2 mb-6">
-          <div className="w-11 h-11 rounded-xl bg-brand-primary/10 text-brand-primary flex items-center justify-center">
+          <div className="glass-iridescent w-11 h-11 rounded-xl text-brand-primary flex items-center justify-center">
             <Activity className="w-5.5 h-5.5" />
           </div>
           <h1 className="font-headline text-2xl font-black tracking-tight" style={{ color: "var(--txt)" }}>MediaSync115</h1>
@@ -958,7 +951,7 @@ function LoginScreen({
             <button
               type="submit"
               disabled={busy || !username.trim() || !password}
-              className="w-full py-3 rounded-xl text-sm font-black bg-brand-primary text-white hover:bg-brand-primary-light disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+              className="btn-brand w-full py-3 rounded-2xl text-sm font-black text-white disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
             >
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
               <span>{busy ? "登录中" : "登录"}</span>

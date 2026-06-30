@@ -148,9 +148,9 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
   }, [activeBoard, fetchBoard]);
 
   return (
-    <div id="explore-tab-container" className="space-y-6">
+    <div id="explore-tab-container" className="liquid-page space-y-6">
       {/* Billboard Hero Banner */}
-      <div className="glass-heavy rounded-3xl p-6 relative overflow-hidden">
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6 relative overflow-hidden">
         <div className="relative z-10">
           <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
             <Trophy className="w-6.5 h-6.5 text-amber-500" />
@@ -166,7 +166,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
       </div>
 
       {/* Toggle Tab Navigation for boards */}
-      <div className="flex" style={{ borderBottom: "1px solid var(--border)" }}>
+      <div className="liquid-toolbar flex flex-wrap gap-1" style={{ borderBottom: "1px solid var(--border)" }}>
         <button
           onClick={() => setActiveBoard("tmdb")}
           className={`px-5 py-3.5 text-xs font-black relative flex items-center gap-2 transition-all ${
@@ -206,7 +206,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
 
       {/* Loading state */}
       {loading && (
-        <div className="flex flex-col items-center justify-center py-20 gap-3" style={{ color: "var(--txt-muted)" }}>
+        <div className="glass-heavy glass-iridescent rounded-3xl flex flex-col items-center justify-center py-20 gap-3" style={{ color: "var(--txt-muted)" }}>
           <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
           <span className="text-xs font-semibold">正在加载榜单数据...</span>
         </div>
@@ -214,7 +214,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
 
       {/* Error state */}
       {!loading && error && (
-        <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <div className="glass-heavy glass-iridescent rounded-3xl flex flex-col items-center justify-center py-20 gap-3">
           <AlertTriangle className="w-8 h-8 text-amber-500" />
           <p className="text-xs font-semibold max-w-md text-center" style={{ color: "var(--txt-secondary)" }}>{error}</p>
           <button
@@ -228,7 +228,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
 
       {/* Empty state (loaded but 0 items) */}
       {!loading && !error && items.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20" style={{ color: "var(--txt-muted)" }}>
+        <div className="glass-heavy glass-iridescent rounded-3xl flex flex-col items-center justify-center py-20" style={{ color: "var(--txt-muted)" }}>
           <EmptyState icon={<Eye className="w-8 h-8" />} text="暂无榜单数据" subtext="该来源暂时没有可展示的内容，请稍后刷新" />
         </div>
       )}
@@ -249,7 +249,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
             return (
               <div
                 key={`${item.id ?? idx}-${idx}`}
-                className="glass glass-hover rounded-2xl p-4 flex gap-4 transition-all relative overflow-hidden"
+                className="liquid-card glass glass-hover rounded-2xl p-4 flex gap-4 transition-all relative overflow-hidden"
               >
                 {/* Rank badge ribbon */}
                 <div
@@ -384,7 +384,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
       )}
 
       {/* Bottom widget */}
-      <div className="glass glass-hover rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="liquid-panel glass glass-hover rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex gap-3 items-center text-left">
           <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface-subtle)", color: "var(--brand-secondary)" }}>
             <BookmarkCheck className="w-5.5 h-5.5" />

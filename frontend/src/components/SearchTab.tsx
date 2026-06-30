@@ -860,12 +860,12 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   };
 
   return (
-    <div id="search-tab-container" className="space-y-6">
+    <div id="search-tab-container" className="liquid-page space-y-6">
       {/* 转存/解锁进度弹窗 */}
       <Pan115Progress state={progress} onClose={() => setProgress(deriveDefaultProgressState())} />
 
       {/* Search Header Banner */}
-      <div className="glass-heavy rounded-3xl p-6">
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6">
         <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
           <Search className="w-6 h-6" style={{ color: "var(--brand-primary)" }} />
           <span>全网磁力 & 云端资源秒传检索</span>
@@ -876,10 +876,10 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
       </div>
 
       {/* Control row */}
-      <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+      <div className="liquid-toolbar flex flex-col md:flex-row gap-4 items-center justify-between">
         {/* Search Bar Input */}
         <div className="w-full md:max-w-md relative">
-          <div className="mb-2 inline-flex rounded-xl p-1" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+          <div className="liquid-segmented mb-2 inline-flex rounded-xl p-1">
             {([
               { key: "media", label: "影视搜索" },
               { key: "direct", label: "资源直搜" },
@@ -1086,7 +1086,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                     ) : (
                       <Film className="w-6 h-6 absolute inset-0 m-auto" style={{ color: "var(--txt-muted)" }} />
                     )}
-                    <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-white text-[8px] font-black uppercase tracking-widest" style={{ background: "rgba(0,0,0,0.65)" }}>
+                    <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-white text-[8px] font-black uppercase tracking-widest" style={{ background: "rgba(11,8,30,.62)" }}>
                       {res.category === "Movie" ? "电影" : res.category === "TV" ? "剧集" : "动漫"}
                     </span>
                   </div>
@@ -1138,7 +1138,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -15 }}
-                className="glass-heavy rounded-3xl p-5 space-y-5 sticky top-28"
+                className="glass-heavy glass-iridescent rounded-3xl p-5 space-y-5 sticky top-28"
               >
                 {/* Header info */}
                 <div className="flex gap-4">
@@ -1382,7 +1382,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                 </div>
               </motion.div>
             ) : (
-              <div className="rounded-3xl p-12 text-center space-y-3 sticky top-28" style={{ background: "var(--surface-subtle)", border: "1px dashed var(--border)" }}>
+              <div className="glass-heavy glass-iridescent rounded-3xl p-12 text-center space-y-3 sticky top-28" style={{ border: "1px dashed var(--border)" }}>
                 <Film className="w-10 h-10 mx-auto" style={{ color: "var(--txt-muted)" }} />
                 <div>
                   <p className="text-sm font-bold" style={{ color: "var(--txt-muted)" }}>请点击左侧影视资源</p>

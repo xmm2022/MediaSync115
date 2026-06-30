@@ -249,41 +249,41 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
   const totalRuns = workflows.reduce((sum, w) => sum + (w.run_count || 0), 0);
 
   return (
-    <div className="space-y-12">
+    <div className="liquid-page space-y-8">
       {/* Header */}
-      <section className="mb-4">
+      <section className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6 md:p-8 mb-4">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="max-w-xl space-y-4">
-            <span className="inline-block px-3 py-1 rounded-full bg-brand-primary-light/15 text-brand-primary font-label text-xs font-bold">
+          <div className="max-w-xl space-y-3">
+            <span className="liquid-kicker">
               WORKFLOW ENGINE
             </span>
-            <h2 className="font-headline text-5xl md:text-6xl font-black tracking-tight leading-none text-txt-dark mb-4">
+            <h2 className="font-headline text-2xl md:text-3xl font-black tracking-tight leading-tight text-txt-dark">
               工作流与触发器
             </h2>
-            <p className="text-[var(--txt-secondary)] text-lg leading-relaxed font-light">
+            <p className="text-[var(--txt-secondary)] text-sm leading-relaxed font-semibold">
               已配置 <span className="font-bold text-brand-primary italic">{workflows.length} 个工作流</span>，
               管理定时任务与事件驱动的自动化操作。
             </p>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             {/* Filter */}
-            <div className="bg-[var(--surface-solid)] p-1 rounded-lg border flex gap-1 text-xs" style={{ borderColor: "var(--border)" }}>
+            <div className="liquid-segmented flex gap-1 text-xs">
               <button
                 onClick={() => setFilterState("all")}
-                className={`px-4 py-2 rounded-md font-bold transition-all ${filterState === "all" ? "bg-brand-primary text-white" : "text-[var(--txt-secondary)] hover:bg-[var(--surface-hover)]"}`}
+                className={`px-4 py-2 rounded-xl font-bold transition-all ${filterState === "all" ? "bg-brand-primary text-white" : "text-[var(--txt-secondary)] hover:bg-[var(--surface-hover)]"}`}
               >
                 全部
               </button>
               <button
                 onClick={() => setFilterState("W")}
-                className={`px-4 py-2 rounded-md font-bold transition-all ${filterState === "W" ? "bg-brand-primary text-white" : "text-[var(--txt-secondary)] hover:bg-[var(--surface-hover)]"}`}
+                className={`px-4 py-2 rounded-xl font-bold transition-all ${filterState === "W" ? "bg-brand-primary text-white" : "text-[var(--txt-secondary)] hover:bg-[var(--surface-hover)]"}`}
               >
                 运行中 ({runningCount})
               </button>
               <button
                 onClick={() => setFilterState("P")}
-                className={`px-4 py-2 rounded-md font-bold transition-all ${filterState === "P" ? "bg-brand-primary text-white" : "text-[var(--txt-secondary)] hover:bg-[var(--surface-hover)]"}`}
+                className={`px-4 py-2 rounded-xl font-bold transition-all ${filterState === "P" ? "bg-brand-primary text-white" : "text-[var(--txt-secondary)] hover:bg-[var(--surface-hover)]"}`}
               >
                 已暂停 ({pausedCount})
               </button>
@@ -291,7 +291,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
 
             <button
               onClick={openCreate}
-              className="px-6 py-3 bg-brand-primary text-white rounded-lg font-bold flex items-center gap-2 transition-all hover:bg-opacity-90 active:scale-95 shadow-md shadow-brand-primary/10"
+              className="px-6 py-3 bg-brand-primary text-white rounded-2xl font-bold flex items-center gap-2 transition-all hover:bg-opacity-90 active:scale-95 shadow-md shadow-brand-primary/10"
             >
               <Plus className="w-4.5 h-4.5" />
               <span>创建工作流</span>
@@ -302,13 +302,13 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
 
       {/* Loading / Error / Empty states */}
       {loading && (
-        <div className="flex items-center justify-center py-20">
+        <div className="glass-heavy glass-iridescent rounded-3xl flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-primary" />
           <span className="ml-3 text-[var(--txt-secondary)] font-semibold">加载中...</span>
         </div>
       )}
       {error && !loading && (
-        <div className="flex flex-col items-center gap-3 py-20">
+        <div className="glass-heavy glass-iridescent rounded-3xl flex flex-col items-center gap-3 py-20">
           <p className="text-red-500 font-semibold">{error}</p>
           <button onClick={reloadWorkflows} className="px-4 py-2 bg-brand-primary text-white rounded-lg text-sm font-bold">
             重试
@@ -316,7 +316,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
         </div>
       )}
       {!loading && !error && workflows.length === 0 && (
-        <div className="flex flex-col items-center gap-4 py-20 text-[var(--txt-muted)]">
+        <div className="glass-heavy glass-iridescent rounded-3xl flex flex-col items-center gap-4 py-20 text-[var(--txt-muted)]">
           <Workflow className="w-12 h-12" />
           <p className="font-semibold">暂无工作流</p>
           <p className="text-sm">点击"创建工作流"配置第一个自动化任务</p>
@@ -336,13 +336,15 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
             return (
               <div
                 key={wf.id}
-                className={`${colSpanClass} glass glass-hover rounded-xl p-8 flex flex-col justify-between min-h-[280px] relative overflow-hidden group transition-all ${
+                className={`${colSpanClass} liquid-card glass glass-hover rounded-3xl p-6 md:p-8 flex flex-col justify-between min-h-[280px] relative overflow-hidden group transition-all ${
                   isActive ? "border-[var(--border)]" : "opacity-80"
                 }`}
               >
-                {/* Background glow */}
                 {isActive && (
-                  <div className="absolute top-0 right-0 w-48 h-48 bg-brand-primary/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none group-hover:scale-125 transition-transform duration-700" />
+                  <div
+                    className="absolute inset-0 opacity-40 pointer-events-none transition-opacity duration-500 group-hover:opacity-60"
+                    style={{ background: "var(--brand-gradient-soft)" }}
+                  />
                 )}
 
                 <div className="relative z-10">
@@ -468,7 +470,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
 
       {/* Stats section */}
       {!loading && !error && workflows.length > 0 && (
-        <section className="glass rounded-2xl p-6 md:p-8">
+        <section className="liquid-panel glass rounded-3xl p-6 md:p-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             <div className="space-y-1">
               <span className="text-[10px] font-bold text-[var(--txt-muted)] uppercase tracking-widest">工作流总数</span>
@@ -501,14 +503,15 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
               animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowModal(false)}
-              className="absolute inset-0 bg-black"
+              className="absolute inset-0"
+              style={{ background: "rgba(11,8,30,.34)", backdropFilter: "blur(4px)" }}
             />
 
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="glass-heavy rounded-2xl p-6 md:p-8 max-w-md w-full relative z-10 shadow-2xl space-y-6"
+              className="glass-heavy glass-iridescent rounded-3xl p-6 md:p-8 max-w-md w-full relative z-10 shadow-2xl space-y-6"
             >
               <div className="flex justify-between items-start">
                 <div>

@@ -5,6 +5,7 @@ import { defineConfig, loadEnv } from 'vite';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:8000';
+  const healthProxyPath = env.VITE_HEALTH_PROXY_PATH || '/health';
 
   return {
     plugins: [react(), tailwindcss()],
@@ -14,6 +15,11 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       cors: false,
       proxy: {
+        '/healthz': {
+          target: apiProxyTarget,
+          changeOrigin: true,
+          rewrite: () => healthProxyPath,
+        },
         '/api': {
           target: apiProxyTarget,
           changeOrigin: true,

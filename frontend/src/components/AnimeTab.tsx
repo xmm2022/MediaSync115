@@ -423,8 +423,8 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
   };
 
   return (
-    <div id="anime-tab-container" className="space-y-6">
-      <div className="glass-heavy rounded-3xl p-6">
+    <div id="anime-tab-container" className="liquid-page space-y-6">
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
@@ -454,14 +454,14 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
       </div>
 
       {error && (
-        <div className="rounded-2xl p-4 flex items-start gap-2" style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.28)", color: "var(--accent-warn)" }}>
+        <div className="glass-heavy glass-iridescent rounded-2xl p-4 flex items-start gap-2" style={{ border: "1px solid rgba(245,158,11,0.28)", color: "var(--accent-warn)" }}>
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <p className="text-xs font-bold leading-relaxed">{error}</p>
         </div>
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <section className="xl:col-span-7 glass rounded-3xl p-5 space-y-4">
+        <section className="xl:col-span-7 liquid-panel glass rounded-3xl p-5 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <Search className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
@@ -532,7 +532,7 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
           )}
         </section>
 
-        <section className="xl:col-span-5 glass-heavy rounded-3xl p-5 space-y-4">
+        <section className="xl:col-span-5 liquid-panel glass-heavy glass-iridescent rounded-3xl p-5 space-y-4">
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Rss className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
             创建 ANI-RSS 订阅
@@ -716,7 +716,7 @@ export default function AnimeTab({ addLog }: AnimeTabProps) {
         </section>
       </div>
 
-      <section className="glass rounded-3xl p-5 space-y-4">
+      <section className="liquid-panel glass rounded-3xl p-5 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Rss className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />

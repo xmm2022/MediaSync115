@@ -85,21 +85,25 @@ export default function UsageTab({ directories }: UsageTabProps) {
   }, [loadStats]);
 
   if (loading) return (
-    <div className="flex items-center justify-center h-80">
-      <div className="flex flex-col items-center gap-3" style={{ color: "var(--txt-muted)" }}>
+    <div className="liquid-page flex items-center justify-center h-80">
+      <div className="glass-heavy glass-iridescent rounded-3xl p-10 flex flex-col items-center gap-3" style={{ color: "var(--txt-muted)" }}>
         <Activity className="w-8 h-8 animate-pulse" />
         <span className="text-sm font-bold">加载用量统计中...</span>
       </div>
     </div>
   );
   if (error) return (
-    <div className="flex items-center justify-center h-80">
-      <ErrorBanner variant="block" icon={<AlertCircle className="w-8 h-8" style={{ color: "var(--accent-danger)" }} />} message={error} onRetry={() => loadStats()} />
+    <div className="liquid-page flex items-center justify-center h-80">
+      <div className="glass-heavy glass-iridescent rounded-3xl p-8">
+        <ErrorBanner variant="block" icon={<AlertCircle className="w-8 h-8" style={{ color: "var(--accent-danger)" }} />} message={error} onRetry={() => loadStats()} />
+      </div>
     </div>
   );
   if (!stats) return (
-    <div className="flex items-center justify-center h-80">
-      <EmptyState icon={<FolderOpen className="w-10 h-10" style={{ color: "var(--txt-muted)" }} />} text="暂无用量数据" subtext="后端尚未返回任何统计信息，请确认服务已启动" />
+    <div className="liquid-page flex items-center justify-center h-80">
+      <div className="glass-heavy glass-iridescent rounded-3xl p-8">
+        <EmptyState icon={<FolderOpen className="w-10 h-10" style={{ color: "var(--txt-muted)" }} />} text="暂无用量数据" subtext="后端尚未返回任何统计信息，请确认服务已启动" />
+      </div>
     </div>
   );
 
@@ -108,9 +112,9 @@ export default function UsageTab({ directories }: UsageTabProps) {
   const chartTextStyle = { fill: "var(--txt-muted)", fontSize: 11, fontWeight: 600 } as const;
 
   return (
-    <div className="space-y-8">
+    <div className="liquid-page space-y-8">
       {/* Title */}
-      <div className="glass-heavy rounded-3xl p-6">
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6">
         <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
           <Activity className="w-6 h-6" style={{ color: "var(--brand-primary)" }} />
           数据统计与用量总览
@@ -128,7 +132,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
           { key: "sched", icon: <Clock className="w-5 h-5" />, label: "调度任务", value: stats.totalSchedulerTasks, sub: `启用 ${stats.enabledSchedulerTasks} / 总计 ${stats.totalSchedulerTasks}` },
           { key: "logs", icon: <FileText className="w-5 h-5" />, label: "操作日志", value: stats.totalLogs.toLocaleString(), sub: "系统操作日志总条数" },
         ]).map(card => (
-          <div key={card.key} className="glass glass-hover rounded-2xl p-5 transition-all">
+          <div key={card.key} className="liquid-stat-card glass glass-hover rounded-2xl p-5 transition-all">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--surface-subtle)", color: "var(--brand-primary)" }}>
                 {card.icon}
@@ -143,7 +147,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
 
       {/* Charts */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass rounded-2xl p-6">
+        <div className="liquid-chart-card glass rounded-2xl p-6">
           <h3 className="font-headline text-lg font-black mb-1" style={{ color: "var(--txt)" }}>订阅类型分布</h3>
           <p className="text-xs mb-4" style={{ color: "var(--txt-muted)" }}>按媒体类型统计</p>
           {stats.subsByType.length > 0 ? (
@@ -162,7 +166,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
           )}
         </div>
 
-        <div className="glass rounded-2xl p-6">
+        <div className="liquid-chart-card glass rounded-2xl p-6">
           <h3 className="font-headline text-lg font-black mb-1" style={{ color: "var(--txt)" }}>归档任务状态分布</h3>
           <p className="text-xs mb-4" style={{ color: "var(--txt-muted)" }}>按任务状态统计</p>
           {stats.archiveTasksByStatus.length > 0 ? (
@@ -195,7 +199,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
                 : dir.status === "error" ? { bg: "rgba(239,68,68,0.12)", color: "var(--accent-danger)" }
                 : { bg: "var(--surface-subtle)", color: "var(--txt-muted)" };
               return (
-                <div key={dir.id} className="glass glass-hover rounded-2xl p-5 transition-all">
+                <div key={dir.id} className="liquid-card glass glass-hover rounded-2xl p-5 transition-all">
                   <div className="flex items-start justify-between mb-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)" }}>
                       <HardDrive className="w-5 h-5" />
@@ -215,7 +219,7 @@ export default function UsageTab({ directories }: UsageTabProps) {
             })}
           </div>
         ) : (
-          <div className="flex items-center justify-center h-32 rounded-2xl" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+          <div className="liquid-panel glass flex items-center justify-center h-32 rounded-2xl" style={{ border: "1px solid var(--border)" }}>
             <span className="text-sm" style={{ color: "var(--txt-muted)" }}>暂无归档目录，请先配置 archive</span>
           </div>
         )}

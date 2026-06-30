@@ -61,7 +61,7 @@ export default function Pan115Progress({ state, onClose }: Pan115ProgressProps) 
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="absolute inset-0"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(6px)" }}
+          style={{ background: "rgba(11,8,30,.34)", backdropFilter: "blur(6px)" }}
           onClick={state.phase === "result" ? onClose : undefined}
         />
 
@@ -71,7 +71,7 @@ export default function Pan115Progress({ state, onClose }: Pan115ProgressProps) 
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.92, y: 20 }}
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
-          className="relative w-full max-w-[380px] glass-heavy rounded-3xl p-6 z-10 space-y-5"
+          className="relative w-full max-w-[380px] glass-heavy glass-iridescent rounded-3xl p-6 z-10 space-y-5"
         >
           {/* Phase: progress */}
           {state.phase === "progress" && (

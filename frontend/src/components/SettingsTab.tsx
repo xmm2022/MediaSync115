@@ -986,17 +986,19 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
   if (!configLoaded) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-32 animate-pulse" style={{ color: "var(--txt-muted)" }}>
-        <div className="w-9 h-9 border-[3px] rounded-full animate-spin" style={{ borderColor: "var(--brand-primary)", borderTopColor: "transparent" }} />
-        <span className="text-sm font-bold">载入全局配置中…</span>
+      <div className="liquid-page flex flex-col items-center justify-center gap-3 py-32">
+        <div className="glass-heavy glass-iridescent rounded-3xl p-10 flex flex-col items-center gap-3 animate-pulse" style={{ color: "var(--txt-muted)" }}>
+          <div className="w-9 h-9 border-[3px] rounded-full animate-spin" style={{ borderColor: "var(--brand-primary)", borderTopColor: "transparent" }} />
+          <span className="text-sm font-bold">载入全局配置中…</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="liquid-page space-y-6">
       {/* Settings Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b" style={{ borderColor: "var(--border)" }}>
+      <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="font-headline text-3xl font-black" style={{ color: "var(--txt)" }}>系统参数配置</h2>
           <p className="text-xs mt-1" style={{ color: "var(--txt-secondary)" }}>
@@ -1007,7 +1009,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           type="button"
           onClick={handleSaveSettings}
           disabled={isSaving}
-          className="px-6 py-2.5 bg-brand-primary text-white text-xs font-bold rounded-xl hover:bg-opacity-95 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:bg-slate-400 shrink-0 cursor-pointer"
+          className="px-6 py-2.5 bg-brand-primary text-white text-xs font-bold rounded-2xl hover:bg-opacity-95 transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:bg-slate-400 shrink-0 cursor-pointer"
         >
           <Save className="w-4 h-4" />
           <span>{isSaving ? "正在同步配置..." : "保存当前全部配置"}</span>
@@ -1057,7 +1059,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           {activeTab === "core" && (
             <div className="space-y-6">
               {/* 115 Section */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Cloud className="w-4 h-4 text-brand-primary" />
                   115 云盘授权设置
@@ -1099,7 +1101,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Emby Server Section */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Server className="w-4 h-4 text-brand-secondary" />
                   本地多媒体应用服务器连接 (Emby)
@@ -1178,7 +1180,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Checkin Range Section */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <RefreshCw className="w-4 h-4 text-brand-primary" />
                   全局订阅扫描周期
@@ -1210,7 +1212,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           {activeTab === "integrations" && (
             <div className="space-y-6">
               {/* Quark Card */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Cloud className="w-4 h-4 text-blue-500" />
                   夸克网盘授权集成
@@ -1250,7 +1252,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Feiniu Card */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Server className="w-4 h-4 text-emerald-500" />
                   飞牛影视 (Feiniu Server) 定时同步
@@ -1338,7 +1340,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* MoviePilot & Twilight */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Radio className="w-4 h-4 text-violet-500" />
                   MoviePilot & Twilight 集成设置
@@ -1498,7 +1500,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* HDHive Checkin & Config */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <SlidersHorizontal className="w-4 h-4 text-emerald-500" />
                   HDHive 论坛签到与配置
@@ -1568,7 +1570,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* TMDB & Pansou */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Search className="w-4 h-4 text-sky-500" />
                   TMDB 搜刮器与第三方搜索 (Pansou)
@@ -1631,7 +1633,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           {activeTab === "telegram" && (
             <div className="space-y-6">
               {/* Telegram Client Sign-in */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Send className="w-4 h-4 text-sky-500" />
                   Telegram 客户端扫码与凭据
@@ -1720,7 +1722,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* TG Bot Settings */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <SlidersHorizontal className="w-4 h-4 text-emerald-500" />
                   Telegram Bot 接收服务
@@ -1762,7 +1764,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* TG Indexer Config */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Database className="w-4 h-4 text-indigo-500" />
                   Telegram 索引调度器参数 (Advanced)
@@ -1844,7 +1846,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           {activeTab === "diagnostics" && (
             <div className="space-y-6">
               {/* Health checks */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <HeartPulse className="w-4 h-4 text-red-500" />
                   系统集成诊断与连通检查
@@ -1871,7 +1873,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Proxies */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Wifi className="w-4 h-4 text-blue-500" />
                   网络代理设置 (Proxies)
@@ -1897,7 +1899,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Updates source */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <RefreshCw className="w-4 h-4 text-emerald-500" />
                   系统升级与代码更新源
@@ -1937,7 +1939,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           {activeTab === "archive" && (
             <div className="space-y-6">
               {/* Archive Watch Settings */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Database className="w-4 h-4 text-brand-primary" />
                   115 网盘智能归档扫描
@@ -1994,7 +1996,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* JSON Naming and folder mapping */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <SlidersHorizontal className="w-4 h-4 text-violet-500" />
                   归档子目录规则与命名映射规则
@@ -2059,7 +2061,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Chart scan */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <BarChart3 className="w-4 h-4 text-rose-500" />
                   影视热榜订阅追更 (榜单自动订阅)
@@ -2102,7 +2104,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Creators scan */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <UserRound className="w-4 h-4 text-emerald-500" />
                   演职员 / 影人关注新片追踪
@@ -2143,7 +2145,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
           {activeTab === "security" && (
             <div className="space-y-6">
               {/* Account modify */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Key className="w-4 h-4 text-brand-primary" />
                   修改管理账号与登录密码
@@ -2182,7 +2184,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Resource Filters */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <SlidersHorizontal className="w-4 h-4 text-emerald-500" />
                   拉取资源质量偏好与过滤器设置
@@ -2244,7 +2246,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Display preferences visible tabs */}
-              <div className="glass p-6 rounded-2xl space-y-4">
+              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <SlidersHorizontal className="w-4 h-4 text-blue-500" />
                   影视资源搜索详情页面展示配置
