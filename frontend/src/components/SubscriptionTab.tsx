@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import type { SubscriptionItem, SubscriptionSource, DownloadRecord, MoviePilotSubscriptionCreatePayload } from "../api/types";
 import { moviepilotApi, subscriptionApi } from "../api";
 import { getApiErrorMessage } from "../api/errors";
-import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity, Search } from "lucide-react";
+import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity, Search, SlidersHorizontal } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import EmptyState from "./ui/EmptyState";
 import type { SyncDirectory } from "../types";
@@ -15,6 +15,25 @@ interface SubscriptionTabProps {
   directories: SyncDirectory[];
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
 }
+
+type SubscriptionFilter = "all" | "missing" | "active" | "paused" | "moviepilot";
+
+const SUBSCRIPTION_FILTERS: { key: SubscriptionFilter; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "missing", label: "待处理" },
+  { key: "active", label: "监听中" },
+  { key: "paused", label: "已暂停" },
+  { key: "moviepilot", label: "MoviePilot" },
+];
+
+const MISSING_UNRESOLVED_STATUSES = new Set([
+  "no_tmdb",
+  "invalid_tmdb",
+  "emby_error",
+  "tmdb_error",
+  "cache_unavailable",
+  "unknown",
+]);
 
 // ---- Display-field derivations from real backend SubscriptionItem ----
 
@@ -77,6 +96,8 @@ function posterUrl(sub: SubscriptionItem): string {
 export default function SubscriptionTab({ directories, addLog }: SubscriptionTabProps) {
   const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showOperations, setShowOperations] = useState(false);
+  const [subscriptionFilter, setSubscriptionFilter] = useState<SubscriptionFilter>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -101,6 +122,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMoviepilotSyncing, setIsMoviepilotSyncing] = useState(false);
   const [moviepilotSearchingId, setMoviepilotSearchingId] = useState<string | null>(null);
+  const [runningChannel, setRunningChannel] = useState<string | null>(null);
 
   // ---- 缺集总览 (GET /subscriptions/missing-status/tv) ----
   type MissingOverviewItem = {
@@ -165,7 +187,7 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const loadMissingOverview = async () => {
     setMissingOverviewLoading(true);
     try {
-      const resp = await subscriptionApi.getTvMissingStatus({ only_missing: true, limit: 200 });
+      const resp = await subscriptionApi.getTvMissingStatus({ only_missing: false, limit: 200 });
       const data = (resp as { data?: { items?: MissingOverviewItem[] } }).data;
       setMissingOverview(data?.items ?? []);
     } catch (err) {
@@ -226,13 +248,47 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
 
   const [detailRunLogs, setDetailRunLogs] = useState<Record<string, unknown>[]>([]);
 
+  const expandSubscription = (sub: SubscriptionItem) => {
+    setExpandedId(sub.id);
+    void loadDetail(sub);
+    void loadStepLogs(sub);
+  };
+
   const toggleExpand = (sub: SubscriptionItem) => {
     if (expandedId === sub.id) {
       setExpandedId(null);
     } else {
-      setExpandedId(sub.id);
-      void loadDetail(sub);
-      void loadStepLogs(sub);
+      expandSubscription(sub);
+    }
+  };
+
+  const focusSubscriptionFromMissing = (subscriptionId: number) => {
+    const sub = subscriptions.find((item) => Number(item.id) === Number(subscriptionId));
+    if (!sub) return;
+    setSubscriptionFilter("missing");
+    expandSubscription(sub);
+    window.setTimeout(() => {
+      document.getElementById(`subscription-item-${sub.id}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 50);
+  };
+
+  const handleRunChannelCheck = async (channel: "hdhive" | "pansou" | "tg" | "all") => {
+    setRunningChannel(channel);
+    try {
+      if (channel === "all") {
+        await subscriptionApi.runAllChannelsCheckBackground(true);
+        await addLog("INFO", "已触发全频道后台扫描");
+      } else {
+        await subscriptionApi.runChannelCheckBackground(channel);
+        await addLog("INFO", `已触发 ${channel} 频道后台扫描`);
+      }
+    } catch (err: unknown) {
+      await addLog("ERROR", `${channel === "all" ? "全频道" : channel} 扫描失败: ${getApiErrorMessage(err)}`);
+    } finally {
+      setRunningChannel(null);
     }
   };
 
@@ -452,6 +508,64 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
     }
   };
 
+  const missingById = new Map(
+    (missingOverview || []).map((item) => [Number(item.subscription_id), item]),
+  );
+  const activeCount = subscriptions.filter((sub) => sub.is_active).length;
+  const pausedCount = subscriptions.length - activeCount;
+  const moviepilotCount = subscriptions.filter((sub) => sub.external_system === "moviepilot" || sub.provider === "moviepilot").length;
+  const missingCount = missingOverview?.filter((item) => Number(item.missing_count || 0) > 0).length ?? 0;
+  const unresolvedMissingCount = missingOverview?.filter((item) => MISSING_UNRESOLVED_STATUSES.has(String(item.status || ""))).length ?? 0;
+  const missingAttentionRows = (missingOverview || []).filter((item) =>
+    Number(item.missing_count || 0) > 0 || MISSING_UNRESOLVED_STATUSES.has(String(item.status || "")),
+  );
+  const lastUpdatedAt = subscriptions
+    .map((sub) => String(sub.updated_at || sub.created_at || ""))
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+  const lastUpdatedLabel = lastUpdatedAt ? lastUpdatedAt.replace("T", " ").substring(0, 16) : "暂无";
+  const filteredSubscriptions = subscriptions.filter((sub) => {
+    if (subscriptionFilter === "missing") {
+      const missingInfo = missingById.get(Number(sub.id));
+      return Number(missingInfo?.missing_count || 0) > 0 || MISSING_UNRESOLVED_STATUSES.has(String(missingInfo?.status || ""));
+    }
+    if (subscriptionFilter === "active") return sub.is_active;
+    if (subscriptionFilter === "paused") return !sub.is_active;
+    if (subscriptionFilter === "moviepilot") return sub.external_system === "moviepilot" || sub.provider === "moviepilot";
+    return true;
+  });
+  const summaryCards = [
+    {
+      label: "活跃订阅",
+      value: activeCount,
+      sub: `总计 ${subscriptions.length} 项`,
+      icon: <Rss className="w-4.5 h-4.5" />,
+      color: "var(--brand-primary)",
+    },
+    {
+      label: "缺集待补",
+      value: missingOverviewLoading ? "..." : missingCount,
+      sub: unresolvedMissingCount > 0 ? `无法判断 ${unresolvedMissingCount} 项` : "联动 TMDB + Emby",
+      icon: <AlertCircle className="w-4.5 h-4.5" />,
+      color: "var(--accent-warn)",
+    },
+    {
+      label: "暂停订阅",
+      value: pausedCount,
+      sub: pausedCount > 0 ? "需要时可恢复" : "全部在监听",
+      icon: <Pause className="w-4.5 h-4.5" />,
+      color: pausedCount > 0 ? "var(--accent-warn)" : "var(--accent-ok)",
+    },
+    {
+      label: "最近更新",
+      value: lastUpdatedLabel,
+      sub: moviepilotCount > 0 ? `MoviePilot ${moviepilotCount} 项` : "MediaSync115",
+      icon: <Activity className="w-4.5 h-4.5" />,
+      color: "var(--accent-info)",
+    },
+  ];
+
   return (
     <div id="subscription-tab-container" className="liquid-page space-y-6">
 
@@ -480,109 +594,173 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
         <div>
           <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" } as React.CSSProperties}>
             <Rss className="w-6.5 h-6.5" style={{ color: "var(--brand-primary)" } as React.CSSProperties} />
-            <span>影视订阅管理</span>
+            <span>订阅中心</span>
           </h2>
           <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
-            添加 TMDB/Douban 影视订阅，系统将在后台定期扫描新资源。支持按季、按集粒度跟踪，发现新资源后自动转存到 115 网盘。
+            管理从影视发现、资源详情和 MoviePilot 接入的追更任务；缺集状态由 TMDB 播出数据与 Emby 媒体库索引共同计算。
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2 shrink-0">
-          {/* 频道扫描按钮 */}
-          <div className="liquid-segmented flex gap-1">
-            {(["hdhive", "pansou", "tg"] as const).map(ch => (
-              <button
-                key={ch}
-                onClick={async () => {
-                  try {
-                    await subscriptionApi.runChannelCheckBackground(ch);
-                    await addLog("INFO", `已触发 ${ch} 频道后台扫描`);
-                  } catch (err: unknown) { await addLog("ERROR", `触发 ${ch} 扫描失败: ${getApiErrorMessage(err)}`); }
-                }}
-                className="px-2 py-1.5 rounded-lg text-[9px] font-black glass-hover transition-all"
-                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-                title={`后台运行 ${ch} 频道扫描`}
-              >
-                {ch === "hdhive" ? "HDHive" : ch === "pansou" ? "Pansou" : "TG"}
-              </button>
-            ))}
-            <button
-              onClick={async () => {
-                try {
-                  await subscriptionApi.runAllChannelsCheckBackground(true);
-                  await addLog("INFO", "已触发全频道后台扫描");
-                } catch (err: unknown) { await addLog("ERROR", `全频道扫描失败: ${getApiErrorMessage(err)}`); }
-              }}
-              className="px-2 py-1.5 rounded-lg text-[9px] font-black text-white"
-              style={{ background: "var(--brand-primary)" }}
-              title="后台运行全部频道扫描"
-            >
-              全部
-            </button>
-            <button
-              onClick={handleMoviePilotSync}
-              disabled={isMoviepilotSyncing}
-              className="px-2 py-1.5 rounded-lg text-[9px] font-black glass-hover transition-all disabled:opacity-50 flex items-center gap-1"
-              style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-              title="同步 MoviePilot 订阅状态"
-            >
-              <RefreshCw className={`w-3 h-3 ${isMoviepilotSyncing ? "animate-spin" : ""}`} />
-              MP同步
-            </button>
-          </div>
           <button
+            type="button"
+            onClick={() => setShowOperations((prev) => !prev)}
+            className="glass-hover px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider flex items-center gap-1.5 shrink-0 transition-all active:scale-95 self-start sm:self-auto cursor-pointer"
+            style={{ background: "var(--surface-subtle)", color: showOperations ? "var(--brand-primary)" : "var(--txt-secondary)", border: "1px solid var(--border)" }}
+          >
+            <SlidersHorizontal className="w-4.5 h-4.5" />
+            <span>手动运行</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setShowAddForm(!showAddForm)}
-            className="bg-brand-primary text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider flex items-center gap-1.5 shrink-0 transition-all active:scale-95 self-start sm:self-auto"
+            className="bg-brand-primary text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider flex items-center gap-1.5 shrink-0 transition-all active:scale-95 self-start sm:self-auto cursor-pointer"
           >
             <Plus className="w-4.5 h-4.5" />
-            <span>新增订阅</span>
+            <span>高级手动新增</span>
           </button>
         </div>
       </div>
 
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {summaryCards.map((card) => (
+          <div key={card.label} className="glass rounded-2xl p-4 flex items-center gap-3" style={{ border: "1px solid var(--border)" } as React.CSSProperties}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--surface-subtle)", color: card.color } as React.CSSProperties}>
+              {card.icon}
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] font-black uppercase tracking-wider" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>{card.label}</div>
+              <div className="text-lg font-black truncate mt-0.5" style={{ color: "var(--txt)" } as React.CSSProperties}>{card.value}</div>
+              <div className="text-[10px] font-semibold truncate" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>{card.sub}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <AnimatePresence>
+        {showOperations && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="liquid-panel glass rounded-3xl p-5 space-y-4" style={{ border: "1px solid var(--border)" } as React.CSSProperties}>
+              <div>
+                <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
+                  <SlidersHorizontal className="w-4 h-4 text-brand-primary" />
+                  <span>手动运行 / 诊断</span>
+                </h3>
+                <p className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+                  这些操作用于补救、诊断或强制扫描；日常追更仍由后台定时任务负责。
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {(["hdhive", "pansou", "tg"] as const).map(ch => (
+                  <button
+                    key={ch}
+                    type="button"
+                    onClick={() => void handleRunChannelCheck(ch)}
+                    disabled={runningChannel !== null}
+                    className="px-3 py-2 rounded-xl text-[10px] font-black glass-hover transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                    style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+                    title={`后台运行 ${ch} 频道扫描`}
+                  >
+                    {runningChannel === ch ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                    <span>{ch === "hdhive" ? "扫描 HDHive" : ch === "pansou" ? "扫描 Pansou" : "扫描 TG"}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => void handleRunChannelCheck("all")}
+                  disabled={runningChannel !== null}
+                  className="px-3 py-2 rounded-xl text-[10px] font-black text-white disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                  style={{ background: "var(--brand-primary)" }}
+                  title="后台运行全部频道扫描"
+                >
+                  {runningChannel === "all" ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>扫描全部频道</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMoviePilotSync}
+                  disabled={isMoviepilotSyncing}
+                  className="px-3 py-2 rounded-xl text-[10px] font-black glass-hover transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                  style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+                  title="同步 MoviePilot 订阅状态"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isMoviepilotSyncing ? "animate-spin" : ""}`} />
+                  <span>同步 MoviePilot</span>
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 缺集总览：GET /api/subscriptions/missing-status/tv */}
       <div className="liquid-panel glass rounded-3xl p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
-            <AlertCircle className="w-4 h-4 text-amber-500" />
-            <span>TV 缺集总览</span>
-            <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-              {missingOverviewLoading ? "加载中…" : `共 ${missingOverview?.length ?? 0} 个有缺集的订阅`}
-            </span>
-          </h3>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              <span>TV 缺集总览</span>
+              <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+                {missingOverviewLoading ? "加载中..." : `待处理 ${missingAttentionRows.length} 项`}
+              </span>
+            </h3>
+            <p className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+              缺集判断依赖 TMDB 已播剧集与 Emby 媒体库索引；点击条目可展开对应订阅。
+            </p>
+          </div>
           <button
-            onClick={loadMissingOverview}
+            type="button"
+            onClick={() => {
+              void loadMissingOverview();
+              void loadSubscriptions();
+            }}
             disabled={missingOverviewLoading}
-            className="text-[10px] font-bold text-brand-primary hover:bg-brand-primary/5 px-2 py-1 rounded-lg flex items-center gap-1 disabled:opacity-50"
+            className="text-[10px] font-bold text-brand-primary hover:bg-brand-primary/5 px-2 py-1 rounded-lg flex items-center gap-1 disabled:opacity-50 self-start sm:self-auto cursor-pointer"
           >
             <RefreshCw className={`w-3 h-3 ${missingOverviewLoading ? "animate-spin" : ""}`} />
             刷新
           </button>
         </div>
-        {missingOverview && missingOverview.length === 0 && !missingOverviewLoading && (
+        {missingOverview && missingAttentionRows.length === 0 && !missingOverviewLoading && (
           <p className="text-xs font-semibold py-2" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-            {missingOverview === null ? "" : "暂无缺集（所有 TV 订阅均已补齐，或未配置 Emby/TMDB）"}
+            暂无缺集。若这里长期为空但媒体库明显不完整，请先检查 Emby 配置与媒体库索引同步。
           </p>
         )}
-        {missingOverview && missingOverview.length > 0 && (
+        {missingOverview && missingAttentionRows.length > 0 && (
           <div className="space-y-2">
-            {missingOverview.map((m) => (
-              <div key={m.subscription_id} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2"
-                style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.25)" } as React.CSSProperties}>
+            {missingAttentionRows.map((m) => {
+              const unresolved = MISSING_UNRESOLVED_STATUSES.has(String(m.status || ""));
+              return (
+              <button
+                key={m.subscription_id}
+                type="button"
+                onClick={() => focusSubscriptionFromMissing(m.subscription_id)}
+                className="w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition-all glass-hover cursor-pointer"
+                style={unresolved
+                  ? { background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.25)" } as React.CSSProperties
+                  : { background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.25)" } as React.CSSProperties}>
                 <div className="min-w-0">
                   <div className="text-xs font-bold truncate" style={{ color: "var(--txt)" } as React.CSSProperties}>{m.title}</div>
                   <div className="text-[10px] font-semibold mt-0.5" style={{ color: "var(--txt-secondary)" } as React.CSSProperties}>
-                    {m.status === "no_tmdb" ? "缺少 TMDB ID" : `已入库 ${m.existing_count} / 已播 ${m.aired_count}`}
+                    {unresolved ? (m.message || "缺集状态无法判断") : `已入库 ${m.existing_count} / 已播 ${m.aired_count}`}
                   </div>
                 </div>
                 <div className="flex flex-col items-end shrink-0">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black"
-                    style={{ background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" } as React.CSSProperties}>
-                    缺 {m.missing_count} 集
+                    style={unresolved
+                      ? { background: "rgba(239,68,68,0.14)", color: "var(--accent-danger)" } as React.CSSProperties
+                      : { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)" } as React.CSSProperties}>
+                    {unresolved ? "无法判断" : `缺 ${m.missing_count} 集`}
                   </span>
                 </div>
-              </div>
-            ))}
+              </button>
+            );})}
           </div>
         )}
       </div>
@@ -599,8 +777,11 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
             <form onSubmit={handleAddSubscription} className="liquid-panel glass glass-hover rounded-3xl p-5 space-y-4 transition-all">
               <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
                 <Workflow className="w-4 h-4 text-brand-primary" />
-                <span>创建新订阅</span>
+                <span>高级手动新增订阅</span>
               </h3>
+              <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+                常规入口建议从影视发现或资源详情加入追更；这里用于补录缺少来源映射、手工指定 TMDB/Douban ID 或创建 MoviePilot 订阅。
+              </p>
 
               <div className="space-y-2">
                 <label className="text-xs font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>订阅后端</label>
@@ -858,11 +1039,30 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
 
       {/* Subscription List */}
       <div className="space-y-4">
-        <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
-          <Workflow className="w-4 h-4" style={{ color: "var(--brand-primary)" } as React.CSSProperties} />
-          <span>订阅列表</span>
-          <span className="text-xs font-semibold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>({subscriptions.length} 项)</span>
-        </h3>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" } as React.CSSProperties}>
+            <Workflow className="w-4 h-4" style={{ color: "var(--brand-primary)" } as React.CSSProperties} />
+            <span>订阅任务</span>
+            <span className="text-xs font-semibold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+              ({filteredSubscriptions.length}/{subscriptions.length} 项)
+            </span>
+          </h3>
+          <div className="liquid-segmented flex flex-wrap gap-1">
+            {SUBSCRIPTION_FILTERS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setSubscriptionFilter(item.key)}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black transition-all cursor-pointer"
+                style={subscriptionFilter === item.key
+                  ? { background: "var(--brand-primary)", color: "#fff" } as React.CSSProperties
+                  : { background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" } as React.CSSProperties}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {isLoading ? (
           <div className="glass rounded-3xl p-12 text-center">
@@ -881,23 +1081,55 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-brand-primary text-white transition-all hover:opacity-90 shadow-md"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  新增订阅
+                  高级手动新增
                 </button>
               }
             />
           </div>
+        ) : filteredSubscriptions.length === 0 ? (
+          <div className="glass rounded-3xl p-12 text-center">
+            <EmptyState
+              icon={<Workflow className="w-10 h-10" style={{ color: "var(--txt-muted)" } as React.CSSProperties} />}
+              text="没有符合筛选条件的订阅"
+              subtext="切换筛选条件，或从资源详情页加入追更订阅。"
+            />
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {subscriptions.map(sub => {
+            {filteredSubscriptions.map(sub => {
               const status = deriveStatus(sub);
               const categoryLabel = deriveCategoryLabel(sub.media_type);
               const progress = deriveProgress(sub);
               const rssSource = deriveRssSource(sub);
               const lastUpdated = (sub.updated_at || sub.created_at || "").toString().replace("T", " ").substring(0, 19);
               const isExpanded = expandedId === sub.id;
+              const missingInfo = missingById.get(Number(sub.id));
+              const missingUnresolved = MISSING_UNRESOLVED_STATUSES.has(String(missingInfo?.status || ""));
+              const missingLabel = sub.media_type === "tv"
+                ? missingOverviewLoading
+                  ? "缺集计算中"
+                  : !sub.tmdb_id
+                    ? "缺 TMDB"
+                    : missingUnresolved
+                      ? "无法判断"
+                    : Number(missingInfo?.missing_count || 0) > 0
+                      ? `缺 ${missingInfo?.missing_count} 集`
+                      : missingInfo
+                        ? "无缺集"
+                        : sub.is_active
+                          ? "待计算"
+                          : "暂停未计算"
+                : null;
+              const missingStyle = Number(missingInfo?.missing_count || 0) > 0
+                ? { background: "rgba(245,158,11,0.16)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.25)" } as React.CSSProperties
+                : (!sub.tmdb_id && sub.media_type === "tv") || missingUnresolved
+                  ? { background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.25)" } as React.CSSProperties
+                  : missingInfo
+                    ? { background: "rgba(34,197,94,0.12)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.25)" } as React.CSSProperties
+                    : { background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)" } as React.CSSProperties;
 
               return (
-                <div key={sub.id} className="space-y-2">
+                <div key={sub.id} id={`subscription-item-${sub.id}`} className="space-y-2 scroll-mt-28">
                 <div
                   key={sub.id + "-card"}
                   className="glass glass-hover rounded-2xl p-4 flex gap-4 transition-all relative overflow-hidden"
@@ -934,12 +1166,22 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                       </div>
 
                       {/* Progress: derived from tv_scope / season / episode range */}
-                      <p className="text-[10px] font-bold mt-1" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-                        范围: <span className="text-brand-primary">{progress}</span>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+                          范围: <span className="text-brand-primary">{progress}</span>
+                        </span>
                         {sub.auto_download !== undefined && (
-                          <span className="ml-2" style={{ color: "var(--accent-ok)" } as React.CSSProperties}>{sub.auto_download ? "自动下载" : "手动下载"}</span>
+                          <span className="text-[9px] font-black px-1.5 py-0.5 rounded"
+                            style={{ background: sub.auto_download ? "rgba(34,197,94,0.12)" : "var(--surface-subtle)", color: sub.auto_download ? "var(--accent-ok)" : "var(--txt-muted)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                            {sub.auto_download ? "自动转存" : "手动"}
+                          </span>
                         )}
-                      </p>
+                        {missingLabel && (
+                          <span className="text-[9px] font-black px-1.5 py-0.5 rounded" style={missingStyle}>
+                            {missingLabel}
+                          </span>
+                        )}
+                      </div>
 
                       {/* Source summary */}
                       <div className="flex items-center gap-1.5 text-[9px] font-semibold mt-2.5 truncate" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>

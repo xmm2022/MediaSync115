@@ -885,7 +885,7 @@ export default function ExploreTab({ onNavigateToDetail, onAddSubscription }: Ex
           <div>
             <h4 className="text-xs font-black" style={{ color: "var(--txt)" }}>找不到可匹配的影视详情？</h4>
             <p className="text-[10px] font-semibold leading-relaxed mt-0.5" style={{ color: "var(--txt-muted)" }}>
-              展开高级直搜按关键词查单一来源；需要追更时仍建议在 RSS智能追更 中配置订阅。
+              展开高级直搜按关键词查单一来源；需要追更时仍建议在订阅中心配置订阅。
             </p>
           </div>
         </div>

@@ -28,7 +28,6 @@ import MediaDetailTab from "./components/MediaDetailTab";
 import {
   LayoutDashboard,
   Search,
-  Trophy,
   Clapperboard,
   Rss,
   BarChart3,
@@ -296,7 +295,7 @@ export default function App() {
       items: [
         { name: PageName.EXPLORE, label: "影视发现", icon: Search },
         { name: PageName.ANIME, label: "动漫追番", icon: Clapperboard },
-        { name: PageName.SUBSCRIPTION, label: "RSS智能追更", icon: Rss },
+        { name: PageName.SUBSCRIPTION, label: "订阅中心", icon: Rss },
         { name: PageName.LIBRARY, label: "片单 / 影人", icon: Bookmark },
       ],
     },
@@ -605,15 +604,15 @@ export default function App() {
 
                     try {
                       await subscriptionApi.create(built.payload);
-                      await addLog("SUCCESS", `已订阅 [${built.payload.title}]，可在 RSS智能追更 查看。`);
+                      await addLog("SUCCESS", `已订阅 [${built.payload.title}]，可在订阅中心查看。`);
                       setActivePage(PageName.SUBSCRIPTION);
-                      return { ok: true, message: "已添加到 RSS智能追更" };
+                      return { ok: true, message: "已添加到订阅中心" };
                     } catch (err) {
                       const message = getApiErrorMessage(err, "创建订阅失败");
                       if (message.includes("already exists") || message.includes("已存在")) {
-                        await addLog("WARN", `[${built.payload.title}] 已在 RSS智能追更 中。`);
+                        await addLog("WARN", `[${built.payload.title}] 已在订阅中心内。`);
                         setActivePage(PageName.SUBSCRIPTION);
-                        return { ok: true, message: "已在 RSS智能追更 中" };
+                        return { ok: true, message: "已在订阅中心内" };
                       }
 
                       console.error("Failed to quick subscribe:", err);
@@ -775,7 +774,7 @@ export default function App() {
           { name: PageName.DASHBOARD, label: "主面板", icon: LayoutDashboard },
           { name: PageName.EXPLORE, label: "发现", icon: Search },
           { name: PageName.ANIME, label: "追番", icon: Clapperboard },
-          { name: PageName.SUBSCRIPTION, label: "智能追更", icon: Rss },
+          { name: PageName.SUBSCRIPTION, label: "订阅", icon: Rss },
           { name: PageName.LIBRARY, label: "片单", icon: Bookmark },
         ].map((item) => {
           const Icon = item.icon;
