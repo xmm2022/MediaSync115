@@ -471,9 +471,32 @@ export interface AniRssSubscriptionListResponse {
     remote_count?: number;
     local_count?: number;
     include_preview?: boolean;
+    sync_local?: boolean;
     updated_local?: boolean;
   };
   [key: string]: unknown;
+}
+
+export interface AniRssSubscriptionPreviewResponse {
+  ok?: boolean;
+  external_subscription_id?: string | number;
+  item?: AniRssSubscriptionStatus;
+  summary?: {
+    matched_count?: number;
+    duplicate_ignored_count?: number;
+    download_path?: string | null;
+    matched_items?: AniRssPreviewSummaryItem[];
+    duplicate_ignored_items?: AniRssPreviewSummaryItem[];
+  };
+  preview?: unknown;
+}
+
+export interface AniRssSubscriptionDeleteResponse {
+  ok?: boolean;
+  external_subscription_id?: string | number;
+  deleted_local?: boolean;
+  delete_files?: boolean;
+  response?: unknown;
 }
 
 export interface AniRssDownloadClientStatus {

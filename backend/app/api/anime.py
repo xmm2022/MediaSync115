@@ -141,11 +141,12 @@ async def apply_anirss_download_client_defaults() -> dict[str, Any]:
 async def list_anirss_subscriptions(
     include_preview: bool = Query(True),
     preview_limit: int = Query(5, ge=0, le=20),
+    sync_local: bool = Query(True),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
         return await anirss_provider_service.list_subscriptions(
-            db,
+            db if sync_local else None,
             include_preview=include_preview,
             preview_limit=preview_limit,
         )
@@ -157,11 +158,12 @@ async def list_anirss_subscriptions(
 async def sync_anirss_subscriptions(
     include_preview: bool = Query(True),
     preview_limit: int = Query(5, ge=0, le=20),
+    sync_local: bool = Query(True),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
         return await anirss_provider_service.list_subscriptions(
-            db,
+            db if sync_local else None,
             include_preview=include_preview,
             preview_limit=preview_limit,
         )
@@ -199,6 +201,35 @@ async def refresh_anirss_subscription(external_subscription_id: str) -> dict[str
     try:
         return await anirss_provider_service.refresh_subscription(external_subscription_id)
     except (AniRssClientError, AniRssProviderError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/anirss/subscriptions/{external_subscription_id}/preview")
+async def preview_existing_anirss_subscription(
+    external_subscription_id: str,
+    preview_limit: int = Query(5, ge=0, le=20),
+) -> dict[str, Any]:
+    try:
+        return await anirss_provider_service.preview_existing_subscription(
+            external_subscription_id,
+            preview_limit=preview_limit,
+        )
+    except AniRssProviderError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AniRssClientError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.delete("/anirss/subscriptions/{external_subscription_id}")
+async def delete_anirss_subscription(
+    external_subscription_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return await anirss_provider_service.delete_subscription(external_subscription_id, db)
+    except AniRssProviderError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AniRssClientError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

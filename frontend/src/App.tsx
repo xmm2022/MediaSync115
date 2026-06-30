@@ -609,7 +609,10 @@ export default function App() {
                 exit={{ opacity: 0, y: -15 }}
                 transition={{ duration: 0.2 }}
               >
-                <AnimeTab addLog={addLog} />
+                <AnimeTab
+                  addLog={addLog}
+                  onNavigateToSettings={() => setActivePage(PageName.SETTINGS)}
+                />
               </motion.div>
             )}
 

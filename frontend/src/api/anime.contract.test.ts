@@ -3,8 +3,10 @@ import type {
   AniRssConfig,
   AniRssDownloadClientApplyResponse,
   AniRssDownloadClientStatus,
+  AniRssSubscriptionDeleteResponse,
   AniRssSubscriptionListResponse,
   AniRssSubscriptionCreatePayload,
+  AniRssSubscriptionPreviewResponse,
   AniRssSubscriptionResponse,
   AniRssRssCandidatesResponse,
   BangumiSearchResponse,
@@ -23,7 +25,7 @@ const payload: AniRssSubscriptionCreatePayload = {
   bgm_url: "https://bgm.tv/subject/3828",
   subgroup: "测试字幕组",
   title: "Test Anime",
-  enable: true,
+  enable: false,
 };
 
 assertResponse<BangumiSearchResponse>(animeApi.searchBangumi("Test Anime"));
@@ -35,8 +37,12 @@ assertResponse<{ ok?: boolean }>(animeApi.checkAniRssHealth());
 assertResponse<AniRssDownloadClientStatus>(animeApi.getAniRssDownloadClientStatus());
 assertResponse<AniRssDownloadClientApplyResponse>(animeApi.applyAniRssDownloadClientDefaults());
 assertResponse<AniRssSubscriptionListResponse>(animeApi.listAniRssSubscriptions());
+assertResponse<AniRssSubscriptionListResponse>(animeApi.listAniRssSubscriptions({ includePreview: false, syncLocal: false }));
 assertResponse<AniRssSubscriptionListResponse>(animeApi.syncAniRssSubscriptions());
+assertResponse<AniRssSubscriptionListResponse>(animeApi.syncAniRssSubscriptions({ includePreview: true, syncLocal: true }));
 assertResponse<unknown>(animeApi.previewAniRssSubscription(payload));
 assertResponse<AniRssSubscriptionResponse>(animeApi.createAniRssSubscription(payload));
 assertResponse<unknown>(animeApi.refreshAniRssSubscription("external-id"));
+assertResponse<AniRssSubscriptionPreviewResponse>(animeApi.previewExistingAniRssSubscription("external-id"));
+assertResponse<AniRssSubscriptionDeleteResponse>(animeApi.deleteAniRssSubscription("external-id"));
 assertResponse<unknown>(animeApi.setAniRssSubscriptionEnabled("external-id", true));

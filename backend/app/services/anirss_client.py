@@ -143,6 +143,14 @@ class AniRssClient:
         )
         return response if isinstance(response, dict) else {"data": response}
 
+    async def delete_ani(self, ani_ids: list[str], *, delete_files: bool = False) -> dict[str, Any]:
+        response = await self._request(
+            "POST",
+            f"/api/deleteAni?deleteFiles={str(bool(delete_files)).lower()}",
+            json=[str(ani_id) for ani_id in ani_ids if str(ani_id or "").strip()],
+        )
+        return response if isinstance(response, dict) else {"data": response}
+
     async def refresh_ani(self, ani_id: str) -> dict[str, Any]:
         response = await self._request("POST", "/api/refreshAni", json={"id": ani_id})
         return response if isinstance(response, dict) else {"data": response}

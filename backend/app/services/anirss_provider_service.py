@@ -9,10 +9,17 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from sqlalchemy import or_, select
+from sqlalchemy import delete as sa_delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import MediaType, Subscription
+from app.models.models import (
+    DownloadRecord,
+    MediaType,
+    MoviePilotCompletionRecord,
+    Subscription,
+    SubscriptionSource,
+    SubscriptionSourceFile,
+)
 from app.services.anirss_client import AniRssClient, AniRssClientError
 from app.services.runtime_settings_service import runtime_settings_service
 
@@ -128,6 +135,7 @@ class AniRssProviderService:
             "remote_count": len(remote_items),
             "local_count": len(local_subscriptions),
             "include_preview": bool(include_preview),
+            "sync_local": db is not None,
             "updated_local": bool(dirty),
         }
         return response
@@ -583,6 +591,77 @@ class AniRssProviderService:
         client = self._create_client()
         return await client.refresh_ani(str(external_subscription_id))
 
+    async def delete_subscription(
+        self,
+        external_subscription_id: str,
+        db: AsyncSession | None = None,
+    ) -> dict[str, Any]:
+        external_id = str(external_subscription_id or "").strip()
+        if not external_id:
+            raise AniRssProviderError("ANI-RSS 订阅 ID 不能为空")
+
+        client = self._create_client()
+        subscriptions = await client.list_ani()
+        ani = self._find_ani_in_list(subscriptions, external_id)
+        if ani is None:
+            raise AniRssProviderError("ANI-RSS 订阅不存在")
+
+        response = await client.delete_ani([external_id], delete_files=False)
+        deleted_local = False
+        if db is not None:
+            result = await db.execute(
+                select(Subscription)
+                .where(
+                    or_(
+                        Subscription.provider == "anirss",
+                        Subscription.external_system == "anirss",
+                    ),
+                    Subscription.external_subscription_id == external_id,
+                )
+                .limit(1)
+            )
+            subscription = result.scalar_one_or_none()
+            if subscription is not None:
+                await self._delete_local_subscription_mirror(db, subscription.id)
+                deleted_local = True
+
+        return {
+            "ok": True,
+            "external_subscription_id": external_id,
+            "deleted_local": deleted_local,
+            "delete_files": False,
+            "response": response,
+        }
+
+    async def preview_existing_subscription(
+        self,
+        external_subscription_id: str,
+        *,
+        preview_limit: int = 5,
+    ) -> dict[str, Any]:
+        client = self._create_client()
+        subscriptions = await client.list_ani()
+        ani = self._find_ani_in_list(subscriptions, str(external_subscription_id))
+        if ani is None:
+            raise AniRssProviderError("ANI-RSS 订阅不存在")
+        preview = await client.preview_ani(dict(ani))
+        preview_summary = self._summarize_preview(
+            preview,
+            item_limit=preview_limit,
+        )
+        item = self._normalize_ani_item(
+            ani,
+            log_lines=self._read_recent_log_lines(),
+            preview_summary=preview_summary,
+        )
+        return {
+            "ok": True,
+            "external_subscription_id": str(external_subscription_id),
+            "item": item,
+            "summary": preview_summary,
+            "preview": preview,
+        }
+
     async def set_subscription_enabled(
         self,
         external_subscription_id: str,
@@ -671,6 +750,26 @@ class AniRssProviderService:
         return subscription
 
     @staticmethod
+    async def _delete_local_subscription_mirror(db: AsyncSession, subscription_id: int) -> None:
+        source_ids_result = await db.execute(
+            select(SubscriptionSource.id).where(SubscriptionSource.subscription_id == subscription_id)
+        )
+        source_ids = list(source_ids_result.scalars().all())
+        if source_ids:
+            await db.execute(
+                sa_delete(SubscriptionSourceFile).where(SubscriptionSourceFile.source_id.in_(source_ids))
+            )
+        await db.execute(sa_delete(SubscriptionSource).where(SubscriptionSource.subscription_id == subscription_id))
+        await db.execute(sa_delete(DownloadRecord).where(DownloadRecord.subscription_id == subscription_id))
+        await db.execute(
+            sa_delete(MoviePilotCompletionRecord).where(
+                MoviePilotCompletionRecord.subscription_id == subscription_id
+            )
+        )
+        await db.execute(sa_delete(Subscription).where(Subscription.id == subscription_id))
+        await db.commit()
+
+    @staticmethod
     def _build_rss_payload(payload: dict[str, Any]) -> dict[str, Any]:
         rss_url = str(payload.get("rss_url") or payload.get("url") or "").strip()
         bgm_url = str(payload.get("bgm_url") or "").strip()
@@ -682,7 +781,7 @@ class AniRssProviderService:
             "type": str(payload.get("rss_type") or payload.get("type") or "mikan").strip() or "mikan",
             "bgmUrl": bgm_url,
             "subgroup": str(payload.get("subgroup") or "").strip() or None,
-            "enable": bool(payload.get("enable", False)),
+            "enable": False,
         }
 
     @classmethod
@@ -951,8 +1050,7 @@ class AniRssProviderService:
                 str(payload["download_path"]).strip(),
                 payload,
             )
-        if payload.get("enable") is not None:
-            ani["enable"] = bool(payload.get("enable"))
+        ani["enable"] = False
 
     @staticmethod
     def _sanitize_path_segment(value: Any) -> str:

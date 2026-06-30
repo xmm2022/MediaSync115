@@ -1,7 +1,10 @@
 import pytest
 
 from app.api.anime import AniRssSubscriptionPayload
-from app.services.anirss_provider_service import AniRssProviderService
+from app.services.anirss_provider_service import (
+    AniRssProviderError,
+    AniRssProviderService,
+)
 
 
 def test_anirss_create_payload_defaults_to_disabled():
@@ -18,6 +21,25 @@ def test_build_rss_payload_defaults_to_disabled():
     )
 
     assert payload["enable"] is False
+
+
+def test_build_rss_payload_ignores_enable_true():
+    payload = AniRssProviderService._build_rss_payload(
+        {
+            "rss_url": "https://mikanani.me/RSS/Bangumi?bangumiId=3141",
+            "enable": True,
+        }
+    )
+
+    assert payload["enable"] is False
+
+
+def test_apply_payload_overrides_keeps_new_subscription_disabled():
+    ani = {"id": "ani-1", "title": "Test Anime", "enable": True}
+
+    AniRssProviderService._apply_payload_overrides(ani, {"enable": True})
+
+    assert ani["enable"] is False
 
 
 def test_flatten_ani_items_reads_week_list():
@@ -63,6 +85,45 @@ def test_normalize_ani_item_exposes_status_and_preview_summary():
     assert item["matched_count"] == 2
     assert item["duplicate_ignored_count"] == 1
     assert item["recent_hit"] == {"title": "Test Anime 03"}
+
+
+class _FakeReadOnlyAniRssClient:
+    base_url = "http://ani-rss:7789"
+
+    def __init__(self):
+        self.preview_calls = []
+
+    async def list_ani(self):
+        return {
+            "total": 1,
+            "items": [
+                {
+                    "id": "ani-1",
+                    "title": "Test Anime",
+                    "enable": False,
+                    "url": "https://example.test/rss.xml",
+                }
+            ],
+        }
+
+    async def preview_ani(self, ani):
+        self.preview_calls.append(ani["id"])
+        return {"items": [], "omitList": []}
+
+
+@pytest.mark.asyncio
+async def test_list_subscriptions_without_db_is_read_only_and_lightweight():
+    fake = _FakeReadOnlyAniRssClient()
+    service = AniRssProviderService(client_factory=lambda: fake)
+
+    result = await service.list_subscriptions(None, include_preview=False)
+
+    assert fake.preview_calls == []
+    assert result["sync"]["sync_local"] is False
+    assert result["sync"]["local_count"] == 0
+    assert result["sync"]["include_preview"] is False
+    assert result["sync"]["updated_local"] is False
+    assert result["items"][0]["external_subscription_id"] == "ani-1"
 
 
 def test_extract_download_client_config_is_sanitized():
@@ -293,3 +354,105 @@ async def test_discover_anirss_candidates_collects_supported_sources():
         "anime-garden",
     }
     assert all(candidate["bangumi_id"] == "3141" for candidate in result["candidates"])
+
+
+class _FakePreviewExistingAniRssClient:
+    base_url = "http://ani-rss:7789"
+
+    def __init__(self):
+        self.preview_calls = []
+
+    async def list_ani(self):
+        return {
+            "items": [
+                {
+                    "id": "ani-1",
+                    "title": "Test Anime",
+                    "enable": False,
+                    "url": "https://example.test/rss.xml",
+                    "downloadPath": "/Media/番剧/Test Anime",
+                    "currentEpisodeNumber": 3,
+                    "totalEpisodeNumber": 12,
+                }
+            ]
+        }
+
+    async def preview_ani(self, ani):
+        self.preview_calls.append(ani["id"])
+        return {
+            "downloadPath": "/Media/番剧/Test Anime",
+            "items": [{"title": "Test Anime 04"}],
+            "omitList": [{"title": "Test Anime 01"}],
+        }
+
+
+@pytest.mark.asyncio
+async def test_preview_existing_subscription_summarizes_single_ani():
+    fake = _FakePreviewExistingAniRssClient()
+    service = AniRssProviderService(client_factory=lambda: fake)
+
+    result = await service.preview_existing_subscription("ani-1", preview_limit=5)
+
+    assert fake.preview_calls == ["ani-1"]
+    assert result["ok"] is True
+    assert result["external_subscription_id"] == "ani-1"
+    assert result["summary"]["matched_count"] == 1
+    assert result["summary"]["duplicate_ignored_count"] == 1
+    assert result["item"]["matched_count"] == 1
+    assert result["item"]["recent_hit"] == {"title": "Test Anime 04", "episode": None, "subgroup": None, "info_hash": None, "pub_date": None}
+    assert result["item"]["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_preview_existing_subscription_requires_existing_ani():
+    service = AniRssProviderService(client_factory=_FakePreviewExistingAniRssClient)
+
+    with pytest.raises(AniRssProviderError, match="订阅不存在"):
+        await service.preview_existing_subscription("missing")
+
+
+class _FakeDeleteAniRssClient:
+    base_url = "http://ani-rss:7789"
+
+    def __init__(self):
+        self.delete_calls = []
+
+    async def list_ani(self):
+        return {
+            "items": [
+                {
+                    "id": "ani-1",
+                    "title": "Test Anime",
+                    "enable": False,
+                }
+            ]
+        }
+
+    async def delete_ani(self, ani_ids, *, delete_files=False):
+        self.delete_calls.append((ani_ids, delete_files))
+        return {"code": 200, "message": "删除订阅成功"}
+
+
+@pytest.mark.asyncio
+async def test_delete_subscription_calls_remote_without_deleting_files():
+    fake = _FakeDeleteAniRssClient()
+    service = AniRssProviderService(client_factory=lambda: fake)
+
+    result = await service.delete_subscription("ani-1")
+
+    assert fake.delete_calls == [(["ani-1"], False)]
+    assert result["ok"] is True
+    assert result["external_subscription_id"] == "ani-1"
+    assert result["delete_files"] is False
+    assert result["deleted_local"] is False
+
+
+@pytest.mark.asyncio
+async def test_delete_subscription_requires_existing_ani():
+    fake = _FakeDeleteAniRssClient()
+    service = AniRssProviderService(client_factory=lambda: fake)
+
+    with pytest.raises(AniRssProviderError, match="订阅不存在"):
+        await service.delete_subscription("missing")
+
+    assert fake.delete_calls == []
