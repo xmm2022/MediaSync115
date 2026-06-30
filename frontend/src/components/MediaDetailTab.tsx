@@ -252,7 +252,11 @@ export default function MediaDetailTab({
   const [visibleResourceSources, setVisibleResourceSources] = useState<ResourceSourceKey[]>(
     RESOURCE_SOURCES.map((item) => item.key),
   );
-  const [isSubscribed, setIsSubscribed] = useState(false);
+  // #8 拆分 115 / PT 订阅状态：分别识别本系统 mediasync115 订阅与 MoviePilot PT 订阅
+  // 订阅 id 为 null = 未订阅；非空 = 已订阅（取消时按 id 调 DELETE）
+  const [pan115SubId, setPan115SubId] = useState<string | null>(null);
+  const [ptSubId, setPtSubId] = useState<string | null>(null);
+  const [pan115SubTitle, setPan115SubTitle] = useState<string>("");
   const [subscribing, setSubscribing] = useState(false);
   const [subscriptionMenuOpen, setSubscriptionMenuOpen] = useState(false);
 
@@ -264,7 +268,8 @@ export default function MediaDetailTab({
   // Resource links
   const [resources, setResources] = useState<MediaResourceLink[]>([]);
   const [resourcesLoading, setResourcesLoading] = useState(false);
-  const [activeSource, setActiveSource] = useState<ResourceSourceKey>("unified");
+  // null 表示尚未由 runtime tabs 决定首源，避免初始 "unified" 与可见列表不一致导致的二次切换
+  const [activeSource, setActiveSource] = useState<ResourceSourceKey | null>(null);
   const [seedhubTask, setSeedhubTask] = useState<SeedhubTaskState | null>(null);
 
   // Transfer
@@ -274,6 +279,20 @@ export default function MediaDetailTab({
 
   // Cast visibility
   const [showFullCast, setShowFullCast] = useState(false);
+
+  // #4 转存默认目录：从 runtime/settings 读取，用于在转存动作旁展示「目标：<folder_name>」，让用户清楚文件被转存到哪里
+  const [pan115DefaultFolderName, setPan115DefaultFolderName] = useState<string>("");
+  const [quarkDefaultFolderName, setQuarkDefaultFolderName] = useState<string>("");
+
+  // ---- Derived (定义在前：避免 fetchResourceLinks/handleTransfer 引用闭包时跨过 TDZ) ----
+  const title = detail?.title || detail?.name || defaultTitle;
+  const year = detail?.release_date?.split("-")[0] || detail?.first_air_date?.split("-")[0] || "";
+  const rating = detail?.vote_average;
+  const genres = detail?.genres || [];
+  const runtime = detail?.runtime;
+  const cast = detail?.credits?.cast || [];
+  const seasons = detail?.seasons || [];
+  const bKey = buildBadgeKey(mediaType, tmdbId);
 
   // ---- Load detail ----
   const loadDetail = useCallback(async () => {
@@ -302,22 +321,39 @@ export default function MediaDetailTab({
   }, [tmdbId, mediaType]);
 
   // ---- Check subscription ----
+  // 分别识别本系统 115 自动搜索订阅（provider/external_system 为 mediasync115 或空）
+  // 与 MoviePilot PT 订阅（provider/external_system == "moviepilot"）。
   const checkSubscription = useCallback(async () => {
     try {
       const resp = await subscriptionApi.list({ is_active: true, media_type: mediaType });
       const rawList = resp.data as unknown;
-      const list: { tmdb_id?: number; provider?: string; external_system?: string; [key: string]: unknown }[] = Array.isArray(rawList)
-        ? (rawList as { tmdb_id?: number; provider?: string; external_system?: string }[])
-        : ((rawList as { items?: { tmdb_id?: number; provider?: string; external_system?: string }[] })?.items || []);
-      setIsSubscribed(list.some((s) => {
-        const provider = String(s.provider || "mediasync115").toLowerCase();
-        const externalSystem = String(s.external_system || "").toLowerCase();
-        return s.tmdb_id === tmdbId
-          && (!provider || provider === "mediasync115")
-          && (!externalSystem || externalSystem === "mediasync115");
-      }));
+      const list: { id?: string; tmdb_id?: number; title?: string; provider?: string; external_system?: string; [key: string]: unknown }[] = Array.isArray(rawList)
+        ? (rawList as { id?: string; tmdb_id?: number; title?: string; provider?: string; external_system?: string }[])
+        : ((rawList as { items?: { id?: string; tmdb_id?: number; title?: string; provider?: string; external_system?: string }[] })?.items || []);
+      let nextPan115Id: string | null = null;
+      let nextPan115Title = "";
+      let nextPtId: string | null = null;
+      for (const s of list) {
+        if (s.tmdb_id !== tmdbId) continue;
+        const provider = String(s.provider ?? "").toLowerCase();
+        const externalSystem = String(s.external_system ?? "").toLowerCase();
+        const isPan115 = (!provider || provider === "mediasync115") && (!externalSystem || externalSystem === "mediasync115");
+        const isPt = provider === "moviepilot" || externalSystem === "moviepilot";
+        if (isPan115 && !nextPan115Id) {
+          nextPan115Id = String(s.id || "");
+          nextPan115Title = String(s.title || "");
+        } else if (isPt && !nextPtId) {
+          nextPtId = String(s.id || "");
+        }
+      }
+      setPan115SubId(nextPan115Id);
+      setPan115SubTitle(nextPan115Title);
+      setPtSubId(nextPtId);
     } catch { /* ignore */ }
   }, [tmdbId, mediaType]);
+
+  const isPan115Subscribed = pan115SubId !== null;
+  const isPtSubscribed = ptSubId !== null;
 
   // ---- Load TV episodes ----
   const loadEpisodes = async (season: number) => {
@@ -382,57 +418,62 @@ export default function MediaDetailTab({
     }
   };
 
-  // ---- Fetch resource links (multi-source) ----
-  const fetchResourceLinks = async (source: ResourceSourceKey): Promise<MediaResourceLink[]> => {
+// ---- Fetch resource links (multi-source) ----
+  // season 参数透传，避免 stale 闭包（切季后 state 还未更新就读到旧季）
+  const fetchResourceLinks = async (
+    source: ResourceSourceKey,
+    seasonOverride?: number,
+  ): Promise<MediaResourceLink[]> => {
     const isMovie = mediaType === "movie";
+    const season = seasonOverride ?? selectedSeason;
     try {
       let response: { data: unknown };
       switch (source) {
         case "unified":
-          response = await searchApi.getMediaResources(tmdbId, mediaType, selectedSeason, false);
+          response = await searchApi.getMediaResources(tmdbId, mediaType, season, false);
           break;
         case "115_pansou":
           response = isMovie
             ? await searchApi.getMoviePan115Pansou(tmdbId)
-            : await searchApi.getTvPan115Pansou(tmdbId, selectedSeason);
+            : await searchApi.getTvPan115Pansou(tmdbId, season);
           break;
         case "115_hdhive":
           response = isMovie
             ? await searchApi.getMoviePan115Hdhive(tmdbId)
-            : await searchApi.getTvPan115Hdhive(tmdbId, selectedSeason);
+            : await searchApi.getTvPan115Hdhive(tmdbId, season);
           break;
         case "115_tg":
           response = isMovie
             ? await searchApi.getMoviePan115Tg(tmdbId)
-            : await searchApi.getTvPan115Tg(tmdbId, selectedSeason);
+            : await searchApi.getTvPan115Tg(tmdbId, season);
           break;
         case "quark_pansou":
           response = isMovie
             ? await searchApi.getMovieQuarkPansou(tmdbId)
-            : await searchApi.getTvQuarkPansou(tmdbId, selectedSeason);
+            : await searchApi.getTvQuarkPansou(tmdbId, season);
           break;
         case "quark_hdhive":
           response = isMovie
             ? await searchApi.getMovieQuarkHdhive(tmdbId)
-            : await searchApi.getTvQuarkHdhive(tmdbId, selectedSeason);
+            : await searchApi.getTvQuarkHdhive(tmdbId, season);
           break;
         case "quark_tg":
           response = isMovie
             ? await searchApi.getMovieQuarkTg(tmdbId)
-            : await searchApi.getTvQuarkTg(tmdbId, selectedSeason);
+            : await searchApi.getTvQuarkTg(tmdbId, season);
           break;
         case "magnet_seedhub":
           return await fetchSeedhubTaskLinks();
         case "magnet_butailing":
           response = isMovie
             ? await searchApi.getMovieMagnetButailing(tmdbId)
-            : await searchApi.getTvMagnetButailing(tmdbId, selectedSeason);
+            : await searchApi.getTvMagnetButailing(tmdbId, season);
           break;
         case "moviepilot_pt":
           response = await moviepilotApi.search(title || defaultTitle);
           return mapMoviePilotResourceLinks(response.data);
         default:
-          response = await searchApi.getMediaResources(tmdbId, mediaType, selectedSeason, false);
+          response = await searchApi.getMediaResources(tmdbId, mediaType, season, false);
       }
 
       return mapResourceLinks(response.data);
@@ -442,12 +483,16 @@ export default function MediaDetailTab({
     }
   };
 
-  const handleSwitchSource = async (source: ResourceSourceKey) => {
+  const handleSwitchSource = async (source: ResourceSourceKey, seasonOverride?: number) => {
+    // #7 切源前若有未完成的 SeedHub 后台任务先取消，避免孤儿任务
+    if (source !== "magnet_seedhub" && seedhubTask?.taskId) {
+      void cancelSeedhubTask();
+    }
     setActiveSource(source);
     setResourcesLoading(true);
     if (source !== "magnet_seedhub") setSeedhubTask(null);
     setResources([]);
-    const links = await fetchResourceLinks(source);
+    const links = await fetchResourceLinks(source, seasonOverride);
     setResources(links);
     setResourcesLoading(false);
   };
@@ -521,20 +566,64 @@ export default function MediaDetailTab({
   };
 
   // ---- Subscribe ----
+  // 115 自动搜索订阅：未订阅时用 toggle 创建；已订阅时用 DELETE /subscriptions/{id} 取消（toggle 会硬删除包含下载记录，等价但走 delete 更显式 + 返回更可控）。
+  // PT 订阅：未订阅时调 moviepilotApi.createSubscription；若已有同 TMDB 的 115 自动搜索订阅，
+  //   后端 _find_existing_subscription 不区分 provider 会把该订阅 provider 改写为 moviepilot，
+  //   因此前端先 confirm 让用户知情。
   const handleSubscriptionChannel = async (channel: "pan115" | "pt" | "quark") => {
     if (channel === "quark") {
-      await addLog("WARN", "夸克订阅后端尚未接入，请先在资源通道中使用夸克转存一次");
+      await addLog("WARN", "夸克订阅暂未接入。可在资源通道先把夸克分享链接转存一次，再由系统调度扫描。");
       setSubscriptionMenuOpen(false);
       return;
     }
 
+    // 已订阅 → 取消
+    if (channel === "pan115" && isPan115Subscribed && pan115SubId) {
+      setSubscribing(true);
+      try {
+        await subscriptionApi.delete(pan115SubId);
+        setPan115SubId(null);
+        setPan115SubTitle("");
+        await addLog("INFO", `已取消 115 自动搜索订阅: ${title || defaultTitle}`);
+        setSubscriptionMenuOpen(false);
+      } catch (err: unknown) {
+        await addLog("ERROR", `取消订阅失败: ${String(err)}`);
+      } finally {
+        setSubscribing(false);
+      }
+      return;
+    }
+    if (channel === "pt" && isPtSubscribed && ptSubId) {
+      setSubscribing(true);
+      try {
+        await subscriptionApi.delete(ptSubId);
+        setPtSubId(null);
+        await addLog("INFO", `已取消 PT 下载订阅: ${title || defaultTitle}`);
+        setSubscriptionMenuOpen(false);
+      } catch (err: unknown) {
+        await addLog("ERROR", `取消 PT 订阅失败: ${String(err)}`);
+      } finally {
+        setSubscribing(false);
+      }
+      return;
+    }
+
+    // 创建 PT 订阅前若已存在 115 自动搜索订阅，提示后端会改写 provider
+    if (channel === "pt" && isPan115Subscribed) {
+      const ok = window.confirm(
+        `检测到「${title || defaultTitle}」已存在 115 自动搜索订阅。\n\n` +
+        `创建 MoviePilot PT 订阅会让后端将同一个 TMDB 订阅的归属从 MediaSync115 改写为 MoviePilot，` +
+        `此后本系统定时扫描将不再处理它（115 自动搜索会失效，改由 MoviePilot 调度 PT 下载）。\n\n` +
+        `确认继续创建 PT 订阅？`,
+      );
+      if (!ok) return;
+    }
+
     setSubscribing(true);
     try {
-      const title = detail?.title || detail?.name || defaultTitle;
       if (channel === "pan115") {
         await subscriptionApi.toggle({ tmdb_id: tmdbId, title, media_type: mediaType });
-        setIsSubscribed(!isSubscribed);
-        await addLog(isSubscribed ? "INFO" : "SUCCESS", isSubscribed ? `已取消 115 自动搜索订阅: ${title}` : `已添加 115 自动搜索订阅: ${title}`);
+        await addLog("SUCCESS", `已添加 115 自动搜索订阅: ${title}`);
       } else {
         const yearValue = detail?.release_date?.split("-")[0] || detail?.first_air_date?.split("-")[0] || undefined;
         await moviepilotApi.createSubscription({
@@ -550,6 +639,7 @@ export default function MediaDetailTab({
         await addLog("SUCCESS", `已创建 PT 下载订阅: ${title}`);
       }
       setSubscriptionMenuOpen(false);
+      await checkSubscription();
     } catch (err: unknown) {
       await addLog("ERROR", `订阅操作失败: ${String(err)}`);
     } finally {
@@ -558,56 +648,64 @@ export default function MediaDetailTab({
   };
 
   // ---- Season change ----
+  // #5 修复切季 stale state：直接透传 season 参数，不再读 activeSource/selectedSeason 闭包
   const handleSeasonChange = (season: number) => {
     setSelectedSeason(season);
     setResources([]);
     void loadEpisodes(season);
-    void handleSwitchSource(activeSource);
+    void handleSwitchSource(activeSource ?? "unified", season);
   };
 
   // ---- Initial load ----
+  // #6：mount 仅加载 detail/订阅/分集；显式源切换交给 runtime effect 完成，避免双请求闪烁
   useEffect(() => {
     void loadDetail();
     void checkSubscription();
     if (mediaType === "tv") void loadEpisodes(selectedSeason);
-    void handleSwitchSource("unified");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tmdbId]);
 
+  // 决定可见源 + 触发首源加载（每次进入新详情都重置到首源）+ 顺带读取 115/夸克默认转存目录
   useEffect(() => {
     let cancelled = false;
     const loadRuntimeResourceTabs = async () => {
-      try {
-        const response = await settingsApi.getRuntime();
-        const runtime = response.data as { detail_visible_tabs?: unknown };
-        const nextSources = normalizeVisibleResourceSources(runtime.detail_visible_tabs);
-        if (cancelled) return;
-        setVisibleResourceSources(nextSources);
-        if (!nextSources.includes(activeSource)) {
-          void handleSwitchSource(nextSources[0] || "unified");
-        }
-      } catch {
-        if (!cancelled) {
-          setVisibleResourceSources(RESOURCE_SOURCES.map((item) => item.key));
-        }
+      let nextSources: ResourceSourceKey[] = RESOURCE_SOURCES.map((item) => item.key);
+      const settled = await Promise.allSettled([
+        settingsApi.getRuntime(),
+        pan115Api.getDefaultFolder(),
+        quarkApi.getDefaultFolder(),
+      ]);
+      const runtimeResult = settled[0];
+      if (runtimeResult.status === "fulfilled") {
+        const runtime = runtimeResult.value.data as {
+          detail_visible_tabs?: unknown;
+          pan115_default_folder_name?: string;
+        };
+        nextSources = normalizeVisibleResourceSources(runtime.detail_visible_tabs);
+        if (!cancelled) setPan115DefaultFolderName(String(runtime.pan115_default_folder_name || ""));
       }
+      if (settled[1].status === "fulfilled") {
+        const data = settled[1].value.data as { folder_name?: string };
+        if (!cancelled) setPan115DefaultFolderName(String(data.folder_name || ""));
+      }
+      if (settled[2].status === "fulfilled") {
+        const data = settled[2].value.data as { folder_name?: string };
+        if (!cancelled) setQuarkDefaultFolderName(String(data.folder_name || ""));
+      }
+      if (cancelled) return;
+      setVisibleResourceSources(nextSources);
+      const firstSource = nextSources[0] || "unified";
+      setActiveSource(firstSource);
+      void handleSwitchSource(firstSource);
     };
     void loadRuntimeResourceTabs();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tmdbId]);
 
-  // ---- Derived ----
-  const title = detail?.title || detail?.name || defaultTitle;
-  const year = detail?.release_date?.split("-")[0] || detail?.first_air_date?.split("-")[0] || "";
-  const rating = detail?.vote_average;
-  const genres = detail?.genres || [];
-  const runtime = detail?.runtime;
-  const cast = detail?.credits?.cast || [];
-  const seasons = detail?.seasons || [];
-  const bKey = buildBadgeKey(mediaType, tmdbId);
-
+  // ---- Derived (title/seasons 等已上移；此处保留返回 JSX) ----
   return (
     <div className="liquid-page space-y-6">
       <Pan115Progress state={progress} onClose={() => setProgress(deriveDefaultProgressState())} />
@@ -637,7 +735,7 @@ export default function MediaDetailTab({
           <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6">
             <div className="flex flex-col md:flex-row gap-6">
               {/* Poster */}
-              <div className="w-40 h-60 md:w-48 md:h-72 rounded-2xl overflow-hidden shrink-0 mx-auto md:mx-0"
+              <div className="w-40 h-60 md:w-48 md:h-72 rounded-2xl overflow-hidden shrink-0 mx-auto md:mx-0 relative"
                 style={{ border: "1px solid var(--border)", background: "var(--surface-subtle)" }}>
                 {(detail?.poster_path || defaultPoster) ? (
                   <img src={posterUrl(detail?.poster_path) || defaultPoster || ""} alt={title}
@@ -702,8 +800,19 @@ export default function MediaDetailTab({
                   </p>
                 )}
 
-                {/* Actions */}
+                {/* Actions — 订阅入口（下拉含 115 / 夸克 / PT 三个渠道，按当前状态显示添加/取消） */}
                 <div className="relative flex flex-wrap gap-2 pt-1">
+                  {(isPan115Subscribed || isPtSubscribed) && (
+                    <span
+                      className="px-2.5 py-2 rounded-xl text-[10px] font-black flex items-center gap-1.5"
+                      style={{ background: "rgba(34,197,94,0.14)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.3)" }}
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      {isPan115Subscribed && "已订阅 115"}
+                      {isPan115Subscribed && isPtSubscribed && " · "}
+                      {isPtSubscribed && "已订阅 PT"}
+                    </span>
+                  )}
                   <button
                     onClick={() => setSubscriptionMenuOpen((open) => !open)}
                     disabled={subscribing}
@@ -711,11 +820,11 @@ export default function MediaDetailTab({
                     style={{ background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }}
                   >
                     {subscribing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Rss className="w-3.5 h-3.5" />}
-                    订阅设置
+                    添加订阅
                   </button>
                   {subscriptionMenuOpen && (
                     <div
-                      className="absolute left-0 top-12 z-30 w-[260px] rounded-2xl p-2 space-y-1"
+                      className="absolute left-0 top-12 z-30 w-[280px] rounded-2xl p-2 space-y-1"
                       style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "0 18px 40px rgba(15,23,42,.18)" }}
                     >
                       <button
@@ -725,29 +834,33 @@ export default function MediaDetailTab({
                         className="w-full px-3 py-2 rounded-xl text-left text-xs font-black flex items-center gap-2 transition-all glass-hover disabled:opacity-50"
                         style={{ color: "var(--txt)" }}
                       >
-                        {isSubscribed ? <CheckCircle className="w-4 h-4" style={{ color: "var(--accent-ok)" }} /> : <HardDrive className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />}
-                        <span>{isSubscribed ? "取消 115 自动搜索订阅" : "添加 115 自动搜索订阅"}</span>
+                        {isPan115Subscribed
+                          ? <CheckCircle className="w-4 h-4" style={{ color: "var(--accent-ok)" }} />
+                          : <HardDrive className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />}
+                        <span>{isPan115Subscribed ? "取消 115 自动搜索订阅" : "添加 115 自动搜索订阅"}</span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSubscriptionChannel("quark")}
-                        disabled
+                      <div
                         className="w-full px-3 py-2 rounded-xl text-left text-xs font-black flex items-center gap-2 opacity-55 cursor-not-allowed"
                         style={{ color: "var(--txt-muted)" }}
                       >
                         <Cloud className="w-4 h-4" />
-                        <span>夸克订阅（未接入）</span>
-                      </button>
+                        <span>夸克订阅（暂未接入，可先在下方通道转存）</span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleSubscriptionChannel("pt")}
-                        disabled={subscribing}
+                        disabled={subscribing || isPtSubscribed}
                         className="w-full px-3 py-2 rounded-xl text-left text-xs font-black flex items-center gap-2 transition-all glass-hover disabled:opacity-50"
                         style={{ color: "var(--txt)" }}
                       >
-                        <Download className="w-4 h-4" style={{ color: "var(--accent-info)" }} />
-                        <span>添加 PT 下载订阅</span>
+                        {isPtSubscribed
+                          ? <CheckCircle className="w-4 h-4" style={{ color: "var(--accent-ok)" }} />
+                          : <Download className="w-4 h-4" style={{ color: "var(--accent-info)" }} />}
+                        <span>{isPtSubscribed ? "已订阅 PT（MoviePilot 正在调度）" : "添加 PT 下载订阅（MoviePilot）"}</span>
                       </button>
+                      <p className="px-3 pt-1 text-[9px] font-semibold leading-relaxed" style={{ color: "var(--txt-muted)" }}>
+                        115 订阅由本系统定时按 TMDB 自动找源；PT 订阅交由 MoviePilot 调度下载。
+                      </p>
                     </div>
                   )}
                 </div>
@@ -833,16 +946,34 @@ export default function MediaDetailTab({
                     </div>
                   ))}
                 </div>
-              ) : null}
+              ) : (
+                <div className="rounded-xl py-3 text-center text-[10px] font-semibold"
+                  style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px dashed var(--border)" }}>
+                  该季暂无分集信息
+                </div>
+              )}
             </div>
           )}
 
           {/* ====== 资源通道 ====== */}
           <div className="liquid-panel glass-heavy glass-iridescent rounded-3xl p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <Download className="w-5 h-5" style={{ color: "var(--brand-primary)" }} />
-              <h3 className="font-headline text-lg font-black" style={{ color: "var(--txt)" }}>资源通道</h3>
-              {mediaType === "tv" && <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>S{selectedSeason}</span>}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Download className="w-5 h-5" style={{ color: "var(--brand-primary)" }} />
+                <h3 className="font-headline text-lg font-black" style={{ color: "var(--txt)" }}>资源通道</h3>
+                {mediaType === "tv" && <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>S{selectedSeason}</span>}
+              </div>
+              <button
+                type="button"
+                onClick={() => activeSource && handleSwitchSource(activeSource)}
+                disabled={resourcesLoading || !activeSource}
+                title="重新拉取当前来源资源"
+                className="px-2.5 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1.5 transition-all glass-hover disabled:opacity-50 cursor-pointer"
+                style={{ color: "var(--txt-secondary)", background: "var(--surface-subtle)", border: "1px solid var(--border)" }}
+              >
+                {resourcesLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                <span>刷新</span>
+              </button>
             </div>
 
             {/* Source tabs */}
@@ -896,7 +1027,7 @@ export default function MediaDetailTab({
                   const canTransferToQuark = isQuarkTransferableLink(link, activeSource);
 
                   return (
-                    <div key={idx} className="glass rounded-xl p-3 space-y-1.5">
+                    <div key={`${link.url || link.name || "res"}-${idx}`} className="glass rounded-xl p-3 space-y-1.5">
                       <div className="flex items-start justify-between gap-2">
                         <span className="text-xs font-semibold break-all leading-snug line-clamp-2" style={{ color: "var(--txt)" }}>
                           {link.name}
@@ -976,7 +1107,21 @@ export default function MediaDetailTab({
                               转存到夸克
                             </button>
                           )}
-                          {link.shareUrl && !canTransferToPan115 && !canTransferToQuark && (
+                          {/* MoviePilot PT 来源：资源本身不能直接下载，需通过创建 MoviePilot 订阅让其调度 */}
+                          {activeSource === "moviepilot_pt" && (
+                            <button
+                              disabled={subscribing}
+                              onClick={() => handleSubscriptionChannel("pt")}
+                              className="px-2.5 py-1 rounded text-[9px] font-black tracking-wider flex items-center gap-1 disabled:opacity-50"
+                              style={isPtSubscribed
+                                ? { background: "var(--surface-subtle)", color: "var(--accent-ok)", border: "1px solid var(--border)" }
+                                : { background: "var(--accent-info)", color: "#fff", border: "1px solid var(--accent-info)" }}
+                            >
+                              {isPtSubscribed ? <CheckCircle className="w-3 h-3" /> : (subscribing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Rss className="w-3 h-3" />)}
+                              {isPtSubscribed ? "已订阅 PT" : "添加 PT 订阅"}
+                            </button>
+                          )}
+                          {link.shareUrl && !canTransferToPan115 && !canTransferToQuark && activeSource !== "moviepilot_pt" && (
                             <span
                               className="px-2.5 py-1 rounded text-[9px] font-black"
                               style={{ background: "var(--surface-subtle)", color: "var(--txt-muted)", border: "1px solid var(--border)" }}
@@ -993,12 +1138,23 @@ export default function MediaDetailTab({
             )}
 
             {/* Transfer hint */}
-            <div className="rounded-2xl p-3 flex gap-2 items-center"
+            <div className="rounded-2xl p-3 space-y-1.5"
               style={{ background: "var(--brand-primary-bg-alpha)", border: "1px solid var(--brand-primary-border-alpha)" }}>
-              <Shield className="w-4 h-4 shrink-0" style={{ color: "var(--brand-primary)" }} />
-              <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--brand-primary)" }}>
-                资源动作按渠道显示：115 链接转存到 115，夸克链接转存到夸克；PT 和磁力来源需使用对应下载能力处理。
-              </p>
+              <div className="flex gap-2 items-center">
+                <Shield className="w-4 h-4 shrink-0" style={{ color: "var(--brand-primary)" }} />
+                <p className="text-[10px] font-semibold leading-relaxed" style={{ color: "var(--brand-primary)" }}>
+                  资源动作按渠道显示：115 链接转存到 115，夸克链接转存到夸克；PT 资源需创建 MoviePilot 订阅后由其下载；磁力来源可在 115 网盘页发起离线。
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 pl-6 text-[10px] font-bold">
+                <span style={{ color: "var(--txt-muted)" }}>
+                  115 转存目标：<strong style={{ color: "var(--txt-secondary)" }}>{pan115DefaultFolderName || "根目录（未配置）"}</strong>
+                </span>
+                <span style={{ color: "var(--txt-muted)" }}>
+                  夸克转存目标：<strong style={{ color: "var(--txt-secondary)" }}>{quarkDefaultFolderName || "根目录（未配置）"}</strong>
+                </span>
+                <span style={{ color: "var(--txt-muted)", opacity: 0.8 }}>可在 设置 → 115/夸克 处修改</span>
+              </div>
             </div>
           </div>
         </>
