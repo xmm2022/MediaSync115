@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     TMDB_IMAGE_BASE_URL: str = "https://image.tmdb.org/t/p/w500"
     TMDB_LANGUAGE: str = "zh-CN"
     TMDB_REGION: str = "CN"
+    TMDB_LOCAL_DB_PATH: str = "data/tmdb_base.db"
 
     PAN115_COOKIE: Optional[str] = None
     QUARK_COOKIE: Optional[str] = None

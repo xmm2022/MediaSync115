@@ -82,6 +82,7 @@ class RuntimeSettingsRequest(BaseModel):
     tmdb_image_base_url: Optional[str] = None
     tmdb_language: Optional[str] = None
     tmdb_region: Optional[str] = None
+    tmdb_local_db_path: Optional[str] = None
     emby_url: Optional[str] = None
     emby_api_key: Optional[str] = None
     emby_sync_enabled: Optional[bool] = None
@@ -681,12 +682,19 @@ async def _perform_tg_check() -> dict[str, Any]:
 async def _perform_tmdb_check() -> dict[str, Any]:
     try:
         result = await tmdb_service.check_connection()
+        local_database = result.get("local_database") or {}
+        api_error = str(result.get("api_error") or "").strip()
         return {
             "valid": True,
-            "message": "TMDB API 配置可用",
+            "message": (
+                f"本地 TMDB 数据库可用；官方 API 当前不可用：{_sanitize_external_error_message(api_error)}"
+                if api_error and local_database.get("available")
+                else "TMDB API 配置可用"
+            ),
             "configuration": result.get("configuration"),
             "images_configured": bool(result.get("images_configured")),
             "change_keys_count": int(result.get("change_keys_count") or 0),
+            "local_database": local_database,
         }
     except Exception as exc:
         return {
@@ -695,6 +703,7 @@ async def _perform_tmdb_check() -> dict[str, Any]:
             "configuration": None,
             "images_configured": False,
             "change_keys_count": 0,
+            "local_database": {},
         }
 
 

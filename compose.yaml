@@ -27,6 +27,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-}
       EMBY_PROXY_HOST: ${EMBY_PROXY_HOST:-host.docker.internal}
       EMBY_PROXY_PORT: ${EMBY_PROXY_PORT:-8096}
+      TMDB_LOCAL_DB_PATH: ${TMDB_LOCAL_DB_PATH:-data/tmdb_base.db}
     volumes:
       - ./data:/app/data
       - ${STRM_HOST_DIR:-./strm}:/app/strm

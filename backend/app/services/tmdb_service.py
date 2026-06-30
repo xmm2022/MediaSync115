@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.services.local_tmdb_service import local_tmdb_service
 from app.utils.proxy import proxy_manager
 
 _TMDB_CACHE_TTL_SECONDS = 60 * 60
@@ -78,7 +79,19 @@ class TmdbService:
 
     async def check_connection(self) -> dict[str, Any]:
         """Validate TMDB API connectivity with a lightweight real API request."""
-        payload = await self._get("/configuration", self._required_params())
+        local_status = await local_tmdb_service.status()
+        try:
+            payload = await self._get("/configuration", self._required_params())
+        except Exception as exc:
+            if local_status.get("available"):
+                return {
+                    "images_configured": False,
+                    "change_keys_count": 0,
+                    "configuration": {},
+                    "local_database": local_status,
+                    "api_error": str(exc),
+                }
+            raise
         image_config = payload.get("images")
         change_keys = payload.get("change_keys")
         return {
@@ -87,6 +100,7 @@ class TmdbService:
             if isinstance(change_keys, list)
             else 0,
             "configuration": payload,
+            "local_database": local_status,
         }
 
     @staticmethod
@@ -125,6 +139,12 @@ class TmdbService:
         return result
 
     async def search_multi(self, query: str, page: int = 1) -> dict[str, Any]:
+        local_payload = await local_tmdb_service.search_multi(query, page)
+        if local_payload.get("items"):
+            return local_payload
+        if not settings.TMDB_API_KEY and await local_tmdb_service.is_available():
+            return local_payload
+
         params = self._required_params(page=page)
         params["query"] = query
         params["include_adult"] = False
@@ -174,7 +194,7 @@ class TmdbService:
             "search_service": "tmdb",
             "search_services": ["tmdb"] if items else [],
             "source_counts": {"tmdb": len(items)} if items else {},
-            "fallback_used": False,
+            "fallback_used": bool(local_payload.get("attempts")),
             "attempts": [{"service": "tmdb", "status": "ok", "count": len(items)}],
         }
 
@@ -186,6 +206,14 @@ class TmdbService:
         year: int | None = None,
     ) -> dict[str, Any]:
         normalized_type = "tv" if media_type == "tv" else "movie"
+        local_payload = await local_tmdb_service.search_by_media_type(
+            query, normalized_type, page=page, year=year
+        )
+        if local_payload.get("items"):
+            return local_payload
+        if not settings.TMDB_API_KEY and await local_tmdb_service.is_available():
+            return local_payload
+
         params = self._required_params(page=page)
         params["query"] = query
         params["include_adult"] = False
@@ -230,7 +258,7 @@ class TmdbService:
             "search_service": "tmdb",
             "search_services": ["tmdb"] if items else [],
             "source_counts": {"tmdb": len(items)} if items else {},
-            "fallback_used": False,
+            "fallback_used": bool(local_payload.get("attempts")),
             "attempts": [{"service": "tmdb", "status": "ok", "count": len(items)}],
         }
 
@@ -298,18 +326,30 @@ class TmdbService:
         return await self._get(f"/tv/{tmdb_id}/external_ids", params)
 
     async def get_movie_detail(self, tmdb_id: int) -> dict[str, Any]:
-        params = self._required_params()
-        params["append_to_response"] = "credits,release_dates,videos,external_ids"
-        cache_key = f"movie:{tmdb_id}"
-        return await self._get_cached(cache_key, f"/movie/{tmdb_id}", params)
+        try:
+            params = self._required_params()
+            params["append_to_response"] = "credits,release_dates,videos,external_ids"
+            cache_key = f"movie:{tmdb_id}"
+            return await self._get_cached(cache_key, f"/movie/{tmdb_id}", params)
+        except Exception:
+            local_payload = await local_tmdb_service.get_detail("movie", tmdb_id)
+            if local_payload:
+                return local_payload
+            raise
 
     async def get_tv_detail(self, tmdb_id: int) -> dict[str, Any]:
-        params = self._required_params()
-        params["append_to_response"] = (
-            "aggregate_credits,content_ratings,videos,external_ids"
-        )
-        cache_key = f"tv:{tmdb_id}"
-        return await self._get_cached(cache_key, f"/tv/{tmdb_id}", params)
+        try:
+            params = self._required_params()
+            params["append_to_response"] = (
+                "aggregate_credits,content_ratings,videos,external_ids"
+            )
+            cache_key = f"tv:{tmdb_id}"
+            return await self._get_cached(cache_key, f"/tv/{tmdb_id}", params)
+        except Exception:
+            local_payload = await local_tmdb_service.get_detail("tv", tmdb_id)
+            if local_payload:
+                return local_payload
+            raise
 
     async def get_recommendations(
         self, media_type: str, tmdb_id: int, page: int = 1

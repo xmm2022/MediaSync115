@@ -47,6 +47,7 @@ class RuntimeSettingsService:
         "tmdb_image_base_url": "TMDB_IMAGE_BASE_URL",
         "tmdb_language": "TMDB_LANGUAGE",
         "tmdb_region": "TMDB_REGION",
+        "tmdb_local_db_path": "TMDB_LOCAL_DB_PATH",
         "emby_url": "EMBY_URL",
         "emby_api_key": "EMBY_API_KEY",
         "feiniu_url": "FEINIU_URL",
@@ -115,6 +116,7 @@ class RuntimeSettingsService:
             "tmdb_image_base_url": settings.TMDB_IMAGE_BASE_URL,
             "tmdb_language": settings.TMDB_LANGUAGE,
             "tmdb_region": settings.TMDB_REGION,
+            "tmdb_local_db_path": settings.TMDB_LOCAL_DB_PATH,
             "emby_url": settings.EMBY_URL or "",
             "emby_api_key": settings.EMBY_API_KEY or "",
             "emby_sync_enabled": False,
@@ -323,6 +325,7 @@ class RuntimeSettingsService:
             "tmdb_image_base_url": settings.TMDB_IMAGE_BASE_URL or "",
             "tmdb_language": settings.TMDB_LANGUAGE or "",
             "tmdb_region": settings.TMDB_REGION or "",
+            "tmdb_local_db_path": settings.TMDB_LOCAL_DB_PATH or "",
             "emby_url": settings.EMBY_URL or "",
             "emby_api_key": settings.EMBY_API_KEY or "",
             "feiniu_url": settings.FEINIU_URL or "",
@@ -689,6 +692,9 @@ class RuntimeSettingsService:
 
     def get_tmdb_region(self) -> str:
         return self._data["tmdb_region"]
+
+    def get_tmdb_local_db_path(self) -> str:
+        return str(self._data.get("tmdb_local_db_path") or "").strip()
 
     def get_emby_url(self) -> str:
         return str(self._data.get("emby_url") or "")
@@ -1486,6 +1492,7 @@ class RuntimeSettingsService:
         settings.TMDB_IMAGE_BASE_URL = self.get_tmdb_image_base_url()
         settings.TMDB_LANGUAGE = self.get_tmdb_language()
         settings.TMDB_REGION = self.get_tmdb_region()
+        settings.TMDB_LOCAL_DB_PATH = self.get_tmdb_local_db_path()
         settings.EMBY_URL = self.get_emby_url()
         settings.EMBY_API_KEY = self.get_emby_api_key()
         settings.FEINIU_URL = self.get_feiniu_url()
@@ -1575,6 +1582,7 @@ class RuntimeSettingsService:
             "tmdb_image_base_url": self.get_tmdb_image_base_url(),
             "tmdb_language": self.get_tmdb_language(),
             "tmdb_region": self.get_tmdb_region(),
+            "tmdb_local_db_path": self.get_tmdb_local_db_path(),
             "emby_url": self.get_emby_url(),
             "emby_api_key": self.get_emby_api_key(),
             "emby_sync_enabled": self.get_emby_sync_enabled(),

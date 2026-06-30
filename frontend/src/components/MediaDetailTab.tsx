@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   ArrowLeft, Star, Clock, Film, Tv,
-  CheckCircle, RefreshCw, Rss, Users,
+  CheckCircle, RefreshCw, Rss, Users, UserRound,
 } from "lucide-react";
 import ErrorBanner from "./ui/ErrorBanner";
 import { motion } from "motion/react";
@@ -56,7 +56,8 @@ interface TmdbDetail {
   overview?: string;
   genres?: { id: number; name: string }[];
   seasons?: { season_number: number; name: string; episode_count: number; poster_path?: string }[];
-  credits?: { cast?: { id: number; name: string; character: string; profile_path?: string }[] };
+  credits?: { cast?: { id: number; name: string; character?: string; profile_path?: string }[] };
+  aggregate_credits?: { cast?: { id: number; name: string; roles?: { character?: string }[]; profile_path?: string }[] };
   [key: string]: unknown;
 }
 
@@ -121,7 +122,14 @@ export default function MediaDetailTab({
   const rating = detail?.vote_average;
   const genres = detail?.genres || [];
   const runtime = detail?.runtime;
-  const cast = detail?.credits?.cast || [];
+  const cast = (detail?.credits?.cast || detail?.aggregate_credits?.cast || []).map((item) => ({
+    id: item.id,
+    name: item.name,
+    character: "character" in item
+      ? item.character || ""
+      : (item.roles || []).map((role) => role.character).filter(Boolean).join(" / "),
+    profile_path: item.profile_path,
+  }));
   const seasons = detail?.seasons || [];
   const bKey = buildBadgeKey(mediaType, tmdbId);
 
@@ -409,28 +417,54 @@ export default function MediaDetailTab({
             </div>
           </div>
 
-          {/* ====== 演员表（简略） ====== */}
+          {/* ====== 演员表 ====== */}
           {cast.length > 0 && (
             <div className="liquid-panel glass rounded-2xl p-4">
               <button
                 onClick={() => setShowFullCast(!showFullCast)}
-                className="flex items-center gap-2 w-full text-left text-xs font-black"
+                className="flex items-center gap-2 w-full text-left text-xs font-black cursor-pointer"
                 style={{ color: "var(--txt)" }}
               >
                 <Users className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
                 演员表 ({cast.length} 人)
               </button>
-              <div className="flex flex-wrap gap-1.5 mt-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mt-3">
                 {cast.slice(0, showFullCast ? 50 : 8).map((c) => (
-                  <span key={c.id} className="text-[10px] font-semibold px-2 py-1 rounded-lg"
-                    style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
-                    {c.name}
-                    {c.character && <span style={{ color: "var(--txt-muted)" }}> · {c.character}</span>}
-                  </span>
+                  <div
+                    key={c.id}
+                    className="min-w-0 rounded-xl p-2 transition-all"
+                    style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}
+                  >
+                    <div
+                      className="aspect-[2/3] rounded-lg overflow-hidden relative"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+                    >
+                      {c.profile_path ? (
+                        <img
+                          src={posterUrl(c.profile_path, "w185")}
+                          alt={c.name}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <UserRound className="w-7 h-7 absolute inset-0 m-auto" style={{ color: "var(--txt-muted)" }} />
+                      )}
+                    </div>
+                    <p className="mt-2 text-[11px] font-black leading-snug truncate" title={c.name} style={{ color: "var(--txt)" }}>
+                      {c.name}
+                    </p>
+                    {c.character && (
+                      <p className="mt-0.5 text-[9px] font-semibold leading-snug line-clamp-2" title={c.character} style={{ color: "var(--txt-muted)" }}>
+                        {c.character}
+                      </p>
+                    )}
+                  </div>
                 ))}
                 {cast.length > 8 && !showFullCast && (
                   <button onClick={() => setShowFullCast(true)}
-                    className="text-[10px] font-bold px-2 py-1" style={{ color: "var(--brand-primary)" }}>
+                    className="min-h-40 rounded-xl text-[10px] font-black px-2 py-1 cursor-pointer transition-all glass-hover"
+                    style={{ color: "var(--brand-primary)", border: "1px dashed var(--brand-primary-border-alpha)" }}>
                     +{cast.length - 8} 更多
                   </button>
                 )}

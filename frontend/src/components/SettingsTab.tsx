@@ -180,6 +180,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [tmdbImageBaseUrl, setTmdbImageBaseUrl] = useState("https://image.tmdb.org/t/p/w500");
   const [tmdbLanguage, setTmdbLanguage] = useState("zh-CN");
   const [tmdbRegion, setTmdbRegion] = useState("CN");
+  const [tmdbLocalDbPath, setTmdbLocalDbPath] = useState("data/tmdb_base.db");
   const [pansouBaseUrl, setPansouBaseUrl] = useState("");
 
   // ---- 3. Telegram Section States ----
@@ -436,6 +437,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setTmdbImageBaseUrl(String(rt.tmdb_image_base_url || "https://image.tmdb.org/t/p/w500"));
         setTmdbLanguage(String(rt.tmdb_language || "zh-CN"));
         setTmdbRegion(String(rt.tmdb_region || "CN"));
+        setTmdbLocalDbPath(String(rt.tmdb_local_db_path || "data/tmdb_base.db"));
 
         // Pansou
         setPansouBaseUrl(String(rt.pansou_base_url || ""));
@@ -642,6 +644,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         tmdb_image_base_url: tmdbImageBaseUrl.trim(),
         tmdb_language: tmdbLanguage.trim() || "zh-CN",
         tmdb_region: tmdbRegion.trim() || "CN",
+        tmdb_local_db_path: tmdbLocalDbPath.trim() || "data/tmdb_base.db",
         pansou_base_url: pansouBaseUrl.trim(),
 
         // Proxies
@@ -1601,7 +1604,23 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                       <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>首选区域限制 (Region)</span>
                       <input value={tmdbRegion} onChange={(e) => setTmdbRegion(e.target.value)} className="w-full text-xs px-3.5 py-2.5 input-premium" />
                     </label>
+                    <label className="space-y-1 block md:col-span-2">
+                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>本地 TMDB SQLite 路径</span>
+                      <input value={tmdbLocalDbPath} onChange={(e) => setTmdbLocalDbPath(e.target.value)} placeholder="data/tmdb_base.db" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
+                    </label>
                   </div>
+                  {resultOf("tmdbCheck") && (
+                    <p
+                      className="text-[10px] font-semibold rounded-lg px-3 py-2 break-words"
+                      style={{
+                        color: resultOf("tmdbCheck")?.ok ? "var(--accent-ok)" : "var(--accent-danger)",
+                        background: "var(--surface-subtle)",
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      {resultOf("tmdbCheck")?.msg}
+                    </p>
+                  )}
                   <div className="flex gap-2 pt-2">
                     <button
                       type="button"
