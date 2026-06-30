@@ -184,6 +184,50 @@ async def test_create_moviepilot_subscription_persists_external_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_moviepilot_subscription_does_not_rewrite_pan115_subscription() -> None:
+    await ensure_tables_exist("subscriptions")
+    await ensure_subscription_columns()
+    fake_client = FakeMoviePilotClient()
+    service = MoviePilotProviderService(client_factory=lambda: fake_client)
+
+    async with async_session_maker() as db:
+        await db.execute(delete(Subscription).where(Subscription.tmdb_id == 7654325))
+        pan115 = Subscription(
+            title="Dual Channel Show",
+            media_type=MediaType.TV,
+            tmdb_id=7654325,
+            provider="mediasync115",
+            external_system=None,
+            external_subscription_id=None,
+        )
+        db.add(pan115)
+        await db.commit()
+
+        moviepilot = await service.create_subscription(
+            db,
+            {
+                "title": "Dual Channel Show",
+                "media_type": MediaType.TV,
+                "tmdb_id": 7654325,
+                "year": "2026",
+            },
+        )
+
+        assert moviepilot.id != pan115.id
+        assert moviepilot.provider == "moviepilot"
+        assert moviepilot.external_system == "moviepilot"
+
+        refreshed_pan115 = await db.get(Subscription, pan115.id)
+        assert refreshed_pan115 is not None
+        assert refreshed_pan115.provider == "mediasync115"
+        assert refreshed_pan115.external_system is None
+
+        await db.delete(moviepilot)
+        await db.delete(refreshed_pan115)
+        await db.commit()
+
+
+@pytest.mark.asyncio
 async def test_sync_subscriptions_updates_local_external_status() -> None:
     await ensure_tables_exist("subscriptions")
     await ensure_subscription_columns()

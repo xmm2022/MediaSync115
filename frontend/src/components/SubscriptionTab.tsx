@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import type { SubscriptionItem, SubscriptionSource, DownloadRecord, MoviePilotSubscriptionCreatePayload } from "../api/types";
+import type { SubscriptionItem, SubscriptionSource, DownloadRecord, MoviePilotCompletionPreview, MoviePilotSubscriptionCreatePayload } from "../api/types";
 import { moviepilotApi, subscriptionApi } from "../api";
 import { getApiErrorMessage } from "../api/errors";
 import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity, Search, SlidersHorizontal, HardDrive, Cloud, Download } from "lucide-react";
@@ -129,6 +129,11 @@ function supportsPan115Missing(sub: SubscriptionItem): boolean {
   return getExecutionChannel(sub) === "pan115";
 }
 
+function supportsTvMissingStatus(sub: SubscriptionItem): boolean {
+  const channel = getExecutionChannel(sub);
+  return channel === "pan115" || channel === "pt";
+}
+
 function formatDownloadResourceType(value?: string): string {
   const normalized = String(value || "").toLowerCase();
   if (normalized === "pan115" || normalized === "115") return "115";
@@ -219,6 +224,8 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
   const [detailSources, setDetailSources] = useState<SubscriptionSource[]>([]);
   const [detailDownloads, setDetailDownloads] = useState<DownloadRecord[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [moviepilotCompletionPreview, setMoviepilotCompletionPreview] = useState<MoviePilotCompletionPreview | null>(null);
+  const [moviepilotCompletionBusyId, setMoviepilotCompletionBusyId] = useState<string | null>(null);
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [newSourceCode, setNewSourceCode] = useState("");
   const [addingSource, setAddingSource] = useState(false);
@@ -279,9 +286,10 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
     setDetailMissing(null);
     setDetailSources([]);
     setDetailDownloads([]);
+    setMoviepilotCompletionPreview(null);
     try {
       const tasks: Promise<unknown>[] = [];
-      if (sub.media_type === "tv" && supportsPan115Missing(sub)) {
+      if (sub.media_type === "tv" && supportsTvMissingStatus(sub)) {
         tasks.push(
           subscriptionApi.getSubscriptionTvMissingStatus(sub.id).then((r) => setDetailMissing((r as { data?: Record<string, unknown> }).data ?? null)).catch(() => setDetailMissing(null)),
         );
@@ -582,6 +590,39 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
       setErrorMessage(`MoviePilot 手动搜索失败: ${getApiErrorMessage(err)}`);
     } finally {
       setMoviepilotSearchingId(null);
+    }
+  };
+
+  const handleMoviePilotCompletionPreview = async (sub: SubscriptionItem) => {
+    setMoviepilotCompletionBusyId(sub.id);
+    setErrorMessage(null);
+    try {
+      const response = await moviepilotApi.previewMissingCompletion(sub.id);
+      setMoviepilotCompletionPreview(response.data);
+      const counts = response.data.counts || {};
+      await addLog("INFO", `MoviePilot 补缺预览完成 [${sub.title}]：可推送 ${counts.auto_push ?? 0}，需确认 ${counts.ambiguous ?? 0}，无匹配 ${counts.no_match ?? 0}`);
+    } catch (err) {
+      console.error("MoviePilot completion preview failed", err);
+      setErrorMessage(`MoviePilot 补缺预览失败: ${getApiErrorMessage(err)}`);
+    } finally {
+      setMoviepilotCompletionBusyId(null);
+    }
+  };
+
+  const handleMoviePilotCompletionRun = async (sub: SubscriptionItem) => {
+    setMoviepilotCompletionBusyId(sub.id);
+    setErrorMessage(null);
+    try {
+      const response = await moviepilotApi.runMissingCompletion(sub.id, { dry_run: false });
+      const completionData = response.data;
+      await addLog("SUCCESS", `MoviePilot 补缺完成 [${sub.title}]：已推送 ${response.data.pushed_count ?? 0}，失败 ${response.data.failed_count ?? 0}`);
+      await loadDetail(sub);
+      setMoviepilotCompletionPreview(completionData);
+    } catch (err) {
+      console.error("MoviePilot completion run failed", err);
+      setErrorMessage(`MoviePilot 补缺失败: ${getApiErrorMessage(err)}`);
+    } finally {
+      setMoviepilotCompletionBusyId(null);
     }
   };
 
@@ -1552,6 +1593,55 @@ export default function SubscriptionTab({ directories, addLog }: SubscriptionTab
                                 ? "该订阅由 MoviePilot 管理，不使用 115 固定分享链接。"
                                 : "夸克固定来源尚未接入，不能复用 115 固定来源逻辑。"}
                             </p>
+                          </div>
+                        )}
+
+                        {getExecutionChannel(sub) === "pt" && sub.media_type === "tv" && (
+                          <div className="rounded-xl px-3 py-2"
+                            style={{ background: "var(--surface)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 text-[10px] font-black" style={{ color: "var(--txt)" } as React.CSSProperties}>
+                                <Search className="w-3.5 h-3.5 text-brand-primary" />
+                                <span>MoviePilot 缺集补齐</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleMoviePilotCompletionPreview(sub)}
+                                  disabled={moviepilotCompletionBusyId === sub.id}
+                                  className="px-2 py-1 rounded text-[9px] font-bold glass-hover disabled:opacity-50"
+                                  style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" } as React.CSSProperties}
+                                >
+                                  预览
+                                </button>
+                                <button
+                                  onClick={() => handleMoviePilotCompletionRun(sub)}
+                                  disabled={moviepilotCompletionBusyId === sub.id}
+                                  className="px-2 py-1 rounded text-[9px] font-bold bg-brand-primary text-white disabled:opacity-50"
+                                >
+                                  {moviepilotCompletionBusyId === sub.id ? "处理中" : "补缺"}
+                                </button>
+                              </div>
+                            </div>
+                            {moviepilotCompletionPreview && Number(moviepilotCompletionPreview.subscription_id) === Number(sub.id) ? (
+                              <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-1.5">
+                                {[
+                                  ["可推送", moviepilotCompletionPreview.counts?.auto_push ?? moviepilotCompletionPreview.auto_push?.length ?? 0, "var(--accent-ok)"],
+                                  ["需确认", moviepilotCompletionPreview.counts?.ambiguous ?? moviepilotCompletionPreview.ambiguous?.length ?? 0, "var(--accent-warn)"],
+                                  ["无匹配", moviepilotCompletionPreview.counts?.no_match ?? moviepilotCompletionPreview.no_match?.length ?? 0, "var(--txt-muted)"],
+                                  ["已处理", moviepilotCompletionPreview.counts?.processed ?? moviepilotCompletionPreview.processed?.length ?? 0, "var(--brand-primary)"],
+                                ].map(([label, value, color]) => (
+                                  <div key={String(label)} className="rounded-lg px-2 py-1"
+                                    style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
+                                    <div className="text-[8px] font-black" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>{label}</div>
+                                    <div className="text-[12px] font-black" style={{ color: String(color) } as React.CSSProperties}>{String(value)}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[10px] font-semibold mt-1" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+                                只会自动推送明确匹配的单集资源；季包、全集包和模糊资源会跳过。
+                              </p>
+                            )}
                           </div>
                         )}
 

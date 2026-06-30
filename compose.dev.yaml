@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mediasync115-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mediasync115
+      POSTGRES_USER: mediasync
+      POSTGRES_PASSWORD: mediasync
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+
+  backend:
+    image: python:3.12-slim
+    container_name: mediasync115-backend-dev
+    working_dir: /app
+    restart: unless-stopped
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt
+      && uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+    environment:
+      TZ: Asia/Shanghai
+      DATABASE_URL: postgresql+asyncpg://mediasync:mediasync@postgres:5432/mediasync115
+      TMDB_LOCAL_DB_PATH: data/tmdb_base.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    depends_on:
+      - postgres
+
+  frontend:
+    image: node:20-alpine
+    container_name: mediasync115-frontend-dev
+    working_dir: /frontend
+    restart: unless-stopped
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173 --strictPort false"
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/frontend
+      - frontend-node-modules:/frontend/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  postgres-dev-data:
+  frontend-node-modules:

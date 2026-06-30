@@ -296,7 +296,7 @@ class FeiniuSyncIndexService:
             try:
                 sync_payload = await self._collect_feiniu_snapshot()
 
-                # 带重试写入快照，应对"database is locked"
+                # 带重试写入快照，应对数据库短暂锁等待或事务序列化冲突
                 for retry in range(3):
                     try:
                         await self._replace_snapshot(
@@ -304,16 +304,25 @@ class FeiniuSyncIndexService:
                         )
                         break
                     except OperationalError as exc:
-                        if "database is locked" not in str(exc).lower() or retry >= 2:
+                        message = str(exc).lower()
+                        retryable = any(
+                            token in message
+                            for token in (
+                                "deadlock detected",
+                                "could not serialize access",
+                                "lock timeout",
+                            )
+                        )
+                        if not retryable or retry >= 2:
                             raise
                         delay = 1.0 * (2 ** retry)
                         logger.warning(
-                            "飞牛同步写入时数据库锁定，%0.1f秒后重试（%d/3）", delay, retry + 1
+                            "飞牛同步写入遇到数据库并发冲突，%0.1f秒后重试（%d/3）", delay, retry + 1
                         )
                         await asyncio.sleep(delay)
                 await self._clear_runtime_caches()
                 # 同步完成后清理已在影视库中的订阅
-                # 给 SQLite WAL checkpoint 一点时间释放写锁，避免 cleanup commit 时 "database is locked"
+                # 给索引写入事务一点收尾时间，避免清理任务立刻争用同一批订阅行。
                 await asyncio.sleep(2.0)
                 try:
                     from app.services.subscription_service import subscription_service

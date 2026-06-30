@@ -45,15 +45,18 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
     __table_args__ = (
         Index("ix_subscriptions_active_created", "is_active", "created_at"),
+        Index("ix_subscriptions_tmdb_id", "tmdb_id"),
+        Index("ix_subscriptions_douban_id", "douban_id"),
+        Index("ix_subscriptions_provider_external", "provider", "external_system"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     douban_id: Mapped[str | None] = mapped_column(
-        String(50), unique=True, nullable=True
+        String(50), nullable=True
     )
-    tmdb_id: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
+    tmdb_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     imdb_id: Mapped[str | None] = mapped_column(
-        String(20), unique=True, nullable=True, index=True
+        String(20), nullable=True, index=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     media_type: Mapped[MediaType] = mapped_column(SQLEnum(MediaType), nullable=False)
@@ -75,13 +78,18 @@ class Subscription(Base):
     external_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_download: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
     )
 
     downloads: Mapped[list["DownloadRecord"]] = relationship(
         "DownloadRecord", back_populates="subscription"
+    )
+    moviepilot_completion_records: Mapped[list["MoviePilotCompletionRecord"]] = relationship(
+        "MoviePilotCompletionRecord",
+        back_populates="subscription",
+        cascade="all, delete-orphan",
     )
     sources: Mapped[list["SubscriptionSource"]] = relationship(
         "SubscriptionSource",
@@ -108,17 +116,59 @@ class DownloadRecord(Base):
     offline_info_hash: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     offline_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     offline_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    offline_submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    offline_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    offline_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    offline_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[MediaStatus] = mapped_column(
         SQLEnum(MediaStatus), default=MediaStatus.PENDING
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     subscription: Mapped["Subscription"] = relationship(
         "Subscription", back_populates="downloads"
+    )
+
+
+class MoviePilotCompletionRecord(Base):
+    __tablename__ = "moviepilot_completion_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "subscription_id",
+            "season_number",
+            "episode_number",
+            "resource_hash",
+            name="uq_moviepilot_completion_episode_resource",
+        ),
+        Index(
+            "ix_moviepilot_completion_subscription_episode",
+            "subscription_id",
+            "season_number",
+            "episode_number",
+        ),
+        Index("ix_moviepilot_completion_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    subscription_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("subscriptions.id"), nullable=False
+    )
+    tmdb_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    season_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    resource_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    resource_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resource_hash: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="matched")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_item_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
+    )
+
+    subscription: Mapped["Subscription"] = relationship(
+        "Subscription", back_populates="moviepilot_completion_records"
     )
 
 
@@ -147,16 +197,16 @@ class SubscriptionSource(Base):
     receive_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     selected_file_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_scan_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="never"
     )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_found_episode: Mapped[str | None] = mapped_column(String(50), nullable=True)
     last_transferred_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
     )
 
     subscription: Mapped["Subscription"] = relationship(
@@ -200,8 +250,8 @@ class SubscriptionSourceFile(Base):
     download_record_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("download_records.id"), nullable=True, index=True
     )
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
-    transferred_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
+    transferred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     source: Mapped["SubscriptionSource"] = relationship(
@@ -222,8 +272,8 @@ class SubscriptionExecutionLog(Base):
     new_resource_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SubscriptionStepLog(Base):
@@ -243,7 +293,7 @@ class SubscriptionStepLog(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
     message: Mapped[str] = mapped_column(String(500), nullable=False)
     payload: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
 
 
 class OperationLog(Base):
@@ -266,7 +316,7 @@ class OperationLog(Base):
     response_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, index=True
+        DateTime(timezone=True), default=beijing_now, index=True
     )
 
 
@@ -289,7 +339,7 @@ class TgMessageIndex(Base):
     )
     message_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     message_date: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True, index=True
+        DateTime(timezone=True), nullable=True, index=True
     )
     resource_name: Mapped[str] = mapped_column(String(255), nullable=False)
     share_link: Mapped[str] = mapped_column(Text, nullable=False)
@@ -298,9 +348,9 @@ class TgMessageIndex(Base):
         String(20), nullable=False, default="unknown"
     )
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
     )
 
 
@@ -312,15 +362,15 @@ class TgSyncState(Base):
         String(120), nullable=False, unique=True, index=True
     )
     last_message_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_message_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_message_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     backfill_completed: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
     )
 
 
@@ -344,9 +394,9 @@ class TgSyncJob(Base):
     errors_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, index=True
+        DateTime(timezone=True), default=beijing_now, index=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now, index=True
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now, index=True
     )
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

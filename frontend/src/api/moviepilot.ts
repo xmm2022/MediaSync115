@@ -1,6 +1,7 @@
 import api from './client';
 import type {
   MoviePilotConfig,
+  MoviePilotCompletionPreview,
   MoviePilotDownloadPayload,
   MoviePilotDownloadResponse,
   MoviePilotHealth,
@@ -27,5 +28,21 @@ export const moviepilotApi = {
   searchSubscription: (externalSubscriptionId: string | number) =>
     api.post<{ result: unknown }>(
       `/moviepilot/subscriptions/${encodeURIComponent(String(externalSubscriptionId))}/search`,
+    ),
+
+  previewMissingCompletion: (subscriptionId: string | number, params?: Record<string, unknown>) =>
+    api.get<MoviePilotCompletionPreview>(
+      `/moviepilot/subscriptions/${encodeURIComponent(String(subscriptionId))}/missing-completion/preview`,
+      { params },
+    ),
+
+  runMissingCompletion: (
+    subscriptionId: string | number,
+    payload: { refresh?: boolean; dry_run?: boolean; force?: boolean } = {},
+  ) =>
+    api.post<MoviePilotCompletionPreview>(
+      `/moviepilot/subscriptions/${encodeURIComponent(String(subscriptionId))}/missing-completion/run`,
+      payload,
+      { timeout: 120000 },
     ),
 };

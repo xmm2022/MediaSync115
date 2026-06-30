@@ -1,6 +1,7 @@
 import { moviepilotApi } from "./moviepilot";
 import type {
   MoviePilotConfig,
+  MoviePilotCompletionPreview,
   MoviePilotHealth,
   MoviePilotSyncResponse,
   MoviePilotSubscriptionCreatePayload,
@@ -30,3 +31,9 @@ assertResponse<MoviePilotSubscriptionResponse>(
 );
 assertResponse<MoviePilotSyncResponse>(moviepilotApi.syncSubscriptions());
 assertResponse<{ result: unknown }>(moviepilotApi.searchSubscription(88));
+assertResponse<MoviePilotCompletionPreview>(
+  moviepilotApi.previewMissingCompletion(88, { refresh: true }),
+);
+assertResponse<MoviePilotCompletionPreview>(
+  moviepilotApi.runMissingCompletion(88, { dry_run: true }),
+);

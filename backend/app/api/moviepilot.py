@@ -9,6 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.models import MediaType, Subscription
 from app.services.moviepilot_client import MoviePilotClientError
+from app.services.moviepilot_completion_service import (
+    MoviePilotCompletionError,
+    moviepilot_completion_service,
+)
 from app.services.moviepilot_provider_service import (
     MoviePilotProviderError,
     moviepilot_provider_service,
@@ -58,6 +62,12 @@ class MoviePilotDownloadCreate(BaseModel):
     downloader: Optional[str] = None
     save_path: Optional[str] = None
     moviepilot_save_path: Optional[str] = None
+
+
+class MoviePilotMissingCompletionRun(BaseModel):
+    refresh: bool = False
+    dry_run: bool = False
+    force: bool = False
 
 
 def _serialize_subscription(subscription: Any) -> dict[str, Any]:
@@ -154,3 +164,43 @@ async def search_moviepilot_subscription(
     except (MoviePilotClientError, MoviePilotProviderError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"result": result}
+
+
+@router.get("/subscriptions/{subscription_id}/missing-completion/preview")
+async def preview_moviepilot_missing_completion(
+    subscription_id: int,
+    refresh: bool = False,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return await moviepilot_completion_service.preview_missing_completion(
+            db,
+            subscription_id,
+            refresh=bool(refresh),
+            force=bool(force),
+        )
+    except MoviePilotCompletionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (MoviePilotClientError, MoviePilotProviderError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/subscriptions/{subscription_id}/missing-completion/run")
+async def run_moviepilot_missing_completion(
+    subscription_id: int,
+    payload: MoviePilotMissingCompletionRun,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return await moviepilot_completion_service.run_missing_completion(
+            db,
+            subscription_id,
+            refresh=bool(payload.refresh),
+            dry_run=bool(payload.dry_run),
+            force=bool(payload.force),
+        )
+    except MoviePilotCompletionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (MoviePilotClientError, MoviePilotProviderError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

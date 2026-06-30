@@ -27,9 +27,9 @@ class Watchlist(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     auto_fill_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
     )
 
     items: Mapped[list["WatchlistItem"]] = relationship(
@@ -59,6 +59,6 @@ class WatchlistItem(Base):
     year: Mapped[str | None] = mapped_column(String(10), nullable=True)
     rating: Mapped[float | None] = mapped_column(nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    added_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
 
     watchlist: Mapped["Watchlist"] = relationship("Watchlist", back_populates="items")

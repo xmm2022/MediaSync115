@@ -152,6 +152,8 @@ export interface MoviePilotConfig {
   password_configured: boolean;
   access_token_configured: boolean;
   save_path: string;
+  sync_enabled?: boolean;
+  sync_interval_minutes?: number;
 }
 
 export interface MoviePilotHealth {
@@ -239,6 +241,43 @@ export interface MoviePilotSyncResponse {
   download_updated_count?: number;
   transfer_created_count?: number;
   transfer_updated_count?: number;
+}
+
+export interface MoviePilotCompletionCandidate {
+  season_number: number;
+  episode_number: number;
+  title?: string;
+  resource_title?: string;
+  resource_url?: string;
+  resource_hash?: string;
+  status?: string;
+  reason?: string;
+  error_message?: string;
+  item?: Record<string, unknown>;
+}
+
+export interface MoviePilotCompletionPreview {
+  subscription_id: number;
+  tmdb_id?: number;
+  title?: string;
+  status: string;
+  message?: string;
+  missing_episodes?: MoviePilotCompletionCandidate[];
+  auto_push?: MoviePilotCompletionCandidate[];
+  ambiguous?: MoviePilotCompletionCandidate[];
+  no_match?: MoviePilotCompletionCandidate[];
+  processed?: MoviePilotCompletionCandidate[];
+  pushed?: MoviePilotCompletionCandidate[];
+  failed?: MoviePilotCompletionCandidate[];
+  pushed_count?: number;
+  failed_count?: number;
+  counts?: {
+    missing?: number;
+    auto_push?: number;
+    ambiguous?: number;
+    no_match?: number;
+    processed?: number;
+  };
 }
 
 export interface TwilightConfig {

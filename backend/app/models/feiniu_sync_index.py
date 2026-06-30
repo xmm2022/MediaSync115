@@ -25,10 +25,10 @@ class FeiniuMediaIndex(Base):
     )
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, nullable=False
+        DateTime(timezone=True), default=beijing_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
     )
 
 
@@ -49,7 +49,7 @@ class FeiniuTvEpisodeIndex(Base):
     season_number: Mapped[int] = mapped_column(Integer, nullable=False)
     episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, nullable=False
+        DateTime(timezone=True), default=beijing_now, nullable=False
     )
 
 
@@ -62,13 +62,13 @@ class FeiniuSyncState(Base):
     interval_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
     last_trigger: Mapped[str | None] = mapped_column(String(20), nullable=True)
     last_sync_started_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
+        DateTime(timezone=True), nullable=True
     )
     last_sync_finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
+        DateTime(timezone=True), nullable=True
     )
     last_successful_sync_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
+        DateTime(timezone=True), nullable=True
     )
     last_sync_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -76,8 +76,8 @@ class FeiniuSyncState(Base):
     tv_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     episode_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, nullable=False
+        DateTime(timezone=True), default=beijing_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
     )

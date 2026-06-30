@@ -137,6 +137,8 @@ class RuntimeSettingsService:
             "moviepilot_password_enc": "",
             "moviepilot_access_token": "",
             "moviepilot_save_path": "",
+            "moviepilot_sync_enabled": False,
+            "moviepilot_sync_interval_minutes": 60,
             "anirss_enabled": False,
             "anirss_base_url": "",
             "anirss_api_key_enc": "",
@@ -855,6 +857,15 @@ class RuntimeSettingsService:
     def get_moviepilot_save_path(self) -> str:
         return str(self._data.get("moviepilot_save_path") or "").strip()
 
+    def get_moviepilot_sync_enabled(self) -> bool:
+        return bool(self._data.get("moviepilot_sync_enabled", False))
+
+    def get_moviepilot_sync_interval_minutes(self) -> int:
+        try:
+            return max(15, int(self._data.get("moviepilot_sync_interval_minutes", 60) or 60))
+        except Exception:
+            return 60
+
     def get_moviepilot_config(self) -> dict[str, Any]:
         return {
             "enabled": self.get_moviepilot_enabled(),
@@ -863,6 +874,8 @@ class RuntimeSettingsService:
             "password_configured": bool(self.get_moviepilot_password_enc()),
             "access_token_configured": bool(self.get_moviepilot_access_token()),
             "save_path": self.get_moviepilot_save_path(),
+            "sync_enabled": self.get_moviepilot_sync_enabled(),
+            "sync_interval_minutes": self.get_moviepilot_sync_interval_minutes(),
         }
 
     def get_anirss_enabled(self) -> bool:
@@ -1603,6 +1616,8 @@ class RuntimeSettingsService:
                 self.get_moviepilot_access_token()
             ),
             "moviepilot_save_path": self.get_moviepilot_save_path(),
+            "moviepilot_sync_enabled": self.get_moviepilot_sync_enabled(),
+            "moviepilot_sync_interval_minutes": self.get_moviepilot_sync_interval_minutes(),
             "anirss_enabled": self.get_anirss_enabled(),
             "anirss_base_url": self.get_anirss_base_url(),
             "anirss_api_key_configured": bool(self.get_anirss_api_key_enc()),

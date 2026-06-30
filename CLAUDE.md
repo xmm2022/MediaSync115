@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MediaSync115 是一个面向个人媒体库管理的全栈应用，围绕"找片、找资源、转存、订阅、入库同步"构建。
 
-- **后端**: Python FastAPI + SQLAlchemy async (SQLite)
+- **后端**: Python FastAPI + SQLAlchemy async (PostgreSQL)
 - **前端**: React 19 + Tailwind CSS v4 + lucide-react + motion + Vite，axios 调真实后端，路由用 PageName state（无 vue-router）
 - **前端旧版（参考）**: frontend-legacy-vue/ (Vue 3 + Element Plus + Pinia + Vue Router)
 - **测试**: pytest (backend)；Playwright 前端冒烟测试暂缺（新前端尚未装 Playwright）
@@ -125,14 +125,14 @@ MediaSync115/
 │   │   └── utils/
 │   └── vite.config.js
 ├── docker/                   # Docker 配置
-├── data/                     # 数据库、运行时设置（持久化）
+├── data/                     # 运行时设置、本地 TMDB 库、缓存等持久化文件
 ├── compose.yaml              # Docker Compose 配置
 └── Dockerfile                # All-in-one 镜像构建
 ```
 
 ### 后端架构关键点
 
-- **数据库**: SQLite + SQLAlchemy 2.0 async，启用 WAL 模式
+- **数据库**: PostgreSQL + SQLAlchemy 2.0 async，schema 变更通过 Alembic 管理
 - **认证**: 会话认证，中间件拦截 `/api/*`（白名单除外）
 - **生命周期**: FastAPI lifespan 管理启动/关闭
 - **定时任务**: APScheduler，管理订阅扫描、Emby/飞牛同步、归档等

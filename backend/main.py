@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.core.migrations import run_database_migrations
 from app.api import (
     archive as archive_api,
     anime,
@@ -40,6 +41,7 @@ from app.services.pansou_service import pansou_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.emby_sync_scheduler_service import emby_sync_scheduler_service
 from app.services.feiniu_sync_scheduler_service import feiniu_sync_scheduler_service
+from app.services.moviepilot_sync_scheduler_service import moviepilot_sync_scheduler_service
 from app.services.hdhive_checkin_scheduler_service import (
     hdhive_checkin_scheduler_service,
 )
@@ -166,6 +168,7 @@ def _build_response_summary(
 async def lifespan(app: FastAPI):
     os.makedirs("data", exist_ok=True)
     pansou_service.set_base_url(runtime_settings_service.get_pansou_base_url())
+    await run_database_migrations()
     await init_db()
     await operation_log_service.prune(days=30)
 
@@ -238,6 +241,7 @@ async def lifespan(app: FastAPI):
     await hdhive_checkin_scheduler_service.ensure_checkin_task()
     await emby_sync_scheduler_service.ensure_sync_task()
     await feiniu_sync_scheduler_service.ensure_sync_task()
+    await moviepilot_sync_scheduler_service.ensure_sync_task()
     await archive_scheduler_service.ensure_scan_task()
     await tg_bot_service.start()
     yield

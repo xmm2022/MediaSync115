@@ -28,6 +28,7 @@ from app.services.emby_sync_index_service import emby_sync_index_service
 from app.services.emby_sync_scheduler_service import emby_sync_scheduler_service
 from app.services.feiniu_sync_index_service import feiniu_sync_index_service
 from app.services.feiniu_sync_scheduler_service import feiniu_sync_scheduler_service
+from app.services.moviepilot_sync_scheduler_service import moviepilot_sync_scheduler_service
 from app.services.tg_sync_service import tg_sync_service
 from app.services.tg_service import tg_service
 from app.services.tmdb_service import tmdb_service
@@ -101,6 +102,8 @@ class RuntimeSettingsRequest(BaseModel):
     moviepilot_password: Optional[str] = None
     moviepilot_access_token: Optional[str] = None
     moviepilot_save_path: Optional[str] = None
+    moviepilot_sync_enabled: Optional[bool] = None
+    moviepilot_sync_interval_minutes: Optional[int] = None
     anirss_enabled: Optional[bool] = None
     anirss_base_url: Optional[str] = None
     anirss_api_key: Optional[str] = None
@@ -212,6 +215,17 @@ _FEINIU_SYNC_SETTING_KEYS = frozenset(
         "feiniu_sync_enabled",
         "feiniu_sync_interval_hours",
         "feiniu_sync_interval_minutes",
+    }
+)
+_MOVIEPILOT_SYNC_SETTING_KEYS = frozenset(
+    {
+        "moviepilot_enabled",
+        "moviepilot_base_url",
+        "moviepilot_username",
+        "moviepilot_password",
+        "moviepilot_access_token",
+        "moviepilot_sync_enabled",
+        "moviepilot_sync_interval_minutes",
     }
 )
 _TG_BOT_SETTING_KEYS = frozenset(
@@ -460,6 +474,31 @@ def _validate_feiniu_sync_settings(merged_settings: dict) -> None:
         interval_minutes = interval_minutes * 60
     if interval_minutes < 15:
         raise HTTPException(status_code=400, detail="飞牛同步间隔必须大于等于 15 分钟")
+
+
+def _validate_moviepilot_sync_settings(merged_settings: dict) -> None:
+    enabled = bool(merged_settings.get("moviepilot_sync_enabled", False))
+    if not enabled:
+        return
+    if not bool(merged_settings.get("moviepilot_enabled", False)):
+        raise HTTPException(status_code=400, detail="启用 MoviePilot 定时同步前必须先启用 MoviePilot")
+    base_url = str(merged_settings.get("moviepilot_base_url") or "").strip()
+    username = str(merged_settings.get("moviepilot_username") or "").strip()
+    password_configured = bool(
+        merged_settings.get("moviepilot_password")
+        or runtime_settings_service.get_moviepilot_password_enc()
+    )
+    if not base_url or not username or not password_configured:
+        raise HTTPException(
+            status_code=400,
+            detail="启用 MoviePilot 定时同步前必须先配置 URL、用户名和密码",
+        )
+    try:
+        interval_minutes = int(merged_settings.get("moviepilot_sync_interval_minutes", 60) or 60)
+    except Exception:
+        interval_minutes = 0
+    if interval_minutes < 15:
+        raise HTTPException(status_code=400, detail="MoviePilot 同步间隔必须大于等于 15 分钟")
 
 
 @router.get("/runtime")
@@ -730,6 +769,9 @@ async def update_runtime_settings(
     payload = request.model_dump(exclude_unset=True)
     merged_settings = runtime_settings_service.get_all()
     merged_settings.update(payload)
+    if payload.get("moviepilot_enabled") is False:
+        payload["moviepilot_sync_enabled"] = False
+        merged_settings["moviepilot_sync_enabled"] = False
     if (
         any(key in payload for key in {"subscription_resource_priority", "subscription_enabled"})
         and bool(merged_settings.get("subscription_enabled", False))
@@ -773,6 +815,8 @@ async def update_runtime_settings(
         }
     ):
         _validate_feiniu_sync_settings(merged_settings)
+    if payload.keys() & _MOVIEPILOT_SYNC_SETTING_KEYS:
+        _validate_moviepilot_sync_settings(merged_settings)
     if any(key in payload for key in {"update_source_type", "update_repository"}):
         _validate_update_source_settings(merged_settings)
     _invalidate_settings_check_cache()
@@ -800,6 +844,8 @@ async def update_runtime_settings(
             await emby_sync_scheduler_service.ensure_sync_task()
         if payload_keys & _FEINIU_SYNC_SETTING_KEYS:
             await feiniu_sync_scheduler_service.ensure_sync_task()
+        if payload_keys & _MOVIEPILOT_SYNC_SETTING_KEYS:
+            await moviepilot_sync_scheduler_service.ensure_sync_task()
         if payload_keys & _TG_BOT_SETTING_KEYS:
             background_tasks.add_task(_restart_tg_bot_background)
     except ValueError as exc:

@@ -1001,9 +1001,9 @@ async def save_share_file(request: SaveShareRequest):
     将分享链接中的文件转存到网盘
     """
     service = get_service()
-    share_code = _normalize_pan115_share_code_or_400(request.share_code)
     try:
         async def operation() -> dict:
+            share_code = _normalize_pan115_share_code_or_400(request.share_code)
             target_pid = _get_transfer_default_folder_id()
             return await service.save_share_file(
                 share_code, request.file_id, target_pid, request.receive_code
@@ -1024,9 +1024,9 @@ async def save_share_files(request: SaveShareFilesRequest):
     将分享链接中的多个文件转存到网盘
     """
     service = get_service()
-    share_code = _normalize_pan115_share_code_or_400(request.share_code)
     try:
         async def operation() -> dict:
+            share_code = _normalize_pan115_share_code_or_400(request.share_code)
             target_pid = _get_transfer_default_folder_id()
             return await service.save_share_files(
                 share_code, request.file_ids, target_pid, request.receive_code

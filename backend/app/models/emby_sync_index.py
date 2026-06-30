@@ -20,8 +20,8 @@ class EmbyMediaIndex(Base):
     tmdb_id: Mapped[int] = mapped_column(Integer, nullable=False)
     emby_item_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, onupdate=beijing_now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now, onupdate=beijing_now)
 
 
 class EmbyTvEpisodeIndex(Base):
@@ -35,7 +35,7 @@ class EmbyTvEpisodeIndex(Base):
     tmdb_id: Mapped[int] = mapped_column(Integer, nullable=False)
     season_number: Mapped[int] = mapped_column(Integer, nullable=False)
     episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now, nullable=False)
 
 
 class EmbySyncState(Base):
@@ -46,13 +46,13 @@ class EmbySyncState(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     interval_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
     last_trigger: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    last_sync_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    last_sync_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    last_successful_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_sync_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_successful_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_sync_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     movie_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     tv_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     episode_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now, onupdate=beijing_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now, onupdate=beijing_now)

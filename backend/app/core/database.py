@@ -1,6 +1,6 @@
 from importlib import import_module
 
-from sqlalchemy import event, inspect, text
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -8,19 +8,31 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.SQL_ECHO,
-    connect_args={
+_engine_kwargs = {
+    "echo": settings.SQL_ECHO,
+    "connect_args": {
         "timeout": 60,
     },
-    poolclass=NullPool,
-)
+}
+if str(settings.APP_NAME or "").endswith("-Test"):
+    _engine_kwargs["poolclass"] = NullPool
+
+engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
 
 
 async_session_maker = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False
 )
+
+
+def validate_database_backend() -> None:
+    if not str(settings.DATABASE_URL or "").strip().lower().startswith(
+        "postgresql+asyncpg://"
+    ):
+        raise RuntimeError(
+            "MediaSync115 application database requires PostgreSQL. "
+            "Set DATABASE_URL to a postgresql+asyncpg:// URL."
+        )
 
 
 class Base(DeclarativeBase):
@@ -33,6 +45,7 @@ MODEL_MODULES = (
     "app.models.workflow",
     "app.models.emby_sync_index",
     "app.models.feiniu_sync_index",
+    "app.models.douban_tmdb_mapping",
     "app.models.archive",
     "app.models.watchlist",
     "app.models.person_follow",
@@ -43,8 +56,8 @@ DOWNLOAD_RECORD_COLUMN_SQL = {
     "offline_info_hash": "ALTER TABLE download_records ADD COLUMN offline_info_hash VARCHAR(100)",
     "offline_task_id": "ALTER TABLE download_records ADD COLUMN offline_task_id VARCHAR(100)",
     "offline_status": "ALTER TABLE download_records ADD COLUMN offline_status VARCHAR(50)",
-    "offline_submitted_at": "ALTER TABLE download_records ADD COLUMN offline_submitted_at DATETIME",
-    "offline_completed_at": "ALTER TABLE download_records ADD COLUMN offline_completed_at DATETIME",
+    "offline_submitted_at": "ALTER TABLE download_records ADD COLUMN offline_submitted_at TIMESTAMPTZ",
+    "offline_completed_at": "ALTER TABLE download_records ADD COLUMN offline_completed_at TIMESTAMPTZ",
 }
 
 SUBSCRIPTION_COLUMN_SQL = {
@@ -53,7 +66,7 @@ SUBSCRIPTION_COLUMN_SQL = {
     "tv_episode_start": "ALTER TABLE subscriptions ADD COLUMN tv_episode_start INTEGER",
     "tv_episode_end": "ALTER TABLE subscriptions ADD COLUMN tv_episode_end INTEGER",
     "tv_follow_mode": "ALTER TABLE subscriptions ADD COLUMN tv_follow_mode VARCHAR(20) NOT NULL DEFAULT 'missing'",
-    "tv_include_specials": "ALTER TABLE subscriptions ADD COLUMN tv_include_specials BOOLEAN DEFAULT 0",
+    "tv_include_specials": "ALTER TABLE subscriptions ADD COLUMN tv_include_specials BOOLEAN DEFAULT false",
     "preferred_resolutions": "ALTER TABLE subscriptions ADD COLUMN preferred_resolutions TEXT",
     "preferred_codecs": "ALTER TABLE subscriptions ADD COLUMN preferred_codecs TEXT",
     "preferred_hdr": "ALTER TABLE subscriptions ADD COLUMN preferred_hdr TEXT",
@@ -120,8 +133,20 @@ PERFORMANCE_INDEX_SQL = (
     "ON download_records (subscription_id, status)",
     "CREATE INDEX IF NOT EXISTS ix_subscriptions_active_created "
     "ON subscriptions (is_active, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_subscriptions_tmdb_id "
+    "ON subscriptions (tmdb_id)",
+    "CREATE INDEX IF NOT EXISTS ix_subscriptions_douban_id "
+    "ON subscriptions (douban_id)",
+    "CREATE INDEX IF NOT EXISTS ix_subscriptions_imdb_id "
+    "ON subscriptions (imdb_id)",
+    "CREATE INDEX IF NOT EXISTS ix_subscriptions_provider_external "
+    "ON subscriptions (provider, external_system)",
     "CREATE INDEX IF NOT EXISTS ix_subscription_step_logs_created_at "
     "ON subscription_step_logs (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_moviepilot_completion_subscription_episode "
+    "ON moviepilot_completion_records (subscription_id, season_number, episode_number)",
+    "CREATE INDEX IF NOT EXISTS ix_moviepilot_completion_status "
+    "ON moviepilot_completion_records (status)",
     "CREATE INDEX IF NOT EXISTS ix_watchlist_items_added_at "
     "ON watchlist_items (added_at)",
 )
@@ -153,11 +178,7 @@ async def ensure_performance_indexes() -> None:
 
 
 async def init_db():
-    # 在最开始就用独立连接执行 PRAGMA，确保 WAL 和 busy_timeout 生效
-    async with engine.connect() as conn:
-        await conn.execute(text("PRAGMA journal_mode=WAL"))
-        await conn.execute(text("PRAGMA busy_timeout=60000"))
-        await conn.commit()
+    validate_database_backend()
     await ensure_tables_exist()
     await ensure_subscription_columns()
     await ensure_download_record_columns()

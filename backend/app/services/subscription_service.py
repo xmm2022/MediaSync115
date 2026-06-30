@@ -1315,18 +1315,27 @@ class SubscriptionService:
                 )
 
         if result["deleted_count"] > 0:
-            # 带退避重试的 commit，应对 emby/feiniu 全量同步刚完成时的 SQLite "database is locked"
+            # 带退避重试的 commit，应对 emby/feiniu 全量同步刚完成时的短暂并发冲突。
             for retry in range(3):
                 try:
                     await db.commit()
                     break
                 except OperationalError as exc:
-                    if "database is locked" not in str(exc).lower() or retry >= 2:
+                    message = str(exc).lower()
+                    retryable = any(
+                        token in message
+                        for token in (
+                            "deadlock detected",
+                            "could not serialize access",
+                            "lock timeout",
+                        )
+                    )
+                    if not retryable or retry >= 2:
                         await db.rollback()
                         raise
                     delay = 1.0 * (2 ** retry)
                     logger.warning(
-                        "订阅清理 commit 时数据库锁定，%0.1fs 后重试（%d/3）",
+                        "订阅清理 commit 遇到数据库并发冲突，%0.1fs 后重试（%d/3）",
                         delay,
                         retry + 1,
                     )

@@ -37,8 +37,8 @@ class ArchiveTask(Base):
         SQLEnum(ArchiveStatus), default=ArchiveStatus.PENDING
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
     )
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

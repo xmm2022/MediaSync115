@@ -7,8 +7,8 @@
 | 层 | 技术 |
 | --- | --- |
 | 前端 | React 19、Vite 6、TypeScript、Tailwind CSS、lucide-react、axios、motion |
-| 后端 | FastAPI、SQLAlchemy 2、SQLite、APScheduler、httpx |
-| 数据 | `data/mediasync.db`、`data/runtime_settings.json` |
+| 后端 | FastAPI、SQLAlchemy 2、PostgreSQL、APScheduler、httpx |
+| 数据 | PostgreSQL volume、`data/runtime_settings.json` |
 | 部署 | Docker / Docker Compose / Nginx all-in-one |
 | 可选服务 | ANI-RSS、qBittorrent、Pansou、Emby、飞牛影视、Telegram、MoviePilot、Twilight |
 
@@ -121,6 +121,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 ```bash
 cd backend
+export DATABASE_URL=postgresql+asyncpg://mediasync:mediasync@127.0.0.1:5432/mediasync115
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -135,6 +136,8 @@ Docker all-in-one 容器内读写：
 ```text
 /app/data
 ```
+
+应用主数据库只支持 PostgreSQL。pytest 默认启动临时 PostgreSQL 容器，也可以通过 `TEST_DATABASE_URL=postgresql+asyncpg://...` 指向已有测试库。
 
 运行单测：
 
@@ -198,18 +201,27 @@ data/runtime_settings.json
 
 ## 数据库
 
-默认 SQLite：
+默认 PostgreSQL：
 
 ```text
-sqlite+aiosqlite:///./data/mediasync.db
+postgresql+asyncpg://mediasync:mediasync@127.0.0.1:5432/mediasync115
 ```
 
-启动时会自动创建表和补齐部分缺失列。新增字段时要同时考虑：
+Docker Compose 会启动 `postgres` 服务，并注入：
+
+```text
+postgresql+asyncpg://mediasync:mediasync@postgres:5432/mediasync115
+```
+
+启动时会先执行 Alembic migration，再做少量轻量兼容检查。新增字段时要同时考虑：
 
 - SQLAlchemy 模型。
-- `backend/app/core/database.py` 里的轻量迁移。
+- Alembic migration。
+- `backend/app/core/database.py` 里的轻量兼容兜底。
 - 旧数据兼容。
 - 前端类型。
+
+`data/tmdb_base.db` 如存在，是可选的本地 TMDB 资料库，不是应用主数据库。
 
 ## 前后端 API 约定
 

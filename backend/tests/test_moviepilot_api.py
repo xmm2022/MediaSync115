@@ -135,3 +135,62 @@ def test_moviepilot_sync_route_updates_local_metadata(
     assert response.json()["updated_count"] == 1
     assert response.json()["download_created_count"] == 1
     assert response.json()["downloads"]["items"] == [{"hash": "abc"}]
+
+
+def test_moviepilot_missing_completion_preview_route_delegates(
+    client: TestClient, monkeypatch
+) -> None:
+    from app.api import moviepilot as moviepilot_api
+
+    async def fake_preview(db, subscription_id: int, *, refresh: bool = False, force: bool = False):
+        assert db is not None
+        assert subscription_id == 123
+        assert refresh is True
+        assert force is False
+        return {"subscription_id": subscription_id, "status": "ok", "auto_push": []}
+
+    monkeypatch.setattr(
+        moviepilot_api.moviepilot_completion_service,
+        "preview_missing_completion",
+        fake_preview,
+    )
+
+    response = client.get("/api/moviepilot/subscriptions/123/missing-completion/preview?refresh=true")
+
+    assert response.status_code == 200
+    assert response.json() == {"subscription_id": 123, "status": "ok", "auto_push": []}
+
+
+def test_moviepilot_missing_completion_run_route_delegates(
+    client: TestClient, monkeypatch
+) -> None:
+    from app.api import moviepilot as moviepilot_api
+
+    async def fake_run(
+        db,
+        subscription_id: int,
+        *,
+        refresh: bool = False,
+        dry_run: bool = False,
+        force: bool = False,
+    ):
+        assert db is not None
+        assert subscription_id == 123
+        assert refresh is False
+        assert dry_run is True
+        assert force is True
+        return {"subscription_id": subscription_id, "status": "ok", "dry_run": True}
+
+    monkeypatch.setattr(
+        moviepilot_api.moviepilot_completion_service,
+        "run_missing_completion",
+        fake_run,
+    )
+
+    response = client.post(
+        "/api/moviepilot/subscriptions/123/missing-completion/run",
+        json={"dry_run": True, "force": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"subscription_id": 123, "status": "ok", "dry_run": True}

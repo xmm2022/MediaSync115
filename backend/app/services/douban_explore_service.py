@@ -1582,7 +1582,7 @@ async def _hydrate_tmdb_ids_from_db(items: list[dict[str, Any]]) -> int:
     if not pending:
         return 0
 
-    # 并行查 DB（每个查询都是独立的 SELECT；SQLite 会串行化但不会阻塞 event loop）
+    # 并行查 DB（每个查询都是独立的 SELECT，便于连接池调度）
     async def _query_one(
         douban_id: str, media_type: str, title: str, year: str | None
     ) -> tuple[bool, int | None]:

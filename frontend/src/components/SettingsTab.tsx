@@ -151,6 +151,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [moviepilotPassword, setMoviepilotPassword] = useState("");
   const [moviepilotPasswordConfigured, setMoviepilotPasswordConfigured] = useState(false);
   const [moviepilotSavePath, setMoviepilotSavePath] = useState("");
+  const [moviepilotSyncEnabled, setMoviepilotSyncEnabled] = useState(false);
+  const [moviepilotSyncIntervalMinutes, setMoviepilotSyncIntervalMinutes] = useState(60);
   // ANI-RSS
   const [anirssEnabled, setAnirssEnabled] = useState(false);
   const [anirssBaseUrl, setAnirssBaseUrl] = useState("");
@@ -380,6 +382,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         setMoviepilotUsername(String(rt.moviepilot_username || ""));
         setMoviepilotPasswordConfigured(Boolean(rt.moviepilot_password_configured));
         setMoviepilotSavePath(String(rt.moviepilot_save_path || ""));
+        setMoviepilotSyncEnabled(Boolean(rt.moviepilot_sync_enabled));
+        setMoviepilotSyncIntervalMinutes(Number(rt.moviepilot_sync_interval_minutes || 60));
 
         // ANI-RSS
         setAnirssEnabled(Boolean(rt.anirss_enabled));
@@ -589,6 +593,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         moviepilot_base_url: moviepilotBaseUrl.trim() || undefined,
         moviepilot_username: moviepilotUsername.trim() || undefined,
         moviepilot_save_path: moviepilotSavePath.trim() || undefined,
+        moviepilot_sync_enabled: moviepilotSyncEnabled,
+        moviepilot_sync_interval_minutes: Math.max(15, Math.round(moviepilotSyncIntervalMinutes || 60)),
 
         // ANI-RSS
         anirss_enabled: anirssEnabled,
@@ -744,6 +750,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         moviepilot_base_url: moviepilotBaseUrl.trim() || undefined,
         moviepilot_username: moviepilotUsername.trim() || undefined,
         moviepilot_save_path: moviepilotSavePath.trim() || undefined,
+        moviepilot_sync_enabled: moviepilotSyncEnabled,
+        moviepilot_sync_interval_minutes: Math.max(15, Math.round(moviepilotSyncIntervalMinutes || 60)),
       };
       if (moviepilotPassword.trim()) {
         payload.moviepilot_password = moviepilotPassword;
@@ -1374,6 +1382,14 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                       <label className="space-y-1 block md:col-span-2">
                         <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>PT 归档路径</span>
                         <input value={moviepilotSavePath} onChange={(e) => setMoviepilotSavePath(e.target.value)} placeholder="e.g. /incoming/pt" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer">
+                        <input type="checkbox" checked={moviepilotSyncEnabled} onChange={(e) => setMoviepilotSyncEnabled(e.target.checked)} className="accent-brand-primary" />
+                        定时同步状态
+                      </label>
+                      <label className="space-y-1 block">
+                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>同步间隔（分钟）</span>
+                        <input type="number" min={15} value={moviepilotSyncIntervalMinutes} onChange={(e) => setMoviepilotSyncIntervalMinutes(Math.max(15, Number(e.target.value || 60)))} className="w-full text-xs px-3.5 py-2.5 input-premium" />
                       </label>
                     </div>
                     <div className="flex flex-wrap gap-2">

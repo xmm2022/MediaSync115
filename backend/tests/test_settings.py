@@ -75,6 +75,48 @@ class TestSettings:
         finally:
             runtime_settings_service.update_bulk(original)
 
+    def test_disabling_moviepilot_also_disables_moviepilot_sync(
+        self,
+        client: TestClient,
+        monkeypatch,
+    ) -> None:
+        """关闭 MoviePilot 时应自动关闭其定时同步，避免被旧同步配置拦截。"""
+        from app.api import settings as settings_api
+        from app.services.runtime_settings_service import runtime_settings_service
+
+        original = runtime_settings_service.get_all()
+
+        async def fake_ensure_sync_task():
+            return None
+
+        monkeypatch.setattr(
+            settings_api.moviepilot_sync_scheduler_service,
+            "ensure_sync_task",
+            fake_ensure_sync_task,
+        )
+
+        try:
+            runtime_settings_service.update_bulk(
+                {
+                    "moviepilot_enabled": True,
+                    "moviepilot_sync_enabled": True,
+                    "moviepilot_base_url": "http://moviepilot.test",
+                    "moviepilot_username": "admin",
+                }
+            )
+
+            response = client.put(
+                "/api/settings/runtime",
+                json={"moviepilot_enabled": False},
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["settings"]["moviepilot_enabled"] is False
+            assert data["settings"]["moviepilot_sync_enabled"] is False
+        finally:
+            runtime_settings_service.update_bulk(original)
+
     def test_health_check_all(self, client: TestClient) -> None:
         """测试所有服务健康检查"""
         response = client.get("/api/settings/health/all")

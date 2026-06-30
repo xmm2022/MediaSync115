@@ -1,6 +1,6 @@
 """豆瓣 ↔ TMDB 映射的持久化缓存服务
 
-为 `douban_explore_service` 内的内存缓存提供 SQLite 后备，避免容器重启
+为 `douban_explore_service` 内的内存缓存提供数据库后备，避免容器重启
 后冷启动时反复调用 TMDB 搜索 / Wikidata SPARQL 等慢接口。
 
 读路径：内存 miss → DB 查询（命中即回填到内存）

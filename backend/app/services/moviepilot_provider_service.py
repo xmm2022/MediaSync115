@@ -598,7 +598,17 @@ class MoviePilotProviderService:
             filters.append(Subscription.douban_id == str(payload["douban_id"]))
         if not filters:
             return None
-        result = await db.execute(select(Subscription).where(or_(*filters)).limit(1))
+        result = await db.execute(
+            select(Subscription)
+            .where(
+                or_(*filters),
+                or_(
+                    Subscription.provider == "moviepilot",
+                    Subscription.external_system == "moviepilot",
+                ),
+            )
+            .limit(1)
+        )
         return result.scalar_one_or_none()
 
     async def create_subscription(

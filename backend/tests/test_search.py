@@ -55,8 +55,24 @@ class TestSearch:
         data = response.json()
         assert data["page"] == 1
 
-    def test_explore_popular(self, client: TestClient) -> None:
+    def test_explore_popular(self, client: TestClient, monkeypatch) -> None:
         """测试热门榜单"""
+        from app.api import search as search_api
+
+        async def fake_fetch_popular_section(source, refresh):
+            return {
+                "key": source["key"],
+                "title": source["title"],
+                "items": [],
+                "fetched_at": "2026-06-27T00:00:00+08:00",
+                "total": 0,
+            }
+
+        monkeypatch.setattr(
+            search_api,
+            "_fetch_popular_section",
+            fake_fetch_popular_section,
+        )
         response = client.get("/api/search/explore/popular")
         assert response.status_code == 200
         data = response.json()

@@ -1153,21 +1153,7 @@ async def get_tv_missing_status(
         raise HTTPException(status_code=404, detail="Subscription not found")
     if subscription.media_type != MediaType.TV:
         raise HTTPException(status_code=400, detail="仅支持电视剧订阅")
-    if not _is_mediasync115_subscription(subscription):
-        return {
-            "subscription_id": subscription.id,
-            "tmdb_id": subscription.tmdb_id,
-            "title": subscription.title,
-            "year": subscription.year,
-            "poster_path": subscription.poster_path,
-            "status": "unsupported_channel",
-            "message": "该订阅由外部渠道管理，不参与 MediaSync115 缺集转存逻辑",
-            "aired_episodes": [],
-            "existing_episodes": [],
-            "missing_episodes": [],
-            "missing_by_season": {},
-            "counts": {"aired": 0, "existing": 0, "missing": 0},
-        }
+    is_mediasync115 = _is_mediasync115_subscription(subscription)
     if subscription.tmdb_id is None:
         return {
             "subscription_id": subscription.id,
@@ -1210,8 +1196,15 @@ async def get_tv_missing_status(
         "title": subscription.title,
         "year": subscription.year,
         "poster_path": subscription.poster_path,
+        "provider": subscription.provider,
+        "external_system": subscription.external_system,
+        "participates_in_115_transfer": is_mediasync115,
         "status": status.get("status"),
-        "message": status.get("message"),
+        "message": (
+            status.get("message")
+            if is_mediasync115
+            else f"{status.get('message') or '缺集状态计算完成'}；该订阅由 MoviePilot 管理，不参与 115 自动转存"
+        ),
         "aired_episodes": status.get("aired_episodes") or [],
         "existing_episodes": status.get("existing_episodes") or [],
         "missing_episodes": status.get("missing_episodes") or [],

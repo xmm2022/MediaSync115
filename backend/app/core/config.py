@@ -44,7 +44,9 @@ class Settings(BaseSettings):
     FEINIU_SECRET: str = ""
     FEINIU_API_KEY: str = ""
 
-    DATABASE_URL: str = "sqlite+aiosqlite:///./data/mediasync.db"
+    DATABASE_URL: str = (
+        "postgresql+asyncpg://mediasync:mediasync@127.0.0.1:5432/mediasync115"
+    )
 
     # Kafka Configuration
     KAFKA_BOOTSTRAP_SERVERS: Optional[str] = (

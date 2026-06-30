@@ -27,10 +27,10 @@ class PersonFollow(Base):
     profile_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     known_for_department: Mapped[str | None] = mapped_column(String(80), nullable=True)
     auto_subscribe_new_works: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now
     )
 
     credits: Mapped[list["PersonFollowCredit"]] = relationship(
@@ -59,7 +59,7 @@ class PersonFollowCredit(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     poster_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     credit_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=beijing_now)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=beijing_now)
     subscribed: Mapped[bool] = mapped_column(Boolean, default=False)
 
     person_follow: Mapped["PersonFollow"] = relationship(

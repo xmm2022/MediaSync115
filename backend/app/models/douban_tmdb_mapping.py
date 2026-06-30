@@ -41,10 +41,10 @@ class DoubanSubjectTmdbMapping(Base):
     """记录解析来源（imdb_id / wikidata / tmdb_search 等），便于排查。"""
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, nullable=False
+        DateTime(timezone=True), default=beijing_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now, nullable=False
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now, nullable=False
     )
 
 
@@ -78,8 +78,8 @@ class DoubanTitleTmdbMapping(Base):
     resolution_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, nullable=False
+        DateTime(timezone=True), default=beijing_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=beijing_now, onupdate=beijing_now, nullable=False
+        DateTime(timezone=True), default=beijing_now, onupdate=beijing_now, nullable=False
     )
