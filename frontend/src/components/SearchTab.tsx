@@ -281,10 +281,10 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   const [selectedResource, setSelectedResource] = useState<MediaResource | null>(null);
   const [transferringLinkId, setTransferringLinkId] = useState<string | null>(null);
   const [transferSuccessId, setTransferSuccessId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [searchMode, setSearchMode] = useState<"discover" | "keyword" | "direct">("discover");
+  const [searchMode, setSearchMode] = useState<"discover" | "keyword" | "direct">("keyword");
   const [searchScope, setSearchScope] = useState<"media" | "direct">("media");
   const [directSource, setDirectSource] = useState<DirectResourceSourceKey>("115_hdhive");
   const [directMediaType, setDirectMediaType] = useState<"movie" | "tv">("movie");
@@ -366,7 +366,13 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     event?.preventDefault();
     const keyword = searchQuery.trim();
     if (!keyword) {
-      await loadResources(false, selectedCategory);
+      requestSeqRef.current += 1;
+      setSearchMode("keyword");
+      setResources([]);
+      setSelectedResource(null);
+      setStatusMap({});
+      setLoadError(null);
+      setIsLoading(false);
       return;
     }
     if (tmdbSearchConfigured === null) {
@@ -420,7 +426,13 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     event?.preventDefault();
     const keyword = searchQuery.trim();
     if (!keyword) {
-      await loadResources(false, selectedCategory);
+      requestSeqRef.current += 1;
+      setSearchMode("direct");
+      setResources([]);
+      setSelectedResource(null);
+      setStatusMap({});
+      setLoadError(null);
+      setIsLoading(false);
       return;
     }
 
@@ -650,6 +662,26 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     setLoadingLinks(false);
   };
 
+  const openResourceDetail = (resource: MediaResource) => {
+    if (resource.tmdb_id && onNavigateToDetail && !isDirectResourceResult(resource)) {
+      onNavigateToDetail({
+        tmdbId: resource.tmdb_id,
+        mediaType: (resource.media_type === "tv" ? "tv" : "movie") as "movie" | "tv",
+        title: resource.title,
+        poster: resource.poster,
+        returnTo: PageName.SEARCH,
+      });
+      return;
+    }
+
+    void handleSelectResource(resource);
+  };
+
+  const previewResourceLinks = (event: React.MouseEvent<HTMLButtonElement>, resource: MediaResource) => {
+    event.stopPropagation();
+    void handleSelectResource(resource);
+  };
+
   // ---- Switch resource source (multi-source browsing) ----
   const handleSwitchSource = async (source: ResourceSourceKey) => {
     if (!selectedResource) return;
@@ -812,11 +844,6 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
     }
   };
 
-  // ---- Initial load ----
-  useEffect(() => {
-    loadResources(false, "All");
-  }, [loadResources]);
-
   useEffect(() => {
     let cancelled = false;
 
@@ -868,10 +895,10 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
       <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6">
         <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
           <Search className="w-6 h-6" style={{ color: "var(--brand-primary)" }} />
-          <span>全网磁力 & 云端资源秒传检索</span>
+          <span>影视资源检索</span>
         </h2>
         <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color: "var(--txt-secondary)" }}>
-          聚合海量磁力、BT、RSS发布站以及 115 官方云端转存通道。在这里搜索您的心仪影视，点击一键即可瞬间挂载至您的 Emby / 飞牛服务器中，无需本地耗时下载。
+          先定位影视条目，再在详情页切换 115、Pansou、HDHive、TG、夸克和磁力来源完成转存或订阅。
         </p>
       </div>
 
@@ -1025,7 +1052,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
         <div className="lg:col-span-7 space-y-4">
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Flame className="w-4 h-4" style={{ color: "var(--brand-primary-light)" }} />
-            <span>{searchMode === "direct" ? "资源直搜结果" : searchMode === "keyword" ? "关键词搜索结果" : "热搜影视精品推荐"}</span>
+            <span>{searchMode === "direct" ? "资源直搜结果" : searchMode === "keyword" ? "影视搜索结果" : "热搜影视精品推荐"}</span>
             <span className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>({filteredResources.length} 个结果)</span>
             {searchMode === "discover" && (
               <button
@@ -1054,13 +1081,19 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                 onRetry={
                   searchMode === "direct"
                     ? () => runDirectResourceSearch()
+                    : searchMode === "keyword"
+                    ? () => runKeywordSearch()
                     : () => loadResources(false, selectedCategory)
                 }
               />
             </div>
           ) : filteredResources.length === 0 ? (
             <div className="glass rounded-3xl p-12 text-center">
-              <p className="text-sm font-bold" style={{ color: "var(--txt-muted)" }}>未找到匹配的媒体资源，换个词试试吧</p>
+              <p className="text-sm font-bold" style={{ color: "var(--txt-muted)" }}>
+                {searchQuery.trim()
+                  ? "未找到匹配的媒体资源，换个词试试吧"
+                  : "输入片名、IMDB ID 或切换资源直搜开始检索；榜单发现请前往榜单探索。"}
+              </p>
             </div>
           ) : (
             <div className="space-y-3.5">
@@ -1068,7 +1101,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                 <div
                   key={res.id}
                   id={`res-card-${res.id}`}
-                  onClick={() => handleSelectResource(res)}
+                  onClick={() => openResourceDetail(res)}
                   className={`glass glass-hover rounded-2xl p-4 flex gap-4 cursor-pointer transition-all ${
                     selectedResource?.id === res.id ? "card-selected" : ""
                   }`}
@@ -1118,9 +1151,21 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
                         const bKey = buildBadgeKey(res.media_type, res.tmdb_id);
                         return bKey ? <LibraryBadge status={statusMap[bKey]} /> : null;
                       })()}
-                      <span className="ml-auto text-[9px] font-black px-2 py-1 rounded-lg" style={{ background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)" }}>
-                        查看资源
-                      </span>
+                      <div className="ml-auto flex gap-1">
+                        {res.tmdb_id && !isDirectResourceResult(res) && (
+                          <button
+                            type="button"
+                            onClick={(event) => previewResourceLinks(event, res)}
+                            className="text-[9px] font-black px-2 py-1 rounded-lg transition-all glass-hover"
+                            style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+                          >
+                            快速预览
+                          </button>
+                        )}
+                        <span className="text-[9px] font-black px-2 py-1 rounded-lg" style={{ background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)" }}>
+                          {res.tmdb_id && !isDirectResourceResult(res) ? "进入详情" : "查看资源"}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>

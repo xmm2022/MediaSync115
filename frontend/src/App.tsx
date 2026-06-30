@@ -294,7 +294,7 @@ export default function App() {
     {
       title: "影视雷达",
       items: [
-        { name: PageName.SEARCH, label: "磁力秒传检索", icon: Search },
+        { name: PageName.SEARCH, label: "资源检索", icon: Search },
         { name: PageName.EXPLORE, label: "榜单探索", icon: Trophy },
         { name: PageName.ANIME, label: "动漫追番", icon: Clapperboard },
         { name: PageName.SUBSCRIPTION, label: "RSS智能追更", icon: Rss },
@@ -600,6 +600,7 @@ export default function App() {
                     setSearchQueryShared(query);
                     setActivePage(PageName.SEARCH);
                   }}
+                  onNavigateToDetail={handleNavigateToDetail}
                   onAddSubscription={async (item, board) => {
                     const built = buildExploreSubscriptionPayload(item, board);
                     if (built.ok === false) {
@@ -777,7 +778,7 @@ export default function App() {
       <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass px-2 py-2 grid grid-cols-5 gap-1 shadow-[0_-8px_32px_rgba(17,12,46,0.06)] pb-safe-bottom">
         {[
           { name: PageName.DASHBOARD, label: "主面板", icon: LayoutDashboard },
-          { name: PageName.SEARCH, label: "秒传搜索", icon: Search },
+          { name: PageName.SEARCH, label: "资源检索", icon: Search },
           { name: PageName.EXPLORE, label: "热门榜单", icon: Trophy },
           { name: PageName.ANIME, label: "追番", icon: Clapperboard },
           { name: PageName.SUBSCRIPTION, label: "智能追更", icon: Rss },

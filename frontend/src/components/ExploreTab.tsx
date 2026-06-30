@@ -7,10 +7,12 @@ import EmptyState from "./ui/EmptyState";
 import type { ExploreItem } from "../api/types";
 import { DEFAULT_EXPLORE_BOARD, getExplorePosterSrc } from "../utils/runtimeDefaults";
 import type { ExploreBoardKey } from "../utils/exploreSubscription";
+import { PageName, type DetailContext } from "../types";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 
 interface ExploreTabProps {
   onSearchQuery: (query: string) => void;
+  onNavigateToDetail: (ctx: DetailContext) => void;
   onAddSubscription: (item: ExploreItem, board: ExploreBoardKey) => Promise<{ ok: boolean; message: string }>;
 }
 
@@ -70,7 +72,7 @@ function normalizeSectionPayload(data: unknown) {
   };
 }
 
-export default function ExploreTab({ onSearchQuery, onAddSubscription }: ExploreTabProps) {
+export default function ExploreTab({ onSearchQuery, onNavigateToDetail, onAddSubscription }: ExploreTabProps) {
   const [activeBoard, setActiveBoard] = useState<ExploreBoardKey>(DEFAULT_EXPLORE_BOARD);
   const [items, setItems] = useState<ExploreItem[]>([]);
   const [statusMap, setStatusMap] = useState<Record<string, BadgeStatus>>({});
@@ -78,6 +80,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
   const [error, setError] = useState<string | null>(null);
   const [sectionTitle, setSectionTitle] = useState("");
   const [actionState, setActionState] = useState<Record<string, { status: "submitting" | "success" | "error"; message: string }>>({});
+  const [detailState, setDetailState] = useState<Record<string, { status: "loading" | "error"; message: string }>>({});
 
   const fetchBoard = useCallback(async (board: ExploreBoardKey) => {
     setLoading(true);
@@ -146,6 +149,57 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
   useEffect(() => {
     fetchBoard(activeBoard);
   }, [activeBoard, fetchBoard]);
+
+  const openDetail = async (item: ExploreItem, idx: number) => {
+    const title = item.title || "未知标题";
+    const key = String(item.id ?? idx);
+    const rawMediaType = String(item.media_type || "movie").toLowerCase();
+    const mediaType: "movie" | "tv" = rawMediaType === "tv" ? "tv" : "movie";
+    const navigate = (tmdbId: number) => {
+      onNavigateToDetail({
+        tmdbId,
+        mediaType,
+        title,
+        poster: getExplorePosterSrc(item.poster_url || "") || "",
+        returnTo: PageName.EXPLORE,
+      });
+    };
+
+    if (item.tmdb_id && Number(item.tmdb_id) > 0) {
+      navigate(Number(item.tmdb_id));
+      return;
+    }
+
+    setDetailState((prev) => ({
+      ...prev,
+      [key]: { status: "loading", message: "正在解析详情..." },
+    }));
+
+    try {
+      const response = await searchApi.resolveExploreItem({
+        source: activeBoard === "tmdb" ? "tmdb" : "douban",
+        media_type: mediaType,
+        tmdb_id: item.tmdb_id,
+        douban_id: item.douban_id || String(item.id || ""),
+        title,
+        year: item.year,
+      });
+      const data = response.data as { resolved?: boolean; tmdb_id?: number | string; media_type?: string };
+      const tmdbId = Number(data.tmdb_id);
+      if (data.resolved && Number.isInteger(tmdbId) && tmdbId > 0) {
+        navigate(tmdbId);
+        return;
+      }
+      throw new Error("未能匹配到 TMDB 详情");
+    } catch (err) {
+      const message = getApiErrorMessage(err, "无法打开详情，已切换到关键词搜索");
+      setDetailState((prev) => ({
+        ...prev,
+        [key]: { status: "error", message },
+      }));
+      onSearchQuery(title.split(" (")[0]);
+    }
+  };
 
   return (
     <div id="explore-tab-container" className="liquid-page space-y-6">
@@ -323,12 +377,17 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
                   {/* Action buttons */}
                   <div className="flex justify-end gap-2 mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
                     <button
-                      onClick={() => onSearchQuery(title.split(" (")[0])}
+                      onClick={() => openDetail(item, idx)}
+                      disabled={detailState[String(item.id ?? idx)]?.status === "loading"}
                       className="px-2.5 py-1.5 rounded-lg text-[10px] font-black hover:text-brand-primary transition-all flex items-center gap-1 glass-hover"
                       style={{ color: "var(--txt-secondary)", background: "var(--surface-subtle)", border: "1px solid var(--border)" }}
                     >
-                      <Search className="w-3.5 h-3.5" />
-                      <span>影视检索</span>
+                      {detailState[String(item.id ?? idx)]?.status === "loading" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Search className="w-3.5 h-3.5" />
+                      )}
+                      <span>{detailState[String(item.id ?? idx)]?.status === "loading" ? "打开中" : "查找资源"}</span>
                     </button>
 
                     <button
@@ -392,7 +451,7 @@ export default function ExploreTab({ onSearchQuery, onAddSubscription }: Explore
           <div>
             <h4 className="text-xs font-black" style={{ color: "var(--txt)" }}>想看的新影视榜单中没有？</h4>
             <p className="text-[10px] font-semibold leading-relaxed mt-0.5" style={{ color: "var(--txt-muted)" }}>
-              您可以直接利用磁力秒传检索，或在 RSS智能追更 中配置私有 RSS 地址进行全自动轮询追踪。
+              您可以直接使用资源检索，或在 RSS智能追更 中配置私有 RSS 地址进行全自动轮询追踪。
             </p>
           </div>
         </div>
