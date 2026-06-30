@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional
 
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -35,6 +36,35 @@ class SchedulerTaskUpdate(BaseModel):
     enabled: Optional[bool] = None
 
 
+def _validate_dynamic_task_schedule(
+    *,
+    trigger_type: str | None,
+    cron_expr: str | None,
+    interval_seconds: int | None,
+    enabled: bool,
+) -> None:
+    if not enabled:
+        return
+
+    normalized = str(trigger_type or "cron").strip().lower()
+    if normalized == "interval":
+        if int(interval_seconds or 0) <= 0:
+            raise HTTPException(status_code=400, detail="启用的间隔任务必须填写大于 0 的间隔秒数")
+        return
+
+    if normalized == "cron":
+        expr = str(cron_expr or "").strip()
+        if not expr:
+            raise HTTPException(status_code=400, detail="启用的 cron 任务必须填写 cron 表达式")
+        try:
+            CronTrigger.from_crontab(expr)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"无效的 cron 表达式: {exc}") from exc
+        return
+
+    raise HTTPException(status_code=400, detail=f"不支持的触发类型: {trigger_type}")
+
+
 @router.get("/job-keys")
 async def list_job_keys():
     return {"items": job_registry.list_keys()}
@@ -46,7 +76,18 @@ async def list_scheduler_jobs():
 
 
 @router.post("/run/{job_id}")
-async def run_scheduler_job(job_id: str, force: bool = False):
+async def run_scheduler_job(job_id: str, force: bool = False, db: AsyncSession = Depends(get_db)):
+    if job_id.startswith("dynamic:"):
+        raw_task_id = job_id.removeprefix("dynamic:")
+        try:
+            task_id = int(raw_task_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid dynamic task id: {raw_task_id}")
+        task = await db.get(SchedulerTask, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        await scheduler_manager.update_dynamic_job(task)
+
     await operation_log_service.log_background_event(
         source_type="api", module="scheduler",
         action="scheduler.job.run_manual", status="info",
@@ -69,6 +110,12 @@ async def list_dynamic_tasks(db: AsyncSession = Depends(get_db)):
 async def create_dynamic_task(payload: SchedulerTaskCreate, db: AsyncSession = Depends(get_db)):
     if not job_registry.get(payload.job_key):
         raise HTTPException(status_code=400, detail=f"Unknown job_key: {payload.job_key}")
+    _validate_dynamic_task_schedule(
+        trigger_type=payload.trigger_type,
+        cron_expr=payload.cron_expr,
+        interval_seconds=payload.interval_seconds,
+        enabled=payload.enabled,
+    )
 
     task = SchedulerTask(
         name=payload.name,
@@ -104,6 +151,13 @@ async def update_dynamic_task(task_id: int, payload: SchedulerTaskUpdate, db: As
     if "job_key" in data and data["job_key"] and not job_registry.get(data["job_key"]):
         raise HTTPException(status_code=400, detail=f"Unknown job_key: {data['job_key']}")
 
+    _validate_dynamic_task_schedule(
+        trigger_type=data.get("trigger_type", task.trigger_type),
+        cron_expr=data.get("cron_expr", task.cron_expr),
+        interval_seconds=data.get("interval_seconds", task.interval_seconds),
+        enabled=bool(data.get("enabled", task.enabled)),
+    )
+
     if "kwargs" in data:
         task.kwargs_json = json.dumps(data.pop("kwargs") or {}, ensure_ascii=False)
 
@@ -135,6 +189,12 @@ async def enable_dynamic_task(task_id: int, db: AsyncSession = Depends(get_db)):
     task = await db.get(SchedulerTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    _validate_dynamic_task_schedule(
+        trigger_type=task.trigger_type,
+        cron_expr=task.cron_expr,
+        interval_seconds=task.interval_seconds,
+        enabled=True,
+    )
     task.enabled = True
     task.state = "W"
     await db.commit()

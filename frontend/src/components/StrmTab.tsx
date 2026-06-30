@@ -28,41 +28,87 @@ const CHECK_LABEL_STYLE: React.CSSProperties = {
 const KEY_STYLE: React.CSSProperties = { color: "var(--txt-muted)" };
 const VALUE_STYLE: React.CSSProperties = { color: "var(--txt)" };
 
+function runtimeFlag(config: StrmConfig | null, key: string): boolean {
+  return Boolean((config?.runtime as Record<string, unknown> | undefined)?.[key]);
+}
+
+function formatRuntimeValue(value: unknown): string {
+  if (value == null || value === "") return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function buildDiagnosePreview(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { result: value };
+  const data = value as Record<string, unknown>;
+  if (data.error) return { error: data.error };
+  const directProbe = data.direct_probe as Record<string, unknown> | undefined;
+  return {
+    configured_mode: data.configured_mode,
+    effective_mode: data.effective_mode,
+    direct_requirement: data.direct_requirement,
+    direct_probe_ok: directProbe?.ok ?? directProbe?.success ?? null,
+    reason: data.reason,
+    note: data.note,
+    sample_file: data.sample_file,
+    pick_code: data.pick_code ? "已隐藏" : undefined,
+    download_url: data.download_url ? "已隐藏" : undefined,
+    required_headers: data.required_headers ? "已隐藏" : undefined,
+  };
+}
+
 export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | "ERROR", m: string) => Promise<void> }) {
   const [config, setConfig] = useState<StrmConfig | null>(null);
   const [archiveCfg, setArchiveCfg] = useState<ArchiveConfig | null>(null);
+  const [archiveConfigError, setArchiveConfigError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [operationResult, setOperationResult] = useState<unknown>(null);
   const [diagnose, setDiagnose] = useState<unknown>(null);
   const [diagnoseLoading, setDiagnoseLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const generateRunning = runtimeFlag(config, "generate_running");
 
   // 表单本地态
   const [strmEnabled, setStrmEnabled] = useState(false);
   const [outputDir, setOutputDir] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
-  const [redirectMode, setRedirectMode] = useState("auto");
+  const [redirectMode, setRedirectMode] = useState<NonNullable<StrmConfig["strm_redirect_mode"]>>("auto");
   const [refreshEmby, setRefreshEmby] = useState(false);
   const [refreshFeiniu, setRefreshFeiniu] = useState(false);
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [proxyPort, setProxyPort] = useState<number | undefined>(undefined);
+  const isDirty = Boolean(config) && (
+    strmEnabled !== Boolean(config?.strm_enabled) ||
+    outputDir.trim() !== String(config?.strm_output_dir || "") ||
+    baseUrl.trim() !== String(config?.strm_base_url || "") ||
+    redirectMode !== String(config?.strm_redirect_mode || "auto") ||
+    refreshEmby !== Boolean(config?.strm_refresh_emby_after_generate) ||
+    refreshFeiniu !== Boolean(config?.strm_refresh_feiniu_after_generate) ||
+    proxyEnabled !== Boolean(config?.strm_proxy_enabled) ||
+    (proxyPort || undefined) !== (config?.strm_proxy_port as number | undefined)
+  );
 
   const load = async () => {
     setLoading(true);
     setError(null);
+    setArchiveConfigError(null);
     try {
       const [{ data: c }, { data: ac }] = await Promise.all([
         strmApi.getConfig(),
-        archiveApi.getConfig().catch(() => ({ data: null as ArchiveConfig | null })),
+        archiveApi.getConfig().catch((err: unknown) => {
+          setArchiveConfigError(getApiErrorMessage(err));
+          return { data: null as ArchiveConfig | null };
+        }),
       ]);
       setConfig(c);
       setArchiveCfg(ac);
       setStrmEnabled(Boolean(c.strm_enabled));
       setOutputDir((c.strm_output_dir as string) || "");
-      setBaseUrl((c.strm_base_url as string) || (c.suggested_base_url as string) || "");
-      setRedirectMode((c.strm_redirect_mode as string) || "auto");
+      setBaseUrl((c.strm_base_url as string) || "");
+      setRedirectMode(c.strm_redirect_mode || "auto");
       setRefreshEmby(Boolean(c.strm_refresh_emby_after_generate));
       setRefreshFeiniu(Boolean(c.strm_refresh_feiniu_after_generate));
       setProxyEnabled(Boolean(c.strm_proxy_enabled));
@@ -79,14 +125,36 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
     load();
   }, []);
 
+  useEffect(() => {
+    if (!generateRunning) return;
+    const timer = window.setInterval(() => {
+      void strmApi.getConfig().then(({ data }) => {
+        setConfig(data);
+        if (!runtimeFlag(data, "generate_running")) {
+          window.clearInterval(timer);
+        }
+      }).catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [generateRunning]);
+
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
+      if (strmEnabled && !baseUrl.trim()) {
+        throw new Error("启用 STRM 时必须填写回源 Base URL");
+      }
+      if (strmEnabled && !outputDir.trim()) {
+        throw new Error("启用 STRM 时必须填写输出目录");
+      }
+      if (proxyEnabled && (!proxyPort || proxyPort <= 0 || proxyPort > 65535)) {
+        throw new Error("启用 STRM 代理时，代理端口必须在 1-65535 之间");
+      }
       const { data } = await strmApi.updateConfig({
         strm_enabled: strmEnabled,
-        strm_output_dir: outputDir.trim() || undefined,
-        strm_base_url: baseUrl.trim() || undefined,
+        strm_output_dir: outputDir.trim(),
+        strm_base_url: baseUrl.trim(),
         strm_redirect_mode: redirectMode,
         strm_refresh_emby_after_generate: refreshEmby,
         strm_refresh_feiniu_after_generate: refreshFeiniu,
@@ -105,13 +173,22 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
   };
 
   const handleGenerate = async () => {
+    if (!strmEnabled) {
+      await addLog("WARN", "请先启用并保存 STRM 生成配置");
+      return;
+    }
+    if (isDirty) {
+      await addLog("WARN", "STRM 配置有未保存修改，请先保存配置再生成");
+      return;
+    }
     if (!confirm("立即生成全库 STRM 文件？该操作可能耗时较长。")) return;
     setGenerating(true);
     setError(null);
     try {
       const result = await strmApi.generate();
       await addLog("SUCCESS", "STRM 生成任务已触发");
-      setDiagnose(result.data);
+      setOperationResult(result.data);
+      await load();
     } catch (err: unknown) {
       const detail = getApiErrorMessage(err);
       setError(`生成失败: ${detail}`);
@@ -126,9 +203,11 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
     try {
       const { data } = await strmApi.diagnose();
       setDiagnose(data);
+      await addLog("SUCCESS", "STRM 诊断完成");
     } catch (err: unknown) {
       const detail = getApiErrorMessage(err);
       setDiagnose({ error: detail });
+      await addLog("ERROR", `STRM 诊断失败: ${detail}`);
     } finally {
       setDiagnoseLoading(false);
     }
@@ -139,9 +218,11 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
     try {
       await archiveApi.runScan();
       await addLog("SUCCESS", "归档扫描已触发");
+      await load();
     } catch (err: unknown) {
       const detail = getApiErrorMessage(err);
       setError(`归档扫描失败: ${detail}`);
+      await addLog("ERROR", `归档扫描失败: ${detail}`);
     } finally {
       setScanning(false);
     }
@@ -173,17 +254,17 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
             <span>STRM 虚拟文件管理</span>
           </h2>
           <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color: "var(--txt-secondary)" }}>
-            生成 .strm 指向文件供 Emby/飞牛直链播放，支持 302 重定向与代理回源。点击生成后可在媒体库看到 STRM 资源。
+            生成 .strm 指向文件供 Emby/飞牛播放，支持 302 重定向与代理回源。生成任务启动后会在后台写入 STRM，完成并被媒体库扫描后可见。
           </p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={handleGenerate}
-            disabled={generating}
+            disabled={saving || generating || generateRunning || !strmEnabled || isDirty}
             className="bg-brand-primary text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider flex items-center gap-1.5 shrink-0 transition-all active:scale-95 shadow-md disabled:opacity-50"
           >
             <Play className="w-4 h-4" />
-            <span>{generating ? "生成中…" : "立即生成"}</span>
+            <span>{generating || generateRunning ? "生成中…" : isDirty ? "先保存配置" : "立即生成"}</span>
           </button>
           <button
             onClick={handleDiagnose}
@@ -208,7 +289,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
             {Object.entries(config.runtime as Record<string, unknown>).slice(0, 8).map(([k, v]) => (
               <div key={k} className="glass rounded-xl px-3 py-2">
                 <div className="text-[10px] font-bold truncate" style={KEY_STYLE}>{k}</div>
-                <div className="text-xs font-black truncate" style={VALUE_STYLE}>{String(v ?? "—")}</div>
+                <div className="text-xs font-black truncate" style={VALUE_STYLE}>{formatRuntimeValue(v)}</div>
               </div>
             ))}
           </div>
@@ -235,11 +316,21 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
           <div className="space-y-1">
             <label className="text-xs font-bold" style={LABEL_STYLE}>回源 Base URL (strm_base_url)</label>
             <input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={config?.suggested_base_url as string || "http://host:9008"} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={INPUT_STYLE} />
+            {config?.suggested_base_url && (
+              <button
+                type="button"
+                onClick={() => setBaseUrl(String(config.suggested_base_url || ""))}
+                className="text-[10px] font-bold cursor-pointer"
+                style={{ color: "var(--brand-primary)" }}
+              >
+                使用建议地址
+              </button>
+            )}
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-bold" style={LABEL_STYLE}>重定向模式 (strm_redirect_mode)</label>
-            <select value={redirectMode} onChange={(e) => setRedirectMode(e.target.value)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={INPUT_STYLE}>
+            <select value={redirectMode} onChange={(e) => setRedirectMode(e.target.value as NonNullable<StrmConfig["strm_redirect_mode"]>)} className="w-full text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-brand-primary" style={INPUT_STYLE}>
               <option value="auto">自动选择</option>
               <option value="redirect">302 重定向</option>
               <option value="proxy">代理回源</option>
@@ -257,7 +348,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
           </label>
 
           <label className="flex items-center justify-between rounded-xl px-3 py-2.5" style={CHECK_LABEL_STYLE}>
-            <span className="text-xs font-bold">启用 STRM 代理</span>
+            <span className="text-xs font-bold">STRM 链接使用代理端口</span>
             <input type="checkbox" checked={proxyEnabled} onChange={(e) => setProxyEnabled(e.target.checked)} className="w-4 h-4 accent-brand-primary" />
           </label>
 
@@ -281,14 +372,14 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
 
       {/* 归档入口 */}
       <div className="liquid-panel glass rounded-3xl p-5 space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
             <Folder className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
             <span>自动归档</span>
           </h3>
           <button
             onClick={handleScan}
-            disabled={scanning}
+            disabled={scanning || Boolean(archiveConfigError)}
             className="glass glass-hover px-3 py-1.5 rounded-lg text-[10px] font-black disabled:opacity-50 flex items-center gap-1"
             style={{ color: "var(--txt-secondary)" }}
           >
@@ -298,16 +389,44 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
         </div>
         {archiveCfg && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
-            {Object.entries(archiveCfg as Record<string, unknown>).slice(0, 9).map(([k, v]) => (
-              <div key={k} className="glass rounded-lg px-2 py-1.5">
-                <div className="text-[9px] font-bold truncate" style={KEY_STYLE}>{k}</div>
-                <div className="text-xs font-black truncate" style={VALUE_STYLE}>{String(v ?? "—")}</div>
+            {[
+              { key: "enabled", label: "归档开关", value: archiveCfg.archive_enabled ? "已启用" : "未启用" },
+              { key: "watch", label: "监听目录", value: String(archiveCfg.archive_watch_name || archiveCfg.archive_watch_cid || "未配置") },
+              { key: "output", label: "输出目录", value: String(archiveCfg.archive_output_name || archiveCfg.archive_output_cid || "未配置") },
+              { key: "interval", label: "扫描间隔", value: `${archiveCfg.archive_interval_minutes || "—"} 分钟` },
+              { key: "auto_transfer", label: "转存后归档", value: archiveCfg.archive_auto_on_transfer ? "开启" : "关闭" },
+              { key: "auto_offline", label: "离线完成归档", value: archiveCfg.archive_auto_on_offline ? "开启" : "关闭" },
+            ].map((item) => (
+              <div key={item.key} className="glass rounded-lg px-2 py-1.5">
+                <div className="text-[9px] font-bold truncate" style={KEY_STYLE}>{item.label}</div>
+                <div className="text-xs font-black truncate" style={VALUE_STYLE}>{item.value}</div>
               </div>
             ))}
           </div>
         )}
-        {!archiveCfg && <p className="text-xs font-semibold" style={{ color: "var(--txt-muted)" }}>未加载到归档配置</p>}
+        {!archiveCfg && (
+          <p className="text-xs font-semibold" style={{ color: archiveConfigError ? "var(--accent-warn)" : "var(--txt-muted)" }}>
+            {archiveConfigError ? `归档配置加载失败：${archiveConfigError}` : "未配置归档参数"}
+          </p>
+        )}
       </div>
+
+      {operationResult != null && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="liquid-panel glass rounded-3xl p-5 space-y-2">
+          <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
+            <Play className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
+            <span>生成任务状态</span>
+            {(operationResult as Record<string, unknown>)?.error ? (
+              <XCircle className="w-4 h-4" style={{ color: "var(--accent-danger)" }} />
+            ) : (
+              <CheckCircle2 className="w-4 h-4" style={{ color: "var(--accent-ok)" }} />
+            )}
+          </h3>
+          <pre className="text-[10px] rounded-xl p-3 overflow-auto max-h-56 font-mono leading-relaxed" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>
+{JSON.stringify(operationResult, null, 2)}
+          </pre>
+        </motion.div>
+      )}
 
       {/* 诊断结果 */}
       {diagnose != null && (
@@ -322,7 +441,7 @@ export default function StrmTab({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "
             )}
           </h3>
           <pre className="text-[10px] rounded-xl p-3 overflow-auto max-h-80 font-mono leading-relaxed" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)" }}>
-{JSON.stringify(diagnose, null, 2)}
+{JSON.stringify(buildDiagnosePreview(diagnose), null, 2)}
           </pre>
         </motion.div>
       )}

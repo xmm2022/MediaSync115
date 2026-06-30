@@ -217,6 +217,8 @@ class StrmService:
                 raise
 
     def _prepare_generate(self) -> tuple[str, Path]:
+        if not runtime_settings_service.get_strm_enabled():
+            raise ValueError("请先启用 STRM 生成")
         output_cid = runtime_settings_service.get_archive_output_cid()
         if not output_cid:
             raise ValueError("请先在归档刮削中配置 115 输出目录")

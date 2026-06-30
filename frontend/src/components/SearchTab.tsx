@@ -4,6 +4,7 @@ import { Search, Film, Tv, Download, Flame, Shield, ExternalLink, RefreshCw } fr
 import ErrorBanner from "./ui/ErrorBanner";
 import { motion, AnimatePresence } from "motion/react";
 import { searchApi } from "../api/search";
+import { settingsApi } from "../api/settings";
 import { mapSearchItemToResource, normalizeSearchPosterSrc, type SearchResourceItem } from "../utils/searchResources";
 import LibraryBadge, { buildBadgeKey, mergeStatusMap, type BadgeStatus } from "./LibraryBadge";
 import Pan115Progress, { type Pan115ProgressState, deriveDefaultProgressState } from "./Pan115Progress";
@@ -63,8 +64,38 @@ const RESOURCE_SOURCES: { key: ResourceSourceKey; label: string; desc: string }[
   { key: "quark_hdhive", label: "夸克·HDHive", desc: "夸克网盘·HDHive" },
   { key: "quark_tg", label: "夸克·TG", desc: "夸克网盘·Telegram" },
   { key: "magnet_seedhub", label: "磁力·SeedHub", desc: "SeedHub 磁力搜索" },
-  { key: "magnet_butailing", label: "磁力·不淘", desc: "不淘磁力搜索" },
+  { key: "magnet_butailing", label: "磁力·不太灵", desc: "不太灵磁力搜索" },
 ];
+
+const RESOURCE_SOURCE_DETAIL_KEYS: Record<ResourceSourceKey, string[]> = {
+  unified: [
+    "pan115",
+    "pan115_pansou",
+    "pan115_hdhive",
+    "pan115_tg",
+    "quark",
+    "quark_pansou",
+    "quark_hdhive",
+    "quark_tg",
+    "magnet",
+    "magnet_seedhub",
+    "magnet_butailing",
+  ],
+  "115_pansou": ["pan115", "pan115_pansou"],
+  "115_hdhive": ["pan115", "pan115_hdhive"],
+  "115_tg": ["pan115", "pan115_tg"],
+  quark_pansou: ["quark", "quark_pansou"],
+  quark_hdhive: ["quark", "quark_hdhive"],
+  quark_tg: ["quark", "quark_tg"],
+  magnet_seedhub: ["magnet", "magnet_seedhub"],
+  magnet_butailing: ["magnet", "magnet_butailing"],
+};
+
+function isResourceSourceVisible(source: ResourceSourceKey, visibleTabs: string[] | null): boolean {
+  if (visibleTabs === null) return true;
+  const keys = RESOURCE_SOURCE_DETAIL_KEYS[source] || [];
+  return keys.some((key) => visibleTabs.includes(key));
+}
 
 type DirectResourceSourceKey = "115_hdhive" | "115_tg" | "magnet_seedhub";
 type SearchCategory = "All" | "Movie" | "TV" | "Anime";
@@ -291,13 +322,38 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   const [unlockingSlug, setUnlockingSlug] = useState<string | null>(null);
   const [progress, setProgress] = useState<Pan115ProgressState>(deriveDefaultProgressState());
   const [tmdbSearchConfigured, setTmdbSearchConfigured] = useState<boolean | null>(null);
+  const [detailVisibleTabs, setDetailVisibleTabs] = useState<string[] | null>(null);
   const requestSeqRef = useRef(0);
+  const visibleResourceSources = RESOURCE_SOURCES.filter((source) => isResourceSourceVisible(source.key, detailVisibleTabs));
+  const defaultResourceSource = visibleResourceSources[0]?.key || "unified";
 
   // IMDB 桥接
   const [showImdbBridge, setShowImdbBridge] = useState(false);
   const [imdbId, setImdbId] = useState("");
   const [imdbMediaType, setImdbMediaType] = useState<"movie" | "tv">("movie");
   const [imdbSearching, setImdbSearching] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    settingsApi.getRuntime()
+      .then((response) => {
+        if (cancelled) return;
+        const tabs = response.data.detail_visible_tabs;
+        setDetailVisibleTabs(Array.isArray(tabs) ? tabs.map((item) => String(item)) : null);
+      })
+      .catch(() => {
+        if (!cancelled) setDetailVisibleTabs(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (detailVisibleTabs === null) return;
+    if (isResourceSourceVisible(activeSource, detailVisibleTabs)) return;
+    setActiveSource(defaultResourceSource);
+  }, [activeSource, defaultResourceSource, detailVisibleTabs]);
 
   // ---- Load explore sections (browse / discovery) ----
   const loadResources = useCallback(async (forceRefresh = false, category: SearchCategory = "All") => {
@@ -377,7 +433,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
       return;
     }
     if (!tmdbSearchConfigured) {
-      setLoadError("TMDB API Key 未配置，关键词搜索暂不可用；请前往配置与终端补充后重试。");
+      setLoadError("TMDB API Key 未配置，关键词搜索暂不可用；请前往配置中心补充后重试。");
       return;
     }
 
@@ -649,12 +705,16 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
       return;
     }
     setSelectedResource({ ...resource, links: [] });
-    setActiveSource("unified"); // 重置为统一来源
-    setLoadingLinks(true);
+    setActiveSource(defaultResourceSource);
     const shouldUseKeywordFallback = !resource.tmdb_id || tmdbSearchConfigured === false;
+    if (!shouldUseKeywordFallback && visibleResourceSources.length === 0) {
+      setLoadingLinks(false);
+      return;
+    }
+    setLoadingLinks(true);
     const links = shouldUseKeywordFallback
       ? await fetchKeywordResourceLinks(resource)
-      : await fetchResourceLinks(resource, "unified");
+      : await fetchResourceLinks(resource, defaultResourceSource);
     setSelectedResource((prev) => (prev ? { ...prev, links } : null));
     setLoadingLinks(false);
   };
@@ -682,6 +742,7 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
   // ---- Switch resource source (multi-source browsing) ----
   const handleSwitchSource = async (source: ResourceSourceKey) => {
     if (!selectedResource) return;
+    if (!isResourceSourceVisible(source, detailVisibleTabs)) return;
     setActiveSource(source);
     setLoadingLinks(true);
     if (source !== "magnet_seedhub") setSeedhubTask(null);
@@ -760,9 +821,10 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
           media_type: (data.media_type as "movie" | "tv") || "movie",
         };
         setSelectedResource(resource);
-        setActiveSource("unified");
+        const source = defaultResourceSource;
+        setActiveSource(source);
         setLoadingLinks(true);
-        const links = await fetchResourceLinks(resource, "unified");
+        const links = visibleResourceSources.length > 0 ? await fetchResourceLinks(resource, source) : [];
         setSelectedResource((prev) => (prev ? { ...prev, links } : null));
         setLoadingLinks(false);
         setImdbId("");
@@ -1188,24 +1250,30 @@ export default function SearchTab({ addLog, searchQuery, setSearchQuery, onNavig
 
                   {/* 多源资源选择器 */}
                   {selectedResource.tmdb_id && tmdbSearchConfigured !== false && (
-                    <div className="flex flex-wrap gap-1">
-                      {RESOURCE_SOURCES.map((s) => (
-                        <button
-                          key={s.key}
-                          onClick={() => handleSwitchSource(s.key)}
-                          disabled={loadingLinks}
-                          title={s.desc}
-                          className="px-2.5 py-1.5 rounded-lg text-[9px] font-bold transition-all glass-hover"
-                          style={
-                            activeSource === s.key
-                              ? { background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }
-                              : { background: "var(--surface)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }
-                          }
-                        >
-                          {s.label}
-                        </button>
-                      ))}
-                    </div>
+                    visibleResourceSources.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {visibleResourceSources.map((s) => (
+                          <button
+                            key={s.key}
+                            onClick={() => handleSwitchSource(s.key)}
+                            disabled={loadingLinks}
+                            title={s.desc}
+                            className="px-2.5 py-1.5 rounded-lg text-[9px] font-bold transition-all glass-hover"
+                            style={
+                              activeSource === s.key
+                                ? { background: "var(--brand-primary)", color: "#fff", border: "1px solid var(--brand-primary)" }
+                                : { background: "var(--surface)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }
+                            }
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg px-3 py-2 text-[10px] font-bold" style={{ color: "var(--txt-muted)", background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                        配置中心未启用任何详情页资源来源。
+                      </div>
+                    )
                   )}
 
                   {loadingLinks ? (

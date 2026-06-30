@@ -8,18 +8,13 @@ import { SyncLog } from "../types";
 import {
   Save,
   Key,
-  Terminal,
-  Trash2,
   RefreshCw,
   Server,
   Database,
-  Cloud,
   HeartPulse,
   Radio,
-  Send,
   Wifi,
   Play,
-  Search,
   BarChart3,
   AlertTriangle,
   SlidersHorizontal,
@@ -33,43 +28,35 @@ import { pansouApi } from "../api/pansou";
 import { moviepilotApi } from "../api/moviepilot";
 import { twilightApi } from "../api/twilight";
 import { animeApi } from "../api/anime";
-import { logsApi } from "../api/logs";
 import { archiveApi } from "../api/archive";
 import { getApiErrorMessage } from "../api/errors";
 import type { AniRssDownloadClientStatus } from "../api/types";
+import SettingsSectionNav from "./settings/SettingsSectionNav";
+import CloudDrivesSettings from "./settings/CloudDrivesSettings";
+import DiagnosticStatusGrid from "./settings/DiagnosticStatusGrid";
+import ResourcePriorityOptions from "./settings/ResourcePriorityOptions";
+import ResourceMetadataSettings from "./settings/ResourceMetadataSettings";
+import TelegramSettings from "./settings/TelegramSettings";
+import SettingsLogsPanel from "./settings/SettingsLogsPanel";
+import type { SettingsSection, StatusSummary } from "./settings/types";
 import {
   buildTgBotRuntimePayload,
   buildTgRuntimePayload,
   formatIdListInput,
   formatTgChannelsInput,
 } from "../utils/tgRuntimeSettings";
+import {
+  DEFAULT_PAN115_QR_LOGIN_APP,
+  extractPan115QrLoginAppOptions,
+  selectPan115QrLoginApp,
+  type Pan115QrLoginAppOption,
+} from "../utils/pan115QrLogin";
 
 interface SettingsTabProps {
   logs: SyncLog[];
   setLogs: React.Dispatch<React.SetStateAction<SyncLog[]>>;
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => void;
 }
-
-const SOURCE_OPTIONS = [
-  { key: "hdhive", label: "HDHive" },
-  { key: "pansou", label: "Pansou" },
-  { key: "tg", label: "TG" },
-];
-
-const DETAIL_TAB_OPTIONS = [
-  { key: "pan115", label: "115 聚合" },
-  { key: "pan115_pansou", label: "115 Pansou" },
-  { key: "pan115_hdhive", label: "115 HDHive" },
-  { key: "pan115_tg", label: "115 TG" },
-  { key: "quark", label: "夸克聚合" },
-  { key: "quark_pansou", label: "夸克 Pansou" },
-  { key: "quark_hdhive", label: "夸克 HDHive" },
-  { key: "quark_tg", label: "夸克 TG" },
-  { key: "magnet", label: "磁力聚合" },
-  { key: "magnet_seedhub", label: "SeedHub" },
-  { key: "magnet_butailing", label: "不太灵" },
-  { key: "moviepilot_pt", label: "PT·MoviePilot" },
-];
 
 function formatJsonConfig(value: unknown): string {
   if (value == null) return "";
@@ -121,11 +108,64 @@ function parseChartSources(value: string): unknown[] {
   return parsed;
 }
 
+function isFailureFlag(value: unknown): boolean {
+  if (value === false || value === 0) return true;
+  const text = String(value ?? "").trim().toLowerCase();
+  return text === "false" || text === "0" || text === "failed" || text === "error";
+}
+
+function getActionFailure(data: unknown): string {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return "";
+  const record = data as Record<string, unknown>;
+  const flag = record.ok ?? record.success ?? record.valid ?? record.all_valid;
+  const status = String(record.status || "").trim().toLowerCase();
+  const message = String(record.message || record.detail || record.error || record.msg || "").trim();
+  if (flag !== undefined && isFailureFlag(flag)) return message || "操作返回失败状态";
+  if (status === "error" || status === "failed") return message || "操作返回失败状态";
+  if ((record.error || record.detail) && flag === undefined) return message || "操作返回错误";
+  return "";
+}
+
+function formatActionMessage(data: unknown): string {
+  if (typeof data === "string") return data;
+  if (!data || typeof data !== "object") return String(data ?? "OK");
+  const record = data as Record<string, unknown>;
+  const message = record.message || record.detail || record.msg;
+  if (message) return String(message);
+  return JSON.stringify(data).slice(0, 240);
+}
+
+function getStatusSummary(data: unknown): StatusSummary {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { state: "未加载", ok: null, message: "尚未获取状态" };
+  }
+  const record = data as Record<string, unknown>;
+  const flag = record.valid ?? record.ok ?? record.success ?? record.all_valid ?? record.configured;
+  const status = String(record.status || "").trim();
+  const message = String(record.message || record.detail || record.summary || "").trim()
+    || JSON.stringify(data).slice(0, 160);
+  if (typeof record.running === "boolean") {
+    return { state: record.running ? "运行中" : "已停止", ok: record.running ? true : null, message };
+  }
+  if (flag === true) return { state: "正常", ok: true, message };
+  if (flag === false) return { state: "异常", ok: false, message };
+  if (status) {
+    const bad = ["error", "failed", "unavailable"].includes(status.toLowerCase());
+    const good = ["ok", "success", "healthy"].includes(status.toLowerCase());
+    return { state: status, ok: good ? true : bad ? false : null, message };
+  }
+  return { state: "已加载", ok: null, message };
+}
+
 export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps) {
-  const [activeTab, setActiveTab] = useState<"core" | "integrations" | "telegram" | "diagnostics" | "archive" | "security" | "logs">("core");
+  const [activeTab, setActiveTab] = useState<SettingsSection>("cloud");
 
   // ---- 1. Core Section States ----
   const [cookie115, setCookie115] = useState("");
+  const [pan115TransferDefaultFolderId, setPan115TransferDefaultFolderId] = useState("0");
+  const [pan115TransferDefaultFolderName, setPan115TransferDefaultFolderName] = useState("根目录");
+  const [pan115OfflineDefaultFolderId, setPan115OfflineDefaultFolderId] = useState("0");
+  const [pan115OfflineDefaultFolderName, setPan115OfflineDefaultFolderName] = useState("根目录");
   const [localMountPath, setLocalMountPath] = useState("");
   const [embyUrl, setEmbyUrl] = useState("");
   const [embyKey, setEmbyKey] = useState("");
@@ -140,6 +180,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [quarkDefaultFolderName, setQuarkDefaultFolderName] = useState("根目录");
   // Feiniu
   const [feiniuUrl, setFeiniuUrl] = useState("");
+  const [feiniuSecret, setFeiniuSecret] = useState("");
   const [feiniuApiKey, setFeiniuApiKey] = useState("");
   const [feiniuSessionToken, setFeiniuSessionToken] = useState("");
   const [feiniuSyncEnabled, setFeiniuSyncEnabled] = useState(false);
@@ -272,7 +313,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [lastResult, setLastResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
 
   const savedCookieRef = useRef("");
+  const savedPan115TransferDefaultRef = useRef({ folderId: "0", folderName: "根目录" });
+  const savedPan115OfflineDefaultRef = useRef({ folderId: "0", folderName: "根目录" });
+  const savedQuarkCookieRef = useRef("");
+  const savedQuarkDefaultRef = useRef({ folderId: "0", folderName: "根目录" });
   const terminalEndRef = useRef<HTMLDivElement>(null);
+  const pan115QrSessionRef = useRef(0);
 
   // Service health and status hooks
   const [healthAll, setHealthAll] = useState<unknown>(null);
@@ -282,31 +328,63 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
   const [tgLoginStatus, setTgLoginStatus] = useState<unknown>(null);
   const [proxyInfo, setProxyInfo] = useState<unknown>(null);
 
+  // 115 QR Login state
+  const [pan115QrToken, setPan115QrToken] = useState<string | null>(null);
+  const [pan115QrImage, setPan115QrImage] = useState<string | null>(null);
+  const [pan115QrPolling, setPan115QrPolling] = useState(false);
+  const [pan115QrStatus, setPan115QrStatus] = useState<string | null>(null);
+  const [pan115QrApps, setPan115QrApps] = useState<Pan115QrLoginAppOption[]>([]);
+  const [pan115QrApp, setPan115QrApp] = useState(DEFAULT_PAN115_QR_LOGIN_APP);
+  const [pan115QrAppsLoading, setPan115QrAppsLoading] = useState(false);
+
   // Telegram QR Login state
   const [tgQrToken, setTgQrToken] = useState<string | null>(null);
   const [tgQrImage, setTgQrImage] = useState<string | null>(null);
   const [tgQrPolling, setTgQrPolling] = useState(false);
   const [tgQrStatus, setTgQrStatus] = useState<string | null>(null);
+  const [tgQrNeedPassword, setTgQrNeedPassword] = useState(false);
+  const [tgQrPassword, setTgQrPassword] = useState("");
+  const [tgQrPasswordSession, setTgQrPasswordSession] = useState("");
+  const tgQrSessionRef = useRef(0);
 
   const startTgQrLogin = async () => {
+    const sessionId = tgQrSessionRef.current + 1;
+    tgQrSessionRef.current = sessionId;
     setTgQrPolling(true);
     setTgQrStatus("启动中…");
+    setTgQrNeedPassword(false);
+    setTgQrPassword("");
+    setTgQrPasswordSession("");
     try {
       const startResp = await settingsApi.tgStartQrLogin();
-      const data = startResp.data as { token?: string; qr_image?: string };
+      const data = startResp.data as { token?: string; qr_image?: string; qr_image_data_url?: string; qr_image_url?: string };
       if (data.token) {
         setTgQrToken(data.token);
-        setTgQrImage(data.qr_image || null);
+        setTgQrImage(data.qr_image || data.qr_image_data_url || data.qr_image_url || null);
         setTgQrStatus("请用 Telegram 扫描二维码");
         for (let i = 0; i < 30; i++) {
+          if (tgQrSessionRef.current !== sessionId) break;
           await new Promise(r => setTimeout(r, 2000));
+          if (tgQrSessionRef.current !== sessionId) break;
           try {
             const statusResp = await settingsApi.tgCheckQrLogin(data.token);
-            const sData = statusResp.data as { status?: string; message?: string };
-            if (sData.status === "authorized" || sData.status === "success") {
-              setTgQrStatus("登录成功!");
+            const sData = statusResp.data as { status?: string; authorized?: boolean; need_password?: boolean; session?: string; message?: string; user?: unknown };
+            if (sData.need_password) {
+              setTgQrNeedPassword(true);
+              setTgQrPasswordSession(String(sData.session || ""));
+              setTgQrStatus(sData.message || "需要输入 Telegram 二步验证密码");
+              break;
+            }
+            if (Boolean(sData.authorized) || sData.status === "authorized" || sData.status === "success") {
+              setTgQrStatus("登录成功");
               setTgQrImage(null);
               setTgQrToken(null);
+              if (sData.session) setTgSession(String(sData.session));
+              setTgLoginStatus({
+                valid: true,
+                message: sData.message || "Telegram 已登录",
+                user: sData.user,
+              });
               break;
             }
             if (sData.status === "cancelled" || sData.status === "expired") {
@@ -322,19 +400,82 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
     } catch (err: unknown) {
       setTgQrStatus(`启动失败: ${getApiErrorMessage(err)}`);
     } finally {
+      if (tgQrSessionRef.current === sessionId) setTgQrPolling(false);
+    }
+  };
+
+  const verifyTgQrPassword = async () => {
+    if (!tgQrPassword.trim() || !tgQrPasswordSession.trim()) {
+      setTgQrStatus("请输入二步验证密码");
+      return;
+    }
+    setTgQrPolling(true);
+    try {
+      const response = await settingsApi.tgVerifyPassword({
+        password: tgQrPassword.trim(),
+        session: tgQrPasswordSession.trim(),
+      });
+      const data = response.data as { session?: string; message?: string; user?: unknown };
+      if (data.session) setTgSession(String(data.session));
+      setTgQrNeedPassword(false);
+      setTgQrPassword("");
+      setTgQrPasswordSession("");
+      setTgQrImage(null);
+      setTgQrToken(null);
+      setTgQrStatus(data.message || "Telegram 登录成功");
+      setTgLoginStatus({
+        valid: true,
+        message: data.message || "Telegram 已登录",
+        user: data.user,
+      });
+      await addLog("SUCCESS", "Telegram 二步验证通过，会话已保存");
+    } catch (err: unknown) {
+      setTgQrStatus(`验证失败: ${getApiErrorMessage(err)}`);
+      await addLog("ERROR", "TG 二步验证失败: " + getApiErrorMessage(err));
+    } finally {
       setTgQrPolling(false);
+    }
+  };
+
+  const logoutTgSession = async () => {
+    try {
+      tgQrSessionRef.current += 1;
+      await settingsApi.tgLogout();
+      setTgSession("");
+      setTgQrToken(null);
+      setTgQrImage(null);
+      setTgQrPolling(false);
+      setTgQrNeedPassword(false);
+      setTgQrPassword("");
+      setTgQrPasswordSession("");
+      setTgLoginStatus({ valid: false, message: "Telegram 会话已登出" });
+      await addLog("SUCCESS", "Telegram 会话已登出注销");
+    } catch (e: unknown) {
+      await addLog("ERROR", "TG 退出登录失败: " + getApiErrorMessage(e));
     }
   };
 
   const resultOf = (key: string) => lastResult[key];
   const isBusy = (key: string) => busy === key;
 
-  const runAction = async (key: string, label: string, fn: () => Promise<unknown>) => {
+  const runAction = async (
+    key: string,
+    label: string,
+    fn: () => Promise<unknown>,
+    onSuccess?: (data: unknown) => void,
+  ) => {
     setBusy(key);
     try {
       const resp = await fn();
       const data = (resp as { data?: unknown })?.data;
-      const msg = typeof data === "string" ? data : JSON.stringify(data ?? "OK").slice(0, 200);
+      const failure = getActionFailure(data);
+      const msg = failure || formatActionMessage(data ?? "OK");
+      if (failure) {
+        setLastResult((p) => ({ ...p, [key]: { ok: false, msg } }));
+        await addLog("WARN", `${label} 未通过: ${msg}`);
+        return;
+      }
+      onSuccess?.(data);
       setLastResult((p) => ({ ...p, [key]: { ok: true, msg } }));
       await addLog("SUCCESS", `${label} 成功: ${msg}`);
     } catch (err: unknown) {
@@ -345,6 +486,127 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       setBusy(null);
     }
   };
+
+  const clearPan115QrImage = () => {
+    setPan115QrImage((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  };
+
+  const refreshPan115CookiePreview = async () => {
+    const cookieResp = await pan115Api.getCookieInfo();
+    const masked = String((cookieResp.data as Record<string, unknown>).masked_cookie || "");
+    setCookie115(masked);
+    savedCookieRef.current = masked;
+  };
+
+  const startPan115QrLogin = async () => {
+    const sessionId = pan115QrSessionRef.current + 1;
+    pan115QrSessionRef.current = sessionId;
+    setPan115QrPolling(true);
+    setPan115QrStatus("启动中…");
+    clearPan115QrImage();
+    try {
+      const selectedApp = pan115QrApp || DEFAULT_PAN115_QR_LOGIN_APP;
+      const selectedAppLabel = pan115QrApps.find((item) => item.value === selectedApp)?.label || selectedApp;
+      const startResp = await pan115Api.startQrLogin(selectedApp);
+      const data = startResp.data as { token?: string; app?: string };
+      if (!data.token) {
+        setPan115QrStatus("启动失败：未获取到二维码 token");
+        return;
+      }
+
+      const confirmedApp = String(data.app || selectedApp);
+      const confirmedAppLabel = pan115QrApps.find((item) => item.value === confirmedApp)?.label || selectedAppLabel;
+      setPan115QrApp(confirmedApp);
+      setPan115QrToken(data.token);
+      try {
+        const imgResp = await pan115Api.getQrImage(data.token);
+        const objectUrl = URL.createObjectURL(imgResp.data as Blob);
+        if (pan115QrSessionRef.current === sessionId) {
+          setPan115QrImage(objectUrl);
+        } else {
+          URL.revokeObjectURL(objectUrl);
+        }
+      } catch {
+        setPan115QrImage(null);
+      }
+
+      setPan115QrStatus(`请用 ${confirmedAppLabel} 扫码确认；手机确认页如显示 Web 登录，属于 115 通用文案`);
+      for (let i = 0; i < 30; i++) {
+        if (pan115QrSessionRef.current !== sessionId) break;
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (pan115QrSessionRef.current !== sessionId) break;
+        try {
+          const statusResp = await pan115Api.checkQrLogin(data.token);
+          const statusData = statusResp.data as { status?: string; authorized?: boolean; message?: string; app?: string };
+          const statusApp = String(statusData.app || confirmedApp);
+          const statusAppLabel = pan115QrApps.find((item) => item.value === statusApp)?.label || confirmedAppLabel;
+          const authorized = Boolean(statusData.authorized) || statusData.status === "success" || statusData.status === "authorized";
+          if (authorized) {
+            setPan115QrStatus(`登录成功（${statusAppLabel}），正在刷新账号状态…`);
+            setPan115QrToken(null);
+            clearPan115QrImage();
+            await refreshPan115CookiePreview();
+            await addLog("SUCCESS", "115 扫码登录成功，Cookie 已刷新");
+            setPan115QrStatus(`登录成功（${statusAppLabel}）`);
+            break;
+          }
+          if (statusData.status === "expired" || statusData.status === "cancelled") {
+            setPan115QrStatus(statusData.status === "expired" ? "二维码已过期" : "二维码已取消");
+            break;
+          }
+          if (statusData.message) setPan115QrStatus(statusData.message);
+        } catch {
+          // polling endpoint may transiently fail; keep waiting until timeout.
+        }
+      }
+    } catch (err: unknown) {
+      setPan115QrStatus(`启动失败：${getApiErrorMessage(err)}`);
+    } finally {
+      if (pan115QrSessionRef.current === sessionId) setPan115QrPolling(false);
+    }
+  };
+
+  const cancelPan115QrLogin = async () => {
+    pan115QrSessionRef.current += 1;
+    if (pan115QrToken) {
+      try {
+        await pan115Api.cancelQrLogin(pan115QrToken);
+      } catch {
+        // Best effort cancel only.
+      }
+    }
+    setPan115QrToken(null);
+    clearPan115QrImage();
+    setPan115QrPolling(false);
+    setPan115QrStatus(null);
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    setPan115QrAppsLoading(true);
+    pan115Api.listQrLoginApps()
+      .then((response) => {
+        if (!active) return;
+        const options = extractPan115QrLoginAppOptions(response.data);
+        setPan115QrApps(options);
+        setPan115QrApp((current) => selectPan115QrLoginApp(current, options));
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        addLog("WARN", `加载 115 扫码客户端列表失败: ${getApiErrorMessage(err)}`);
+      })
+      .finally(() => {
+        if (active) setPan115QrAppsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Auto-scroll logs terminal
   useEffect(() => {
@@ -371,6 +633,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
         // Feiniu
         setFeiniuUrl(String(rt.feiniu_url || ""));
+        setFeiniuSecret(String(rt.feiniu_secret || ""));
         setFeiniuApiKey(String(rt.feiniu_api_key || ""));
         setFeiniuSessionToken(String(rt.feiniu_session_token || ""));
         setFeiniuSyncEnabled(Boolean(rt.feiniu_sync_enabled));
@@ -503,13 +766,32 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       }
 
       try {
-        const cookieResp = await pan115Api.getCookieInfo();
-        const masked = String(cookieResp.data.masked_cookie || "");
-        setCookie115(masked);
-        savedCookieRef.current = masked;
+        await refreshPan115CookiePreview();
       } catch (err) {
         console.error("Failed to load 115 cookie info:", err);
         addLog("ERROR", "加载115 Cookie信息失败: " + getApiErrorMessage(err));
+      }
+
+      try {
+        const [transferDefaultResp, offlineDefaultResp] = await Promise.all([
+          pan115Api.getDefaultFolder(),
+          pan115Api.getOfflineDefaultFolder(),
+        ]);
+        const transferDefault = transferDefaultResp.data as Record<string, unknown>;
+        const offlineDefault = offlineDefaultResp.data as Record<string, unknown>;
+        const transferFolderId = String(transferDefault.folder_id ?? transferDefault.cid ?? transferDefault.fid ?? "0");
+        const transferFolderName = String(transferDefault.folder_name ?? transferDefault.name ?? "根目录");
+        const offlineFolderId = String(offlineDefault.folder_id ?? offlineDefault.cid ?? offlineDefault.fid ?? "0");
+        const offlineFolderName = String(offlineDefault.folder_name ?? offlineDefault.name ?? "根目录");
+        setPan115TransferDefaultFolderId(transferFolderId);
+        setPan115TransferDefaultFolderName(transferFolderName);
+        setPan115OfflineDefaultFolderId(offlineFolderId);
+        setPan115OfflineDefaultFolderName(offlineFolderName);
+        savedPan115TransferDefaultRef.current = { folderId: transferFolderId, folderName: transferFolderName };
+        savedPan115OfflineDefaultRef.current = { folderId: offlineFolderId, folderName: offlineFolderName };
+      } catch (err) {
+        console.error("Failed to load 115 default folders:", err);
+        addLog("ERROR", "加载 115 默认目录失败: " + getApiErrorMessage(err));
       }
 
       try {
@@ -549,11 +831,19 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         safe(settingsApi.checkTg()),
       ]);
       if (health) setHealthAll(health.data);
-      if (quarkInfo) setQuarkCookie(String((quarkInfo.data as Record<string, unknown>)?.cookie || ""));
+      if (quarkInfo) {
+        const info = quarkInfo.data as Record<string, unknown>;
+        const preview = String(info.preview || info.masked_cookie || info.cookie || "");
+        setQuarkCookie(preview);
+        savedQuarkCookieRef.current = preview;
+      }
       if (quarkDefault) {
         const folder = quarkDefault.data as Record<string, unknown>;
-        setQuarkDefaultFolderId(String(folder.folder_id || "0"));
-        setQuarkDefaultFolderName(String(folder.folder_name || "根目录"));
+        const folderId = String(folder.folder_id || "0");
+        const folderName = String(folder.folder_name || "根目录");
+        setQuarkDefaultFolderId(folderId);
+        setQuarkDefaultFolderName(folderName);
+        savedQuarkDefaultRef.current = { folderId, folderName };
       }
       if (proxyCfg) setProxyInfo(proxyCfg.data);
       if (botStatusRes) setBotStatus(botStatusRes.data);
@@ -572,9 +862,9 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       // 1. Build runtime configurations payload
       const payload: Record<string, unknown> = {
         // Core Connection
-        emby_url: embyUrl.trim() || undefined,
-        emby_api_key: embyKey.trim() || undefined,
-        strm_output_dir: localMountPath.trim() || undefined,
+        emby_url: embyUrl.trim() || null,
+        emby_api_key: embyKey.trim() || null,
+        strm_output_dir: localMountPath.trim(),
         subscription_interval_hours: Math.max(0.1, refreshInterval / 60),
         emby_sync_enabled: embySyncEnabled,
         emby_sync_interval_minutes: Math.max(15, Math.round(embySyncIntervalMinutes || 1440)),
@@ -582,6 +872,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
         // Feiniu
         feiniu_url: feiniuUrl.trim() || null,
+        feiniu_secret: feiniuSecret.trim() || null,
         feiniu_api_key: feiniuApiKey.trim() || null,
         feiniu_session_token: feiniuSessionToken.trim() || null,
         feiniu_sync_enabled: feiniuSyncEnabled,
@@ -590,23 +881,23 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
         // MoviePilot
         moviepilot_enabled: moviepilotEnabled,
-        moviepilot_base_url: moviepilotBaseUrl.trim() || undefined,
-        moviepilot_username: moviepilotUsername.trim() || undefined,
-        moviepilot_save_path: moviepilotSavePath.trim() || undefined,
+        moviepilot_base_url: moviepilotBaseUrl.trim(),
+        moviepilot_username: moviepilotUsername.trim(),
+        moviepilot_save_path: moviepilotSavePath.trim(),
         moviepilot_sync_enabled: moviepilotSyncEnabled,
         moviepilot_sync_interval_minutes: Math.max(15, Math.round(moviepilotSyncIntervalMinutes || 60)),
 
         // ANI-RSS
         anirss_enabled: anirssEnabled,
-        anirss_base_url: anirssBaseUrl.trim() || undefined,
+        anirss_base_url: anirssBaseUrl.trim(),
         mikan_base_url: mikanBaseUrl.trim() || "https://mikanani.me",
         anirss_default_download_path: anirssDefaultDownloadPath.trim(),
         anirss_download_path_presets: parseListInput(anirssDownloadPathPresetsInput),
 
         // Twilight
         twilight_enabled: twilightEnabled,
-        twilight_base_url: twilightBaseUrl.trim() || undefined,
-        twilight_web_url: twilightWebUrl.trim() || undefined,
+        twilight_base_url: twilightBaseUrl.trim(),
+        twilight_web_url: twilightWebUrl.trim(),
 
         // TG Client Payload merge
         ...buildTgRuntimePayload({
@@ -638,7 +929,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         // HDHive
         hdhive_cookie: hdhiveCookie.trim() || null,
         hdhive_base_url: hdhiveBaseUrl.trim(),
-        hdhive_login_username: hdhiveLoginUsername.trim() || null,
+        hdhive_login_username: hdhiveLoginUsername.trim(),
         hdhive_auto_checkin_enabled: hdhiveAutoCheckinEnabled,
         hdhive_auto_checkin_mode: hdhiveAutoCheckinMode,
         hdhive_auto_checkin_method: hdhiveAutoCheckinMethod,
@@ -731,7 +1022,70 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         } catch (cookieErr) {
           console.error("Failed to update 115 cookie:", cookieErr);
           addLog("ERROR", "115 Cookie 更新失败: " + getApiErrorMessage(cookieErr));
+          throw cookieErr;
         }
+      }
+
+      const normalizedPan115TransferDefault = {
+        folderId: pan115TransferDefaultFolderId.trim() || "0",
+        folderName: pan115TransferDefaultFolderName.trim() || "根目录",
+      };
+      if (
+        normalizedPan115TransferDefault.folderId !== savedPan115TransferDefaultRef.current.folderId
+        || normalizedPan115TransferDefault.folderName !== savedPan115TransferDefaultRef.current.folderName
+      ) {
+        const response = await pan115Api.setDefaultFolder(
+          normalizedPan115TransferDefault.folderId,
+          normalizedPan115TransferDefault.folderName,
+        );
+        const data = response.data as Record<string, unknown>;
+        const folderId = String(data.folder_id || normalizedPan115TransferDefault.folderId);
+        const folderName = String(data.folder_name || normalizedPan115TransferDefault.folderName);
+        setPan115TransferDefaultFolderId(folderId);
+        setPan115TransferDefaultFolderName(folderName);
+        savedPan115TransferDefaultRef.current = { folderId, folderName };
+      }
+
+      const normalizedPan115OfflineDefault = {
+        folderId: pan115OfflineDefaultFolderId.trim() || "0",
+        folderName: pan115OfflineDefaultFolderName.trim() || "根目录",
+      };
+      if (
+        normalizedPan115OfflineDefault.folderId !== savedPan115OfflineDefaultRef.current.folderId
+        || normalizedPan115OfflineDefault.folderName !== savedPan115OfflineDefaultRef.current.folderName
+      ) {
+        const response = await pan115Api.setOfflineDefaultFolder(
+          normalizedPan115OfflineDefault.folderId,
+          normalizedPan115OfflineDefault.folderName,
+        );
+        const data = response.data as Record<string, unknown>;
+        const folderId = String(data.folder_id || normalizedPan115OfflineDefault.folderId);
+        const folderName = String(data.folder_name || normalizedPan115OfflineDefault.folderName);
+        setPan115OfflineDefaultFolderId(folderId);
+        setPan115OfflineDefaultFolderName(folderName);
+        savedPan115OfflineDefaultRef.current = { folderId, folderName };
+      }
+
+      // 3. Save Quark Cookie/default folder if modified
+      if (quarkCookie && quarkCookie !== savedQuarkCookieRef.current) {
+        await quarkApi.updateCookie(quarkCookie);
+        savedQuarkCookieRef.current = quarkCookie;
+      }
+      const normalizedQuarkDefault = {
+        folderId: quarkDefaultFolderId.trim() || "0",
+        folderName: quarkDefaultFolderName.trim() || "根目录",
+      };
+      if (
+        normalizedQuarkDefault.folderId !== savedQuarkDefaultRef.current.folderId
+        || normalizedQuarkDefault.folderName !== savedQuarkDefaultRef.current.folderName
+      ) {
+        const response = await quarkApi.setDefaultFolder(normalizedQuarkDefault.folderId, normalizedQuarkDefault.folderName);
+        const data = response.data as Record<string, unknown>;
+        const folderId = String(data.folder_id || normalizedQuarkDefault.folderId);
+        const folderName = String(data.folder_name || normalizedQuarkDefault.folderName);
+        setQuarkDefaultFolderId(folderId);
+        setQuarkDefaultFolderName(folderName);
+        savedQuarkDefaultRef.current = { folderId, folderName };
       }
 
       addLog("SUCCESS", "系统核心与高级参数已全部更新并保存");
@@ -747,9 +1101,9 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
     runAction("moviepilotConfigSave", "保存 MoviePilot 配置", async () => {
       const payload: Record<string, unknown> = {
         moviepilot_enabled: moviepilotEnabled,
-        moviepilot_base_url: moviepilotBaseUrl.trim() || undefined,
-        moviepilot_username: moviepilotUsername.trim() || undefined,
-        moviepilot_save_path: moviepilotSavePath.trim() || undefined,
+        moviepilot_base_url: moviepilotBaseUrl.trim(),
+        moviepilot_username: moviepilotUsername.trim(),
+        moviepilot_save_path: moviepilotSavePath.trim(),
         moviepilot_sync_enabled: moviepilotSyncEnabled,
         moviepilot_sync_interval_minutes: Math.max(15, Math.round(moviepilotSyncIntervalMinutes || 60)),
       };
@@ -764,11 +1118,60 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       return response;
     });
 
+  const savePan115DefaultFolders = () =>
+    runAction("pan115DefaultFoldersSave", "保存 115 默认目录", async () => {
+      const transferResp = await pan115Api.setDefaultFolder(
+        pan115TransferDefaultFolderId.trim() || "0",
+        pan115TransferDefaultFolderName.trim() || "根目录",
+      );
+      const transferData = transferResp.data as Record<string, unknown>;
+      const transferFolderId = String(transferData.folder_id || pan115TransferDefaultFolderId.trim() || "0");
+      const transferFolderName = String(transferData.folder_name || pan115TransferDefaultFolderName.trim() || "根目录");
+      setPan115TransferDefaultFolderId(transferFolderId);
+      setPan115TransferDefaultFolderName(transferFolderName);
+      savedPan115TransferDefaultRef.current = { folderId: transferFolderId, folderName: transferFolderName };
+
+      const offlineResp = await pan115Api.setOfflineDefaultFolder(
+        pan115OfflineDefaultFolderId.trim() || "0",
+        pan115OfflineDefaultFolderName.trim() || "根目录",
+      );
+      const offlineData = offlineResp.data as Record<string, unknown>;
+      const offlineFolderId = String(offlineData.folder_id || pan115OfflineDefaultFolderId.trim() || "0");
+      const offlineFolderName = String(offlineData.folder_name || pan115OfflineDefaultFolderName.trim() || "根目录");
+      setPan115OfflineDefaultFolderId(offlineFolderId);
+      setPan115OfflineDefaultFolderName(offlineFolderName);
+      savedPan115OfflineDefaultRef.current = { folderId: offlineFolderId, folderName: offlineFolderName };
+
+      return { data: `分享转存目录 ${transferFolderName}；离线下载目录 ${offlineFolderName}` };
+    });
+
+  const saveQuarkSettings = () =>
+    runAction("quarkConfigSave", "保存夸克配置", async () => {
+      if (quarkCookie && quarkCookie !== savedQuarkCookieRef.current) {
+        await quarkApi.updateCookie(quarkCookie);
+        savedQuarkCookieRef.current = quarkCookie;
+      }
+      const response = await quarkApi.setDefaultFolder(
+        quarkDefaultFolderId.trim() || "0",
+        quarkDefaultFolderName.trim() || "根目录",
+      );
+      const folder = response.data as Record<string, unknown>;
+      const folderId = String(folder.folder_id || quarkDefaultFolderId.trim() || "0");
+      const folderName = String(folder.folder_name || quarkDefaultFolderName.trim() || "根目录");
+      setQuarkDefaultFolderId(folderId);
+      setQuarkDefaultFolderName(folderName);
+      savedQuarkDefaultRef.current = { folderId, folderName };
+      return { data: `夸克默认目录已保存: ${folderName} (${folderId})` };
+    });
+
+  const checkQuarkCookie = () =>
+    runAction("quarkCheck", "检测夸克 Cookie", () => quarkApi.checkConnectivity());
+
   const saveAniRssSettings = () =>
     runAction("anirssConfigSave", "保存 ANI-RSS 配置", async () => {
       const payload: Record<string, unknown> = {
         anirss_enabled: anirssEnabled,
-        anirss_base_url: anirssBaseUrl.trim() || undefined,
+        anirss_base_url: anirssBaseUrl.trim(),
         mikan_base_url: mikanBaseUrl.trim() || "https://mikanani.me",
         anirss_default_download_path: anirssDefaultDownloadPath.trim(),
         anirss_download_path_presets: parseListInput(anirssDownloadPathPresetsInput),
@@ -798,12 +1201,27 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       return response;
     });
 
+  const checkAniRssHealth = () =>
+    runAction("anirssHealth", "检测 ANI-RSS 连通状态", () => animeApi.checkAniRssHealth());
+
+  const checkHdhiveLogin = () =>
+    runAction("hdhiveCheck", "检测 HDHive 登录", () => settingsApi.checkHdhive(), setHdhiveLoginStatus);
+
+  const runHdhiveCheckin = () =>
+    runAction("hdhiveCheckinRun", "触发 HDHive 手动签到", () => settingsApi.runHdhiveCheckin({}));
+
+  const checkTmdbConnectivity = () =>
+    runAction("tmdbCheck", "检测 TMDB 连接", () => settingsApi.checkTmdb());
+
+  const checkPansouSource = () =>
+    runAction("pansouCheck", "检测 Pansou 搜索源", () => settingsApi.checkPansou());
+
   const saveTwilightSettings = () =>
     runAction("twilightConfigSave", "保存 Twilight 配置", async () => {
       const payload: Record<string, unknown> = {
         twilight_enabled: twilightEnabled,
-        twilight_base_url: twilightBaseUrl.trim() || undefined,
-        twilight_web_url: twilightWebUrl.trim() || undefined,
+        twilight_base_url: twilightBaseUrl.trim(),
+        twilight_web_url: twilightWebUrl.trim(),
       };
       if (twilightApiKey.trim()) {
         payload.twilight_api_key = twilightApiKey;
@@ -843,6 +1261,27 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       ).then(() => settingsApi.getTgBotStatus())
         .then((r) => { setBotStatus(r.data); return { data: "已保存" }; }),
     );
+
+  const checkTgConnection = () =>
+    runAction("tgCheck", "检测 TG 连接", () => settingsApi.checkTg(), setTgLoginStatus);
+
+  const restartTgBot = () =>
+    runAction("tgBotRestart", "重启 TG Bot 服务", () => settingsApi.restartTgBot(), setBotStatus);
+
+  const stopTgBot = () =>
+    runAction("tgBotStop", "停止 TG Bot 服务", () => settingsApi.stopTgBot(), setBotStatus);
+
+  const refreshTgIndex = () =>
+    runAction("tgIndexRefresh", "刷新 TG 索引状态", () => settingsApi.refreshTgIndexStatus());
+
+  const rebuildTgIndex = () =>
+    runAction("tgIndexRebuild", "清空并全量重塑索引", () => settingsApi.rebuildTgIndex());
+
+  const backfillTgIndex = () =>
+    runAction("tgIndexBackfill", "执行 TG 索引回灌", () => settingsApi.startTgIndexBackfill());
+
+  const runTgIndexIncremental = () =>
+    runAction("tgIndexIncremental", "触发增量同步扫描", () => settingsApi.runTgIndexIncremental());
 
   const saveArchiveConfig = () =>
     runAction("archiveConfigSave", "保存归档高级配置", async () => {
@@ -923,7 +1362,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
         emby_api_key: embyKey || undefined,
       });
       const data = resp.data as Record<string, unknown>;
-      if (data.ok || data.connected || data.success) {
+      if (data.valid === true || data.ok || data.connected || data.success) {
         addLog("SUCCESS", `Emby 服务器连接成功 — ${embyUrl}`);
       } else {
         addLog("WARN", `Emby 连接失败: ${String(data.message || "未知原因")}`);
@@ -941,10 +1380,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
     try {
       const resp = await settingsApi.checkFeiniu({
         feiniu_url: feiniuUrl || undefined,
-        feiniu_secret: feiniuApiKey || undefined,
+        feiniu_secret: feiniuSecret || undefined,
+        feiniu_api_key: feiniuApiKey || undefined,
       });
       const data = resp.data as Record<string, unknown>;
-      if (data.ok || data.connected || data.success) {
+      if (data.valid === true || data.ok || data.connected || data.success) {
         addLog("SUCCESS", `飞牛影视服务器连接成功 — ${feiniuUrl}`);
       } else {
         addLog("WARN", `飞牛连接失败: ${String(data.message || "未知原因")}`);
@@ -954,17 +1394,6 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
       addLog("ERROR", "飞牛连接测试失败: " + getApiErrorMessage(err));
     } finally {
       setIsTestingFeiniu(false);
-    }
-  };
-
-  const clearTerminalLogs = async () => {
-    try {
-      await logsApi.clear();
-      setLogs([]);
-      addLog("INFO", "服务端日志已清空");
-    } catch (err) {
-      console.error("Failed to clear logs on server:", err);
-      addLog("ERROR", "清空服务端日志失败: " + getApiErrorMessage(err));
     }
   };
 
@@ -1006,14 +1435,23 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
     );
   }
 
+  const diagnosticStatusCards = [
+    { label: "系统体检", value: healthAll },
+    { label: "Telegram", value: tgLoginStatus },
+    { label: "TG Bot", value: botStatus },
+    { label: "HDHive", value: hdhiveLoginStatus },
+    { label: "代理配置", value: proxyInfo },
+    { label: "热榜来源", value: availableCharts },
+  ].map((item) => ({ ...item, summary: getStatusSummary(item.value) }));
+
   return (
     <div className="liquid-page space-y-6">
       {/* Settings Header */}
       <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="font-headline text-3xl font-black" style={{ color: "var(--txt)" }}>系统参数配置</h2>
+          <h2 className="font-headline text-3xl font-black" style={{ color: "var(--txt)" }}>配置中心</h2>
           <p className="text-xs mt-1" style={{ color: "var(--txt-secondary)" }}>
-            配置 115 账号凭据、第三方集成服务、Telegram 抓取机器人、资源偏好过滤器及体检日志
+            管理账号连接、资源来源、自动化策略、网络诊断与安全偏好
           </p>
         </div>
         <button
@@ -1029,90 +1467,63 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Sub-Tab List */}
-        <div className="lg:col-span-3 flex flex-row lg:flex-col gap-1.5 overflow-x-auto no-scrollbar lg:sticky lg:top-20 pb-2 lg:pb-0 shrink-0">
-          {[
-            { id: "core", label: "基础连接", icon: Cloud, desc: "115 与 Emby 服务" },
-            { id: "integrations", label: "第三方集成", icon: Radio, desc: "飞牛/MoviePilot/Quark" },
-            { id: "telegram", label: "Telegram 集成", icon: Send, desc: "API / Bot 与索引" },
-            { id: "diagnostics", label: "诊断与代理", icon: HeartPulse, desc: "服务体检、网络与升级" },
-            { id: "archive", label: "归档与追更", icon: Database, desc: "自动扫描与热榜追更" },
-            { id: "security", label: "安全与过滤器", icon: Key, desc: "账号密码及质量偏好" },
-            { id: "logs", label: "实时操作日志", icon: Terminal, desc: "查看调试日志终端" },
-          ].map((item) => {
-            const Icon = item.icon;
-            const isTabActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setActiveTab(item.id as any)}
-                className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl transition-all glass-hover shrink-0 lg:shrink cursor-pointer"
-                style={
-                  isTabActive
-                    ? { background: "var(--brand-primary-bg-alpha)", color: "var(--brand-primary)" }
-                    : { color: "var(--txt-secondary)", background: "transparent" }
-                }
-              >
-                <Icon className="w-5 h-5 shrink-0" />
-                <div className="hidden lg:block text-left">
-                  <p className="text-xs font-black leading-none">{item.label}</p>
-                  <p className="text-[9px] font-semibold mt-1 opacity-70 leading-none">{item.desc}</p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        <SettingsSectionNav activeTab={activeTab} onChange={setActiveTab} />
 
         {/* Right Tab Content Panel */}
         <div className="lg:col-span-9 space-y-6">
 
-          {/* 1. Core Connection Tab */}
-          {activeTab === "core" && (
+          {/* 1. Cloud / Media / Automation shared source blocks */}
+          {["cloud", "media", "automation"].includes(activeTab) && (
             <div className="space-y-6">
-              {/* 115 Section */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
-                <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
-                  <Cloud className="w-4 h-4 text-brand-primary" />
-                  115 云盘授权设置
-                </h3>
-                <div className="space-y-3">
-                  <label className="space-y-1 block">
-                    <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>115 浏览器 Cookie 原始字符串 (全字段) *</span>
-                    <textarea
-                      rows={3}
-                      placeholder="键入您的 115 浏览器 Cookie 原始串 (包含 UID, CID, SEID...)"
-                      value={cookie115}
-                      onChange={(e) => setCookie115(e.target.value)}
-                      className="w-full text-xs font-mono p-3 resize-none input-premium"
-                    />
-                  </label>
-                  <label className="space-y-1 block">
-                    <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>NAS 统筹媒体存储绝对路径 (strm 保存点) *</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. /volume1/Media"
-                      value={localMountPath}
-                      onChange={(e) => setLocalMountPath(e.target.value)}
-                      className="w-full text-xs font-mono px-3.5 py-2.5 input-premium"
-                    />
-                  </label>
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={test115Connection}
-                      disabled={isTesting115}
-                      className="glass-hover w-full py-2.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                      style={{ background: "var(--surface-subtle)", color: "var(--brand-primary)", border: "1px solid var(--border)" }}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isTesting115 ? "animate-spin" : ""}`} />
-                      <span>{isTesting115 ? "正与网盘连接建立中..." : "测试 115 API 会话可用性"}</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+              {activeTab === "cloud" && (
+                <CloudDrivesSettings
+                  busy={{ isBusy }}
+                  pan115={{
+                    cookie: cookie115,
+                    setCookie: setCookie115,
+                    transferDefaultFolderId: pan115TransferDefaultFolderId,
+                    setTransferDefaultFolderId: setPan115TransferDefaultFolderId,
+                    transferDefaultFolderName: pan115TransferDefaultFolderName,
+                    setTransferDefaultFolderName: setPan115TransferDefaultFolderName,
+                    offlineDefaultFolderId: pan115OfflineDefaultFolderId,
+                    setOfflineDefaultFolderId: setPan115OfflineDefaultFolderId,
+                    offlineDefaultFolderName: pan115OfflineDefaultFolderName,
+                    setOfflineDefaultFolderName: setPan115OfflineDefaultFolderName,
+                    qrToken: pan115QrToken,
+                    qrImage: pan115QrImage,
+                    qrStatus: pan115QrStatus,
+                    qrPolling: pan115QrPolling,
+                    qrApps: pan115QrApps,
+                    qrApp: pan115QrApp,
+                    setQrApp: setPan115QrApp,
+                    qrAppsLoading: pan115QrAppsLoading,
+                    isTesting: isTesting115,
+                  }}
+                  storage={{
+                    localMountPath,
+                    setLocalMountPath,
+                  }}
+                  quark={{
+                    cookie: quarkCookie,
+                    setCookie: setQuarkCookie,
+                    defaultFolderId: quarkDefaultFolderId,
+                    setDefaultFolderId: setQuarkDefaultFolderId,
+                    defaultFolderName: quarkDefaultFolderName,
+                    setDefaultFolderName: setQuarkDefaultFolderName,
+                  }}
+                  actions={{
+                    test115Connection,
+                    startPan115QrLogin,
+                    cancelPan115QrLogin,
+                    savePan115DefaultFolders,
+                    saveQuarkSettings,
+                    checkQuarkCookie,
+                  }}
+                />
+              )}
 
               {/* Emby Server Section */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
+              <div className={`liquid-panel glass p-6 rounded-2xl space-y-4 ${activeTab === "media" ? "" : "hidden"}`}>
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Server className="w-4 h-4 text-brand-secondary" />
                   本地多媒体应用服务器连接 (Emby)
@@ -1191,7 +1602,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Checkin Range Section */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
+              <div className={`liquid-panel glass p-6 rounded-2xl space-y-4 ${activeTab === "automation" ? "" : "hidden"}`}>
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <RefreshCw className="w-4 h-4 text-brand-primary" />
                   全局订阅扫描周期
@@ -1219,51 +1630,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             </div>
           )}
 
-          {/* 2. Third-party Integrations Tab */}
-          {activeTab === "integrations" && (
+          {/* 2. Media services / Resource source blocks */}
+          {["media", "resources"].includes(activeTab) && (
             <div className="space-y-6">
-              {/* Quark Card */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
-                <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
-                  <Cloud className="w-4 h-4 text-blue-500" />
-                  夸克网盘授权集成
-                </h3>
-                <div className="space-y-3">
-                  <label className="space-y-1 block">
-                    <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>夸克网盘 Cookie</span>
-                    <textarea
-                      rows={3}
-                      placeholder="填入您的 Quark Cookie 以供夸克资源转存任务识别使用..."
-                      value={quarkCookie}
-                      onChange={(e) => setQuarkCookie(e.target.value)}
-                      className="w-full text-xs font-mono p-3 resize-none input-premium"
-                    />
-                  </label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>夸克默认存储目录 Folder ID</span>
-                      <input
-                        type="text"
-                        value={quarkDefaultFolderId}
-                        onChange={(e) => setQuarkDefaultFolderId(e.target.value)}
-                        className="w-full text-xs font-mono px-3.5 py-2.5 input-premium"
-                      />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>默认目录友好名称</span>
-                      <input
-                        type="text"
-                        value={quarkDefaultFolderName}
-                        disabled
-                        className="w-full text-xs px-3.5 py-2.5 input-premium opacity-60"
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-
               {/* Feiniu Card */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
+              <div className={`liquid-panel glass p-6 rounded-2xl space-y-4 ${activeTab === "media" ? "" : "hidden"}`}>
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Server className="w-4 h-4 text-emerald-500" />
                   飞牛影视 (Feiniu Server) 定时同步
@@ -1277,6 +1648,16 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                         placeholder="e.g. http://192.168.1.5:5666"
                         value={feiniuUrl}
                         onChange={(e) => setFeiniuUrl(e.target.value)}
+                        className="w-full text-xs font-mono px-3.5 py-2.5 input-premium"
+                      />
+                    </label>
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>飞牛 Secret</span>
+                      <input
+                        type="password"
+                        placeholder="飞牛 Secret"
+                        value={feiniuSecret}
+                        onChange={(e) => setFeiniuSecret(e.target.value)}
                         className="w-full text-xs font-mono px-3.5 py-2.5 input-premium"
                       />
                     </label>
@@ -1351,14 +1732,14 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* MoviePilot & Twilight */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
+              <div className={`liquid-panel glass p-6 rounded-2xl space-y-4 ${activeTab === "media" ? "" : "hidden"}`}>
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Radio className="w-4 h-4 text-violet-500" />
-                  MoviePilot & Twilight 集成设置
+                  MoviePilot & Twilight 服务接入
                 </h3>
                 <div className="space-y-4">
                   {/* MoviePilot config */}
-                  <div className="space-y-3">
+                  <div className={`space-y-3 ${activeTab === "media" ? "" : "hidden"}`}>
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-bold" style={{ color: "var(--txt)" }}>MoviePilot 自动化工具接入</span>
                       <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer">
@@ -1398,97 +1779,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                     </div>
                   </div>
 
-                  {/* ANI-RSS config */}
-                  <div className="pt-4 border-t space-y-3" style={{ borderColor: "var(--border)" }}>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold" style={{ color: "var(--txt)" }}>ANI-RSS 日番追新接入</span>
-                      <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer">
-                        <input type="checkbox" checked={anirssEnabled} onChange={(e) => setAnirssEnabled(e.target.checked)} className="accent-brand-primary" />
-                        启用
-                      </label>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <label className="space-y-1 block md:col-span-2">
-                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>ANI-RSS 地址</span>
-                        <input value={anirssBaseUrl} onChange={(e) => setAnirssBaseUrl(e.target.value)} placeholder="e.g. http://ani-rss:7789" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                      </label>
-                      <label className="space-y-1 block md:col-span-2">
-                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>Mikan 域名（兼容）</span>
-                        <input value={mikanBaseUrl} onChange={(e) => setMikanBaseUrl(e.target.value)} placeholder="https://mikanani.me" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                      </label>
-                      <label className="space-y-1 block md:col-span-2">
-                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>API Key</span>
-                        <input type="password" value={anirssApiKey} onChange={(e) => setAnirssApiKey(e.target.value)} placeholder={anirssApiKeyConfigured ? "已配置，留空不修改" : "配置 ANI-RSS API Key"} className="w-full text-xs px-3.5 py-2.5 input-premium" />
-                      </label>
-                      <label className="space-y-1 block md:col-span-2">
-                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>默认保存位置（可选）</span>
-                        <input value={anirssDefaultDownloadPath} onChange={(e) => setAnirssDefaultDownloadPath(e.target.value)} placeholder="/Media/番剧/${title}" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                      </label>
-                      <label className="space-y-1 block md:col-span-2">
-                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>保存位置预设</span>
-                        <textarea value={anirssDownloadPathPresetsInput} onChange={(e) => setAnirssDownloadPathPresetsInput(e.target.value)} rows={4} placeholder={"/Media/番剧\n/Media/番剧/${title}\n/Media/国产动漫/${title}"} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium resize-y" />
-                      </label>
-                    </div>
-                    <div className="rounded-2xl p-3 space-y-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-black flex items-center gap-1.5" style={{ color: "var(--txt)" }}>
-                            <Server className="w-3.5 h-3.5" />
-                            下载器配置闭环
-                          </p>
-                          <p className="text-[10px] font-bold mt-1" style={{ color: "var(--txt-muted)" }}>
-                            {anirssDownloadClientStatus?.message || "尚未检测 ANI-RSS 到 qBittorrent 的连接状态"}
-                          </p>
-                        </div>
-                        <span
-                          className="inline-flex items-center justify-center rounded-lg px-2 py-1 text-[9px] font-black shrink-0"
-                          style={anirssDownloadClientStatus?.ready
-                            ? { color: "var(--accent-ok)", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.24)" }
-                            : { color: "var(--accent-warn)", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.28)" }}
-                        >
-                          {anirssDownloadClientStatus?.ready ? "配置正常" : "需要检测"}
-                        </span>
-                      </div>
-                      {anirssDownloadClientStatus && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[10px] font-bold">
-                          <div className="rounded-xl px-2.5 py-2" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}>
-                            <span className="block text-[9px] font-black uppercase" style={{ color: "var(--txt-muted)" }}>qBittorrent</span>
-                            <span className="block truncate">{anirssDownloadClientStatus.qbittorrent?.version || "-"}</span>
-                            <span className="block truncate">{anirssDownloadClientStatus.qbittorrent?.base_url || "-"}</span>
-                          </div>
-                          <div className="rounded-xl px-2.5 py-2" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}>
-                            <span className="block text-[9px] font-black uppercase" style={{ color: "var(--txt-muted)" }}>任务数</span>
-                            <span className="block">{anirssDownloadClientStatus.qbittorrent?.torrent_count ?? "-"}</span>
-                            <span className="block">downloadNew: {anirssDownloadClientStatus.actual?.download_new ? "开" : "关"}</span>
-                          </div>
-                          <div className="rounded-xl px-2.5 py-2" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}>
-                            <span className="block text-[9px] font-black uppercase" style={{ color: "var(--txt-muted)" }}>下载路径</span>
-                            <span className="block truncate">{anirssDownloadClientStatus.actual?.download_path_template || "-"}</span>
-                            <span className="block">qbUseDownloadPath: {anirssDownloadClientStatus.actual?.qb_use_download_path ? "开" : "关"}</span>
-                          </div>
-                        </div>
-                      )}
-                      {!!anirssDownloadClientStatus?.issues?.length && (
-                        <p className="text-[10px] font-bold leading-relaxed" style={{ color: "var(--accent-warn)" }}>
-                          {anirssDownloadClientStatus.issues.join("；")}
-                        </p>
-                      )}
-                      {!!anirssDownloadClientStatus?.unsafe_flags?.length && (
-                        <p className="text-[10px] font-bold leading-relaxed" style={{ color: "var(--accent-danger)" }}>
-                          安全开关异常：{anirssDownloadClientStatus.unsafe_flags.join("；")}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={saveAniRssSettings} disabled={isBusy("anirssConfigSave")} className="px-3 py-1.5 rounded-lg text-[9px] font-black bg-brand-primary text-white disabled:opacity-50 cursor-pointer">保存 ANI-RSS</button>
-                      <button type="button" onClick={() => runAction("anirssHealth", "检测 ANI-RSS 连通状态", () => animeApi.checkAniRssHealth())} disabled={isBusy("anirssHealth")} className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>检测连通性</button>
-                      <button type="button" onClick={checkAniRssDownloadClient} disabled={isBusy("anirssDownloadClientCheck")} className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>检测下载器</button>
-                      <button type="button" onClick={applyAniRssDownloadClientDefaults} disabled={isBusy("anirssDownloadClientApply")} className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "rgba(245,158,11,0.10)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.28)" }}>同步安全配置</button>
-                    </div>
-                  </div>
-
                   {/* Twilight config */}
-                  <div className="pt-4 border-t space-y-3" style={{ borderColor: "var(--border)" }}>
+                  <div className={`${activeTab === "media" ? "" : "hidden"} pt-4 border-t space-y-3`} style={{ borderColor: "var(--border)" }}>
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-bold" style={{ color: "var(--txt)" }}>Twilight (Emby/Jellyfin 账号维护系统) 映射</span>
                       <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer">
@@ -1518,367 +1810,145 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 </div>
               </div>
 
-              {/* HDHive Checkin & Config */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
-                <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
-                  <SlidersHorizontal className="w-4 h-4 text-emerald-500" />
-                  HDHive 论坛签到与配置
-                </h3>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>HDHive Base URL</span>
-                      <input value={hdhiveBaseUrl} onChange={(e) => setHdhiveBaseUrl(e.target.value)} placeholder="https://hdhive.com/" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>登录用户名</span>
-                      <input value={hdhiveLoginUsername} onChange={(e) => setHdhiveLoginUsername(e.target.value)} className="w-full text-xs px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block md:col-span-2">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>Cookie 字符串</span>
-                      <textarea rows={3} value={hdhiveCookie} onChange={(e) => setHdhiveCookie(e.target.value)} className="w-full text-xs font-mono p-3 resize-none input-premium" />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>签到模式</span>
-                      <select value={hdhiveAutoCheckinMode} onChange={(e) => setHdhiveAutoCheckinMode(e.target.value)} className="w-full text-xs px-3 py-2.5 input-premium">
-                        <option value="normal">普通签到</option>
-                        <option value="gamble">魔法签到</option>
-                      </select>
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>签到方式</span>
-                      <select value={hdhiveAutoCheckinMethod} onChange={(e) => setHdhiveAutoCheckinMethod(e.target.value)} className="w-full text-xs px-3 py-2.5 input-premium">
-                        <option value="cookie">Cookie</option>
-                        <option value="web">网页模拟登录</option>
-                      </select>
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>自动检查运行时间 (HH:mm)</span>
-                      <input value={hdhiveAutoCheckinRunTime} onChange={(e) => setHdhiveAutoCheckinRunTime(e.target.value)} placeholder="09:00" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <div className="flex items-end pb-1.5">
-                      <label className="inline-flex items-center gap-2 text-xs font-black cursor-pointer">
-                        <input type="checkbox" checked={hdhiveAutoCheckinEnabled} onChange={(e) => setHdhiveAutoCheckinEnabled(e.target.checked)} className="accent-brand-primary" />
-                        启用自动签到
-                      </label>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => runAction("hdhiveCheck", "检测 HDHive 登录", () => settingsApi.checkHdhive())}
-                      disabled={isBusy("hdhiveCheck")}
-                      className="glass-hover flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                      style={{ background: "var(--surface-subtle)", color: "var(--brand-primary)", border: "1px solid var(--border)" }}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isBusy("hdhiveCheck") ? "animate-spin" : ""}`} />
-                      <span>{isBusy("hdhiveCheck") ? "检查中..." : "测试连接状态"}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => runAction("hdhiveCheckinRun", "触发 HDHive 手动签到", () => settingsApi.runHdhiveCheckin({}))}
-                      disabled={isBusy("hdhiveCheckinRun")}
-                      className="glass-hover flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                      style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-                    >
-                      <Play className="w-3 h-3" />
-                      <span>{isBusy("hdhiveCheckinRun") ? "签到中..." : "手动签到测试"}</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* TMDB & Pansou */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
-                <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
-                  <Search className="w-4 h-4 text-sky-500" />
-                  TMDB 搜刮器与第三方搜索 (Pansou)
-                </h3>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <label className="space-y-1 block md:col-span-2">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>TMDB API 密钥 (Key)</span>
-                      <input type="password" value={tmdbApiKey} onChange={(e) => setTmdbApiKey(e.target.value)} placeholder="API 密钥" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block md:col-span-2">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>Pansou 搜索源 API 地址</span>
-                      <input value={pansouBaseUrl} onChange={(e) => setPansouBaseUrl(e.target.value)} placeholder="http://pansou-api.local" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block md:col-span-2">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>TMDB 后端基础地址</span>
-                      <input value={tmdbBaseUrl} onChange={(e) => setTmdbBaseUrl(e.target.value)} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block md:col-span-2">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>TMDB 海报图片基础地址</span>
-                      <input value={tmdbImageBaseUrl} onChange={(e) => setTmdbImageBaseUrl(e.target.value)} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>拉取首选语言</span>
-                      <input value={tmdbLanguage} onChange={(e) => setTmdbLanguage(e.target.value)} className="w-full text-xs px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>首选区域限制 (Region)</span>
-                      <input value={tmdbRegion} onChange={(e) => setTmdbRegion(e.target.value)} className="w-full text-xs px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block md:col-span-2">
-                      <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>本地 TMDB SQLite 路径</span>
-                      <input value={tmdbLocalDbPath} onChange={(e) => setTmdbLocalDbPath(e.target.value)} placeholder="data/tmdb_base.db" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                  </div>
-                  {resultOf("tmdbCheck") && (
-                    <p
-                      className="text-[10px] font-semibold rounded-lg px-3 py-2 break-words"
-                      style={{
-                        color: resultOf("tmdbCheck")?.ok ? "var(--accent-ok)" : "var(--accent-danger)",
-                        background: "var(--surface-subtle)",
-                        border: "1px solid var(--border)",
-                      }}
-                    >
-                      {resultOf("tmdbCheck")?.msg}
-                    </p>
-                  )}
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => runAction("tmdbCheck", "检测 TMDB 连接", () => settingsApi.checkTmdb())}
-                      disabled={isBusy("tmdbCheck")}
-                      className="glass-hover flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                      style={{ background: "var(--surface-subtle)", color: "var(--brand-primary)", border: "1px solid var(--border)" }}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isBusy("tmdbCheck") ? "animate-spin" : ""}`} />
-                      <span>{isBusy("tmdbCheck") ? "测试中..." : "测试 TMDB 连通性"}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => runAction("pansouCheck", "检测 Pansou 搜索源", () => settingsApi.checkPansou())}
-                      disabled={isBusy("pansouCheck")}
-                      className="glass-hover flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                      style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isBusy("pansouCheck") ? "animate-spin" : ""}`} />
-                      <span>{isBusy("pansouCheck") ? "测试中..." : "测试 Pansou 搜索源"}</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+              {activeTab === "resources" && (
+                <ResourceMetadataSettings
+                  busy={{ isBusy, resultOf }}
+                  aniRss={{
+                    enabled: anirssEnabled,
+                    setEnabled: setAnirssEnabled,
+                    baseUrl: anirssBaseUrl,
+                    setBaseUrl: setAnirssBaseUrl,
+                    mikanBaseUrl,
+                    setMikanBaseUrl,
+                    apiKey: anirssApiKey,
+                    setApiKey: setAnirssApiKey,
+                    apiKeyConfigured: anirssApiKeyConfigured,
+                    defaultDownloadPath: anirssDefaultDownloadPath,
+                    setDefaultDownloadPath: setAnirssDefaultDownloadPath,
+                    downloadPathPresetsInput: anirssDownloadPathPresetsInput,
+                    setDownloadPathPresetsInput: setAnirssDownloadPathPresetsInput,
+                    downloadClientStatus: anirssDownloadClientStatus,
+                    onSave: saveAniRssSettings,
+                    onCheckHealth: checkAniRssHealth,
+                    onCheckDownloadClient: checkAniRssDownloadClient,
+                    onApplyDownloadClientDefaults: applyAniRssDownloadClientDefaults,
+                  }}
+                  hdHive={{
+                    baseUrl: hdhiveBaseUrl,
+                    setBaseUrl: setHdhiveBaseUrl,
+                    loginUsername: hdhiveLoginUsername,
+                    setLoginUsername: setHdhiveLoginUsername,
+                    cookie: hdhiveCookie,
+                    setCookie: setHdhiveCookie,
+                    autoCheckinMode: hdhiveAutoCheckinMode,
+                    setAutoCheckinMode: setHdhiveAutoCheckinMode,
+                    autoCheckinMethod: hdhiveAutoCheckinMethod,
+                    setAutoCheckinMethod: setHdhiveAutoCheckinMethod,
+                    autoCheckinRunTime: hdhiveAutoCheckinRunTime,
+                    setAutoCheckinRunTime: setHdhiveAutoCheckinRunTime,
+                    autoCheckinEnabled: hdhiveAutoCheckinEnabled,
+                    setAutoCheckinEnabled: setHdhiveAutoCheckinEnabled,
+                    onCheckLogin: checkHdhiveLogin,
+                    onRunCheckin: runHdhiveCheckin,
+                  }}
+                  metadata={{
+                    tmdbApiKey,
+                    setTmdbApiKey,
+                    pansouBaseUrl,
+                    setPansouBaseUrl,
+                    tmdbBaseUrl,
+                    setTmdbBaseUrl,
+                    tmdbImageBaseUrl,
+                    setTmdbImageBaseUrl,
+                    tmdbLanguage,
+                    setTmdbLanguage,
+                    tmdbRegion,
+                    setTmdbRegion,
+                    tmdbLocalDbPath,
+                    setTmdbLocalDbPath,
+                    onCheckTmdb: checkTmdbConnectivity,
+                    onCheckPansou: checkPansouSource,
+                  }}
+                  display={{
+                    visibleTabs: detailVisibleTabs,
+                    onToggle: toggleDetailTab,
+                  }}
+                />
+              )}
             </div>
           )}
 
           {/* 3. Telegram Integration Tab */}
           {activeTab === "telegram" && (
-            <div className="space-y-6">
-              {/* Telegram Client Sign-in */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
-                <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
-                  <Send className="w-4 h-4 text-sky-500" />
-                  Telegram 客户端扫码与凭据
-                </h3>
-                <div className="space-y-4">
-                  {/* QR code login block */}
-                  <div className="p-4 rounded-xl flex flex-col items-center gap-3 border text-center" style={{ background: "var(--surface-subtle)", borderColor: "var(--border)" }}>
-                    <div className="space-y-1">
-                      <p className="text-xs font-bold" style={{ color: "var(--txt)" }}>官方 TG 快速登录通道 (免验证码扫码)</p>
-                      <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>启动后可用官方 App 扫码登录。若设置了二步验证，请在下方填入二步密码。</p>
-                    </div>
-
-                    {tgQrImage && (
-                      <div className="p-2 bg-white rounded-lg inline-block border">
-                        <img src={tgQrImage} alt="Telegram QR Login" className="w-36 h-36" />
-                      </div>
-                    )}
-
-                    {tgQrStatus && (
-                      <p className="text-[10px] font-black" style={{ color: "var(--brand-primary)" }}>{tgQrStatus}</p>
-                    )}
-
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={startTgQrLogin}
-                        disabled={tgQrPolling}
-                        className="px-4 py-2 bg-brand-primary text-white text-[10px] font-bold rounded-lg hover:bg-opacity-90 disabled:opacity-50 cursor-pointer"
-                      >
-                        {tgQrPolling ? "正在轮询..." : "启动 TG 扫码登录"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await settingsApi.tgLogout();
-                            addLog("SUCCESS", "Telegram 会话已登出注销");
-                          } catch (e: unknown) {
-                            addLog("ERROR", "TG 退出登录失败: " + getApiErrorMessage(e));
-                          }
-                        }}
-                        className="px-4 py-2 border rounded-lg text-[10px] font-bold text-[var(--accent-danger)] cursor-pointer"
-                        style={{ borderColor: "rgba(239,68,68,0.3)" }}
-                      >
-                        登出会话
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-                    <label className="space-y-1 block">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>TG API ID</span>
-                      <input value={tgApiId} onChange={(e) => setTgApiId(e.target.value)} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block md:col-span-2">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>TG API Hash</span>
-                      <input type="password" value={tgApiHash} onChange={(e) => setTgApiHash(e.target.value)} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block md:col-span-3">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>手机号码 (带国别码, e.g. +86138...)</span>
-                      <input value={tgPhone} onChange={(e) => setTgPhone(e.target.value)} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
-                    <label className="space-y-1 block">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>追更频道列表 (以逗号或换行分隔)</span>
-                      <textarea rows={3} value={tgChannelsInput} onChange={(e) => setTgChannelsInput(e.target.value)} placeholder="e.g. share_channel, mediasync_share..." className="w-full text-xs font-mono p-3 resize-none input-premium" />
-                    </label>
-                    <div className="space-y-2">
-                      <label className="space-y-1 block">
-                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>检索历史消息天数</span>
-                        <input type="number" min={1} value={tgSearchDays} onChange={(e) => setTgSearchDays(Number(e.target.value))} className="w-full text-xs px-3.5 py-2.5 input-premium" />
-                      </label>
-                      <label className="space-y-1 block">
-                        <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>单频道检索上限数</span>
-                        <input type="number" min={50} value={tgMaxMessagesPerChannel} onChange={(e) => setTgMaxMessagesPerChannel(Number(e.target.value))} className="w-full text-xs px-3.5 py-2.5 input-premium" />
-                      </label>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={saveTgRuntimeSettings} disabled={isBusy("tgConfigSave")} className="px-3 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 cursor-pointer">保存 TG 连接配置</button>
-                    <button type="button" onClick={() => runAction("tgCheck", "检测 TG 连接", () => settingsApi.checkTg())} disabled={isBusy("tgCheck")} className="glass-hover px-3 py-2 rounded-lg text-[10px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>检测连接状态</button>
-                  </div>
-                </div>
-              </div>
-
-              {/* TG Bot Settings */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
-                <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
-                  <SlidersHorizontal className="w-4 h-4 text-emerald-500" />
-                  Telegram Bot 接收服务
-                </h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold" style={{ color: "var(--txt)" }}>定时扫描与接收</span>
-                    <label className="inline-flex items-center gap-2 text-xs font-black cursor-pointer">
-                      <input type="checkbox" checked={tgBotEnabled} onChange={(e) => setTgBotEnabled(e.target.checked)} className="accent-brand-primary" />
-                      启用 Telegram Bot
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3">
-                    <label className="space-y-1 block">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>Bot Token *</span>
-                      <input type="password" value={tgBotToken} onChange={(e) => setTgBotToken(e.target.value)} placeholder="填入 @BotFather 申请的 API Token" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>授权交互用户 ID 列表 (以逗号分隔)</span>
-                      <input value={tgBotAllowedUsersInput} onChange={(e) => setTgBotAllowedUsersInput(e.target.value)} placeholder="e.g. 12345678, 87654321" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>消息推送目的通知 Chat ID 列表</span>
-                      <input value={tgBotNotifyChatIdsInput} onChange={(e) => setTgBotNotifyChatIdsInput(e.target.value)} placeholder="e.g. -10012345678" className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <div className="pt-1">
-                      <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer" style={{ color: "var(--txt-secondary)" }}>
-                        <input type="checkbox" checked={tgBotHdhiveAutoUnlock} onChange={(e) => setTgBotHdhiveAutoUnlock(e.target.checked)} className="accent-brand-primary" />
-                        允许机器人与 HDHive 自动交互并解锁资源
-                      </label>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={saveTgBotRuntimeSettings} disabled={isBusy("tgBotConfigSave")} className="px-3 py-2 rounded-lg text-[10px] font-black bg-brand-primary text-white disabled:opacity-50 cursor-pointer">保存 Bot 参数</button>
-                    <button type="button" onClick={() => runAction("tgBotRestart", "重启 TG Bot 服务", () => settingsApi.restartTgBot())} disabled={isBusy("tgBotRestart")} className="glass-hover px-3 py-2 rounded-lg text-[10px] font-black disabled:opacity-50 cursor-pointer" style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>重启机器人</button>
-                    <button type="button" onClick={() => runAction("tgBotStop", "停止 TG Bot 服务", () => settingsApi.stopTgBot())} disabled={isBusy("tgBotStop")} className="px-3 py-2 border rounded-lg text-[10px] font-black disabled:opacity-50 cursor-pointer" style={{ borderColor: "rgba(239,68,68,0.3)", color: "var(--accent-danger)" }}>停用机器人</button>
-                  </div>
-                </div>
-              </div>
-
-              {/* TG Indexer Config */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
-                <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
-                  <Database className="w-4 h-4 text-indigo-500" />
-                  Telegram 索引调度器参数 (Advanced)
-                </h3>
-                <div className="space-y-4">
-                  <div className="flex flex-wrap gap-4">
-                    <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer">
-                      <input type="checkbox" checked={tgIndexEnabled} onChange={(e) => setTgIndexEnabled(e.target.checked)} className="accent-brand-primary" />
-                      启用消息索引服务
-                    </label>
-                    <label className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer">
-                      <input type="checkbox" checked={tgIndexRealtimeFallbackEnabled} onChange={(e) => setTgIndexRealtimeFallbackEnabled(e.target.checked)} className="accent-brand-primary" />
-                      实时兜底检索备份
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <label className="space-y-1 block">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>单频道查询上限</span>
-                      <input type="number" min={20} value={tgIndexQueryLimitPerChannel} onChange={(e) => setTgIndexQueryLimitPerChannel(Number(e.target.value))} className="w-full text-xs px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>回灌批量大小</span>
-                      <input type="number" min={50} value={tgBackfillBatchSize} onChange={(e) => setTgBackfillBatchSize(Number(e.target.value))} className="w-full text-xs px-3.5 py-2.5 input-premium" />
-                    </label>
-                    <label className="space-y-1 block">
-                      <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>增量间隔(分钟)</span>
-                      <input type="number" min={15} value={tgIncrementalIntervalMinutes} onChange={(e) => setTgIncrementalIntervalMinutes(Number(e.target.value))} className="w-full text-xs px-3.5 py-2.5 input-premium" />
-                    </label>
-                  </div>
-                  <label className="space-y-1 block">
-                    <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>TG Session 秘钥</span>
-                    <input type="password" value={tgSession} onChange={(e) => setTgSession(e.target.value)} className="w-full text-xs font-mono px-3.5 py-2.5 input-premium" />
-                  </label>
-
-                  {/* Actions buttons */}
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => runAction("tgIndexRefresh", "刷新 TG 索引状态", () => settingsApi.refreshTgIndexStatus())}
-                      disabled={isBusy("tgIndexRefresh")}
-                      className="px-3 py-1.5 rounded-lg text-[9px] font-black bg-brand-primary text-white disabled:opacity-50 cursor-pointer"
-                    >
-                      刷新索引状态
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => runAction("tgIndexRebuild", "清空并全量重塑索引", () => settingsApi.rebuildTgIndex())}
-                      disabled={isBusy("tgIndexRebuild")}
-                      className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer"
-                      style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-                    >
-                      全量重构索引
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => runAction("tgIndexBackfill", "执行 TG 索引回灌", () => settingsApi.startTgIndexBackfill())}
-                      disabled={isBusy("tgIndexBackfill")}
-                      className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer"
-                      style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-                    >
-                      启动增量回灌
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => runAction("tgIndexIncremental", "触发增量同步扫描", () => settingsApi.runTgIndexIncremental())}
-                      disabled={isBusy("tgIndexIncremental")}
-                      className="glass-hover px-3 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer"
-                      style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
-                    >
-                      执行增量拉取
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <TelegramSettings
+              busy={{ isBusy }}
+              client={{
+                apiId: tgApiId,
+                setApiId: setTgApiId,
+                apiHash: tgApiHash,
+                setApiHash: setTgApiHash,
+                phone: tgPhone,
+                setPhone: setTgPhone,
+                channelsInput: tgChannelsInput,
+                setChannelsInput: setTgChannelsInput,
+                searchDays: tgSearchDays,
+                setSearchDays: setTgSearchDays,
+                maxMessagesPerChannel: tgMaxMessagesPerChannel,
+                setMaxMessagesPerChannel: setTgMaxMessagesPerChannel,
+              }}
+              bot={{
+                token: tgBotToken,
+                setToken: setTgBotToken,
+                enabled: tgBotEnabled,
+                setEnabled: setTgBotEnabled,
+                allowedUsersInput: tgBotAllowedUsersInput,
+                setAllowedUsersInput: setTgBotAllowedUsersInput,
+                notifyChatIdsInput: tgBotNotifyChatIdsInput,
+                setNotifyChatIdsInput: setTgBotNotifyChatIdsInput,
+                hdhiveAutoUnlock: tgBotHdhiveAutoUnlock,
+                setHdhiveAutoUnlock: setTgBotHdhiveAutoUnlock,
+              }}
+              index={{
+                enabled: tgIndexEnabled,
+                setEnabled: setTgIndexEnabled,
+                session: tgSession,
+                setSession: setTgSession,
+                realtimeFallbackEnabled: tgIndexRealtimeFallbackEnabled,
+                setRealtimeFallbackEnabled: setTgIndexRealtimeFallbackEnabled,
+                queryLimitPerChannel: tgIndexQueryLimitPerChannel,
+                setQueryLimitPerChannel: setTgIndexQueryLimitPerChannel,
+                backfillBatchSize: tgBackfillBatchSize,
+                setBackfillBatchSize: setTgBackfillBatchSize,
+                incrementalIntervalMinutes: tgIncrementalIntervalMinutes,
+                setIncrementalIntervalMinutes: setTgIncrementalIntervalMinutes,
+              }}
+              qr={{
+                image: tgQrImage,
+                status: tgQrStatus,
+                needPassword: tgQrNeedPassword,
+                password: tgQrPassword,
+                setPassword: setTgQrPassword,
+                polling: tgQrPolling,
+              }}
+              actions={{
+                startQrLogin: startTgQrLogin,
+                verifyQrPassword: verifyTgQrPassword,
+                logoutSession: logoutTgSession,
+                saveClient: saveTgRuntimeSettings,
+                checkClient: checkTgConnection,
+                saveBot: saveTgBotRuntimeSettings,
+                restartBot: restartTgBot,
+                stopBot: stopTgBot,
+                refreshIndex: refreshTgIndex,
+                rebuildIndex: rebuildTgIndex,
+                backfillIndex: backfillTgIndex,
+                runIncremental: runTgIndexIncremental,
+              }}
+            />
           )}
 
-          {/* 4. Diagnostics & Proxy Tab */}
-          {activeTab === "diagnostics" && (
+          {/* 4. Network & System Tab */}
+          {activeTab === "system" && (
             <div className="space-y-6">
               {/* Health checks */}
               <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
@@ -1888,11 +1958,12 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                 </h3>
                 <div className="space-y-3">
                   <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>
-                    诊断模块将发送测试会话检查：115、Quark、TMDB、Emby、飞牛等核心服务的响应是否健康通畅。
+                    诊断模块会检查 HDHive、TMDB、Telegram 及当前代理路由；115、Quark、Emby、飞牛请使用对应卡片里的专项检测。
                   </p>
+                  <DiagnosticStatusGrid cards={diagnosticStatusCards} />
                   <button
                     type="button"
-                    onClick={() => runAction("diagnosticsRun", "执行全系统健康会话体检", () => settingsApi.checkAllHealth())}
+                    onClick={() => runAction("diagnosticsRun", "执行全系统健康会话体检", () => settingsApi.checkAllHealth(), setHealthAll)}
                     disabled={isBusy("diagnosticsRun")}
                     className="w-full py-2.5 text-xs font-bold rounded-lg bg-brand-primary text-white disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
                   >
@@ -1970,8 +2041,8 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             </div>
           )}
 
-          {/* 5. Archive & Subscriptions Tab */}
-          {activeTab === "archive" && (
+          {/* 5. Subscription & Archive Tab */}
+          {activeTab === "automation" && (
             <div className="space-y-6">
               {/* Archive Watch Settings */}
               <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
@@ -2176,11 +2247,11 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
             </div>
           )}
 
-          {/* 6. Security & Filters Tab */}
-          {activeTab === "security" && (
+          {/* 6. Security / Preferences Tab */}
+          {["security", "automation"].includes(activeTab) && (
             <div className="space-y-6">
               {/* Account modify */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
+              <div className={`liquid-panel glass p-6 rounded-2xl space-y-4 ${activeTab === "security" ? "" : "hidden"}`}>
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <Key className="w-4 h-4 text-brand-primary" />
                   修改管理账号与登录密码
@@ -2219,7 +2290,7 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
               </div>
 
               {/* Resource Filters */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
+              <div className={`liquid-panel glass p-6 rounded-2xl space-y-4 ${activeTab === "automation" ? "" : "hidden"}`}>
                 <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
                   <SlidersHorizontal className="w-4 h-4 text-emerald-500" />
                   拉取资源质量偏好与过滤器设置
@@ -2259,154 +2330,24 @@ export default function SettingsTab({ logs, setLogs, addLog }: SettingsTabProps)
                       <input value={resourceMaxSizeGb} onChange={(e) => setResourceMaxSizeGb(e.target.value)} placeholder="80" className="w-full text-xs px-3.5 py-2.5 input-premium" />
                     </label>
                   </div>
-                  <div className="pt-2 border-t" style={{ borderColor: "var(--border)" }}>
-                    <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>
-                      资源优先级选项: 勾选当前追更时的第一备选数据源抓取优先级顺位。
-                    </p>
-                    <div className="flex flex-wrap gap-4 pt-2">
-                      {SOURCE_OPTIONS.map((source) => (
-                        <label key={source.key} className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={subscriptionResourcePriority.includes(source.key)}
-                            onChange={(e) => togglePrioritySource(source.key, e.target.checked)}
-                            className="accent-brand-primary"
-                          />
-                          {source.label}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
+                  <ResourcePriorityOptions
+                    selectedSources={subscriptionResourcePriority}
+                    onToggle={togglePrioritySource}
+                  />
                 </div>
               </div>
 
-              {/* Display preferences visible tabs */}
-              <div className="liquid-panel glass p-6 rounded-2xl space-y-4">
-                <h3 className="font-headline text-base font-bold flex items-center gap-2" style={{ color: "var(--txt)" }}>
-                  <SlidersHorizontal className="w-4 h-4 text-blue-500" />
-                  影视资源搜索详情页面展示配置
-                </h3>
-                <div className="space-y-3">
-                  <p className="text-[10px]" style={{ color: "var(--txt-muted)" }}>
-                    控制影视详情页显示哪些检索源（例如 115 搜索、Quark 搜索、磁力来源等），关闭不用的检索源可以缩短页面加载并保持清爽。
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
-                    {DETAIL_TAB_OPTIONS.map((tab) => (
-                      <label key={tab.key} className="inline-flex items-center gap-2 text-xs font-bold cursor-pointer" style={{ color: "var(--txt-secondary)" }}>
-                        <input
-                          type="checkbox"
-                          checked={detailVisibleTabs.includes(tab.key)}
-                          onChange={(e) => toggleDetailTab(tab.key, e.target.checked)}
-                          className="accent-brand-primary"
-                        />
-                        {tab.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
           {/* 7. Operations logs tab */}
           {activeTab === "logs" && (
-            <div className="terminal-premium p-6 shadow-md flex flex-col justify-between h-[640px] border">
-              <div className="space-y-4 h-full flex flex-col justify-between">
-                {/* Terminal Header */}
-                <div className="flex items-center justify-between pb-3 border-b shrink-0" style={{ borderColor: "var(--border-strong)" }}>
-                  <div className="flex items-center gap-2">
-                    <Terminal className="w-5 h-5 text-brand-primary" />
-                    <span className="text-xs font-black tracking-wider" style={{ color: "var(--txt)" }}>SYSTEM CONNECT LOGGER (API)</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      title="触发归档扫描"
-                      onClick={forceSyncRun}
-                      className="p-1.5 hover:bg-[var(--surface-hover)] rounded text-brand-primary transition-colors cursor-pointer"
-                    >
-                      <RefreshCw className="w-4 h-4 animate-spin-hover" />
-                    </button>
-                    <button
-                      type="button"
-                      title="清空终端日志"
-                      onClick={clearTerminalLogs}
-                      className="p-1.5 hover:bg-[var(--surface-hover)] rounded text-[var(--accent-danger)] transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      title="读取日志模块列表"
-                      onClick={async () => {
-                        try {
-                          const r = await logsApi.modules();
-                          setLogs(prev => [...prev, { id: `m-${Date.now()}`, timestamp: new Date().toLocaleTimeString(), level: "INFO", message: `日志模块: ${JSON.stringify(r.data)}` }]);
-                        } catch (e: unknown) {
-                          await addLog("ERROR", getApiErrorMessage(e));
-                        }
-                      }}
-                      className="p-1.5 hover:bg-[var(--surface-hover)] rounded text-[var(--accent-info)] transition-colors cursor-pointer"
-                    >
-                      <Database className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      title="清理30天旧日志"
-                      onClick={async () => {
-                        try {
-                          await logsApi.prune(30);
-                          await addLog("SUCCESS", "已清理30天前旧日志");
-                        } catch (e: unknown) {
-                          await addLog("ERROR", getApiErrorMessage(e));
-                        }
-                      }}
-                      className="p-1.5 hover:bg-[var(--surface-hover)] rounded text-[var(--accent-warn)] transition-colors cursor-pointer"
-                    >
-                      <AlertTriangle className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Terminal Body Screen */}
-                <div className="flex-1 overflow-y-auto max-h-[480px] pr-2 space-y-2.5 text-[10.5px] leading-relaxed select-text no-scrollbar scroll-smooth">
-                  {logs.length === 0 ? (
-                    <div className="text-gray-500 italic text-center h-full flex items-center justify-center">
-                      暂无捕获到的异步 API 日志，您可以点击上方按钮产生一些事件。
-                    </div>
-                  ) : (
-                    logs.map((log) => {
-                      let badgeColor = "text-blue-500";
-                      if (log.level === "SUCCESS") badgeColor = "text-green-500";
-                      if (log.level === "WARN") badgeColor = "text-amber-500";
-                      if (log.level === "ERROR") badgeColor = "text-red-500";
-
-                      return (
-                        <div key={log.id} className="space-y-0.5">
-                          <div className="flex items-center gap-1.5 text-gray-400 font-bold">
-                            <span>[{log.timestamp}]</span>
-                            <span className={`font-black ${badgeColor}`}>[{log.level}]</span>
-                          </div>
-                          <div className="pl-4 break-all leading-tight" style={{ color: "var(--txt)" }}>
-                            {log.message}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                  <div ref={terminalEndRef} />
-                </div>
-
-                {/* Terminal Footer Indicator */}
-                <div className="pt-3 border-t flex items-center justify-between text-[10px] text-gray-500 shrink-0" style={{ borderColor: "var(--border-strong)" }}>
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block animate-pulse" />
-                    后端 API 日志已连接
-                  </span>
-                  <span>v1.0.8-Alpha-Stable</span>
-                </div>
-              </div>
-            </div>
+            <SettingsLogsPanel
+              logs={logs}
+              setLogs={setLogs}
+              addLog={addLog}
+              terminalEndRef={terminalEndRef}
+            />
           )}
         </div>
       </div>

@@ -51,9 +51,7 @@ class FrontendContractsTest(unittest.TestCase):
 
     def test_settings_exposes_runtime_settings_backed_controls(self) -> None:
         settings = read_source("src/components/SettingsTab.tsx")
-        advanced = read_source("src/components/RuntimeAdvancedSettingsPanel.tsx")
 
-        self.assertIn("RuntimeAdvancedSettingsPanel", settings)
         for key in (
             "subscription_enabled",
             "subscription_offline_transfer_enabled",
@@ -83,10 +81,10 @@ class FrontendContractsTest(unittest.TestCase):
             "chart_subscription_enabled",
             "person_follow_enabled",
         ):
-            self.assertIn(key, advanced)
+            self.assertIn(key, settings)
 
     def test_settings_exposes_remaining_runtime_settings_gaps(self) -> None:
-        advanced = read_source("src/components/RuntimeAdvancedSettingsPanel.tsx")
+        settings = read_source("src/components/SettingsTab.tsx")
 
         for key in (
             "hdhive_cookie",
@@ -100,7 +98,7 @@ class FrontendContractsTest(unittest.TestCase):
             "update_repository",
             "detail_visible_tabs",
         ):
-            self.assertIn(key, advanced)
+            self.assertIn(key, settings)
 
     def test_settings_exposes_archive_quark_and_auth_configuration(self) -> None:
         settings = read_source("src/components/SettingsTab.tsx")
@@ -123,6 +121,9 @@ class FrontendContractsTest(unittest.TestCase):
 
         self.assertIn("loadInitialPan115Data", pan115)
         self.assertNotIn('loadFiles("0");\n    loadOfflineTasks();', pan115)
+        self.assertNotIn("startQrLogin", pan115)
+        self.assertNotIn("扫码登录二维码", pan115)
+        self.assertIn("配置中心的网盘集成", pan115)
 
     def test_dashboard_uses_real_pan115_cookie_status(self) -> None:
         dashboard = read_source("src/components/DashboardTab.tsx")
@@ -135,7 +136,8 @@ class FrontendContractsTest(unittest.TestCase):
     def test_strm_redirect_mode_matches_backend_contract(self) -> None:
         strm = read_source("src/components/StrmTab.tsx")
 
-        self.assertIn('useState("auto")', strm)
+        self.assertIn('strm_redirect_mode', strm)
+        self.assertIn('>("auto")', strm)
         self.assertIn('value="auto"', strm)
         self.assertIn('value="redirect"', strm)
         self.assertIn('value="proxy"', strm)
@@ -155,15 +157,16 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("!tmdbSearchConfigured", search)
         self.assertIn("TMDB API Key 未配置", search)
 
-    def test_tmdb_key_stays_in_advanced_runtime_settings(self) -> None:
+    def test_tmdb_key_stays_in_resource_settings(self) -> None:
         settings = read_source("src/components/SettingsTab.tsx")
-        advanced = read_source("src/components/RuntimeAdvancedSettingsPanel.tsx")
+        resource_metadata = read_source("src/components/settings/ResourceMetadataSettings.tsx")
 
-        self.assertNotIn("TMDB 搜索配置", settings)
+        self.assertNotIn("TMDB 搜索配置", settings + resource_metadata)
         self.assertNotIn("tmdbApiKeyConfigured", settings)
-        self.assertIn("tmdbApiKey", advanced)
-        self.assertIn("tmdb_api_key", advanced)
-        self.assertIn("TMDB API Key", advanced)
+        self.assertIn("tmdbApiKey", settings)
+        self.assertIn("tmdb_api_key", settings)
+        self.assertIn("tmdbApiKey", resource_metadata)
+        self.assertIn("TMDB API", resource_metadata)
 
     def test_douban_movie_board_uses_movie_section_endpoints(self) -> None:
         explore = read_source("src/components/ExploreTab.tsx")
@@ -179,19 +182,85 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("getExploreDoubanSection", search)
         self.assertIn("DOUBAN_DISCOVER_SECTION_KEYS.map", search)
 
-    def test_media_detail_honors_runtime_resource_tabs_and_pt_source(self) -> None:
+    def test_settings_exposes_runtime_resource_tabs_and_pt_source(self) -> None:
         detail = read_source("src/components/MediaDetailTab.tsx")
-        advanced = read_source("src/components/RuntimeAdvancedSettingsPanel.tsx")
+        search = read_source("src/components/SearchTab.tsx")
+        settings = read_source("src/components/SettingsTab.tsx")
+        detail_panel = read_source("src/components/settings/DetailVisibleTabsPanel.tsx")
         runtime = read_source("../backend/app/services/runtime_settings_service.py")
 
         self.assertIn("settingsApi.getRuntime", detail)
-        self.assertIn("detail_visible_tabs", detail)
-        self.assertIn('"moviepilot_pt"', detail)
-        self.assertIn("PT·MoviePilot", detail)
-        self.assertIn("moviepilotApi.search", detail)
-        self.assertIn('key: "moviepilot_pt"', advanced)
+        self.assertIn("detail_visible_tabs", settings)
+        self.assertIn("detailVisibleTabs", settings)
+        self.assertIn("settingsApi.getRuntime", search)
+        self.assertIn("RESOURCE_SOURCE_DETAIL_KEYS", search)
+        self.assertIn("visibleResourceSources", search)
+        self.assertIn('key: "moviepilot_pt"', detail_panel)
+        self.assertIn("PT·MoviePilot", detail_panel)
         self.assertIn('"moviepilot_pt"', runtime)
-        self.assertEqual(detail.count('{ key: "115_tg"'), 1)
+
+    def test_settings_ia_uses_focused_subcomponents(self) -> None:
+        settings = read_source("src/components/SettingsTab.tsx")
+        cloud_drives = read_source("src/components/settings/CloudDrivesSettings.tsx")
+        resource_metadata = read_source("src/components/settings/ResourceMetadataSettings.tsx")
+        telegram_settings = read_source("src/components/settings/TelegramSettings.tsx")
+
+        for component in (
+            "SettingsSectionNav",
+            "CloudDrivesSettings",
+            "DiagnosticStatusGrid",
+            "ResourcePriorityOptions",
+            "ResourceMetadataSettings",
+            "TelegramSettings",
+            "SettingsLogsPanel",
+        ):
+            self.assertIn(f'./settings/{component}', settings)
+            self.assertIn(f"<{component}", settings)
+
+        for label in ("115 云盘授权设置", "115 扫码登录", "夸克网盘授权集成"):
+            self.assertIn(label, cloud_drives)
+        self.assertIn("settings-pan115-qr-login-app", cloud_drives)
+        self.assertIn("115 手机确认页可能显示通用 Web 登录文案", cloud_drives)
+        self.assertIn("listQrLoginApps", settings)
+        self.assertIn("extractPan115QrLoginAppOptions", settings)
+        self.assertIn('DEFAULT_PAN115_QR_LOGIN_APP = "ios"', read_source("src/utils/pan115QrLogin.ts"))
+        self.assertNotIn("settingsApi", cloud_drives)
+        self.assertNotIn("quarkApi", cloud_drives)
+        self.assertNotIn("pan115Api", cloud_drives)
+        self.assertNotIn("runAction(", cloud_drives)
+        self.assertIn('./DetailVisibleTabsPanel', resource_metadata)
+        self.assertIn("<DetailVisibleTabsPanel", resource_metadata)
+        for label in ("ANI-RSS", "HDHive", "TMDB", "Pansou"):
+            self.assertIn(label, resource_metadata)
+        self.assertNotIn("settingsApi", resource_metadata)
+        self.assertNotIn("animeApi", resource_metadata)
+        for label in ("Telegram 客户端扫码与凭据", "Telegram Bot 接收服务", "Telegram 索引调度器参数"):
+            self.assertIn(label, telegram_settings)
+        self.assertNotIn("settingsApi", telegram_settings)
+        self.assertNotIn("runAction(", telegram_settings)
+
+    def test_operation_logs_panel_does_not_run_business_tasks(self) -> None:
+        logs_panel = read_source("src/components/settings/SettingsLogsPanel.tsx")
+
+        self.assertIn("日志级别", logs_panel)
+        self.assertIn("日志模块", logs_panel)
+        self.assertIn("logsApi.clear", logs_panel)
+        self.assertIn("logsApi.modules", logs_panel)
+        self.assertIn("logsApi.prune", logs_panel)
+        self.assertNotIn("archiveApi", logs_panel)
+        self.assertNotIn("runChartSubscription", logs_panel)
+        self.assertNotIn("runPersonFollow", logs_panel)
+        self.assertNotIn("立即触发归档扫描", logs_panel)
+
+    def test_search_resource_sources_honor_detail_visible_tabs(self) -> None:
+        search = read_source("src/components/SearchTab.tsx")
+
+        self.assertIn("settingsApi.getRuntime", search)
+        self.assertIn("RESOURCE_SOURCE_DETAIL_KEYS", search)
+        self.assertIn("isResourceSourceVisible", search)
+        self.assertIn("visibleResourceSources", search)
+        self.assertIn("pan115_pansou", search)
+        self.assertIn('"115_pansou"', search)
 
     def test_search_exposes_direct_resource_keyword_search_without_tmdb(self) -> None:
         search = read_source("src/components/SearchTab.tsx")
@@ -211,18 +280,18 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertGreaterEqual(search.count("requestSeqRef.current += 1"), 3)
         self.assertIn("requestId !== requestSeqRef.current", search)
 
-    def test_search_copy_matches_supported_media_servers(self) -> None:
-        search = read_source("src/components/SearchTab.tsx")
+    def test_strm_copy_matches_supported_media_servers(self) -> None:
+        strm = read_source("src/components/StrmTab.tsx")
 
-        self.assertIn("Emby / 飞牛", search)
-        self.assertNotIn("Emby / Plex", search)
+        self.assertIn("Emby/飞牛", strm)
+        self.assertNotIn("Emby / Plex", strm)
 
     def test_scheduler_jobs_are_rendered_as_user_facing_status(self) -> None:
         scheduler = read_source("src/components/SchedulerTab.tsx")
 
         self.assertNotIn("JSON.stringify(jobs", scheduler)
         self.assertIn("SchedulerJob", scheduler)
-        self.assertIn("内置调度状态", scheduler)
+        self.assertIn("当前调度器 Jobs", scheduler)
         self.assertIn("next_run_time", scheduler)
 
     def test_library_person_feed_and_license_are_user_facing(self) -> None:

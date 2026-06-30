@@ -292,7 +292,7 @@ export default function App() {
       ],
     },
     {
-      title: "影视雷达",
+      title: "发现与订阅",
       items: [
         { name: PageName.EXPLORE, label: "影视发现", icon: Search },
         { name: PageName.ANIME, label: "动漫追番", icon: Clapperboard },
@@ -302,17 +302,38 @@ export default function App() {
       ],
     },
     {
-      title: "维护诊断",
+      title: "文件与媒体",
       items: [
-        { name: PageName.USAGE, label: "传输统计", icon: BarChart3 },
+        { name: PageName.PAN115, label: "网盘工作台", icon: Layers },
+        { name: PageName.STRM, label: "STRM 管理", icon: FileVideo },
+      ],
+    },
+    {
+      title: "自动化任务",
+      items: [
         { name: PageName.AUTOMATIONS, label: "工作流", icon: Workflow },
         { name: PageName.SCHEDULER, label: "定时任务", icon: Clock },
-        { name: PageName.STRM, label: "STRM 管理", icon: FileVideo },
-        { name: PageName.PAN115, label: "115 网盘管理", icon: Layers },
-        { name: PageName.SETTINGS, label: "配置与终端", icon: Settings },
+      ],
+    },
+    {
+      title: "监控与系统",
+      items: [
+        { name: PageName.USAGE, label: "运行统计", icon: BarChart3 },
+        { name: PageName.SETTINGS, label: "配置中心", icon: Settings },
       ],
     },
   ];
+
+  const moreMenuPages = [
+    PageName.MISSING,
+    PageName.USAGE,
+    PageName.AUTOMATIONS,
+    PageName.SCHEDULER,
+    PageName.STRM,
+    PageName.PAN115,
+    PageName.SETTINGS,
+  ];
+  const isMoreMenuActive = moreMenuPages.includes(activePage);
 
   const handlePageChange = (page: PageName) => {
     setActivePage(page);
@@ -808,24 +829,24 @@ export default function App() {
         <button
           onClick={() => setMobileSidebarOpen(true)}
           className={`min-w-0 flex flex-col items-center gap-1 py-1 px-1 rounded-xl transition-all active:scale-95 ${
-            [PageName.MISSING, PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
+            isMoreMenuActive
               ? "text-brand-primary"
               : "text-[var(--txt-secondary)]"
           }`}
         >
           <div className={`p-1.5 rounded-lg transition-all ${
-            [PageName.MISSING, PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
+            isMoreMenuActive
               ? "bg-brand-primary/10 text-brand-primary"
               : "text-[var(--txt-muted)]"
           }`}>
             <Menu className="w-4.5 h-4.5" />
           </div>
           <span className={`text-[8px] font-black tracking-normal whitespace-nowrap ${
-            [PageName.MISSING, PageName.USAGE, PageName.AUTOMATIONS, PageName.SCHEDULER, PageName.STRM, PageName.PAN115, PageName.SETTINGS].includes(activePage)
+            isMoreMenuActive
               ? "text-brand-primary font-black"
               : "text-[var(--txt-muted)] font-bold"
           }`}>
-            更多系统
+            更多
           </span>
         </button>
       </div>

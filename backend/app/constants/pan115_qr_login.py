@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-_DEFAULT_APP = "alipaymini"
+_DEFAULT_APP = "ios"
 
 
 class _Pan115QrLoginAppDef(TypedDict):
@@ -18,34 +18,34 @@ class _Pan115QrLoginAppDef(TypedDict):
 # bios/bandroid/bipad 等未知别名，以及已下架的 Windows/Mac/Linux 独立客户端。
 PAN115_QR_LOGIN_APP_DEFS: tuple[_Pan115QrLoginAppDef, ...] = (
     {
-        "value": "alipaymini",
-        "label": "支付宝小程序",
-        "recommended": True,
-        "hint": "推荐：用支付宝扫二维码，不影响手机 115 App 已登录会话",
-    },
-    {
-        "value": "wechatmini",
-        "label": "微信小程序",
-        "recommended": True,
-        "hint": "推荐：用微信扫二维码，不影响手机 115 App 已登录会话",
-    },
-    {
         "value": "android",
-        "label": "115 安卓客户端",
-        "recommended": False,
-        "hint": "请用 115 安卓 App 扫码；确认后可能挤掉该 App 原登录",
+        "label": "115生活 App（安卓）",
+        "recommended": True,
+        "hint": "推荐：请用 115生活安卓 App 扫码；确认页可能显示 Web 文案，实际会按安卓端写入 Cookie",
     },
     {
         "value": "ios",
-        "label": "115 iOS 客户端",
-        "recommended": False,
-        "hint": "请用 115 iPhone App 扫码；确认后可能挤掉该 App 原登录",
+        "label": "115生活 App（iOS）",
+        "recommended": True,
+        "hint": "推荐：请用 115生活 iPhone App 扫码；确认页可能显示 Web 文案，实际会按 iOS 端写入 Cookie",
     },
     {
         "value": "ipad",
-        "label": "115 iPad 客户端",
+        "label": "115生活 App（iPad）",
         "recommended": False,
-        "hint": "请用 115 iPad App 扫码；确认后可能挤掉该 App 原登录",
+        "hint": "请用 115生活 iPad App 扫码；确认页可能显示 Web 文案，实际会按 iPad 端写入 Cookie",
+    },
+    {
+        "value": "alipaymini",
+        "label": "支付宝小程序（备选）",
+        "recommended": False,
+        "hint": "备选：115 小程序授权链在部分账号或客户端上不会完成确认；失败时请改用 115生活 App",
+    },
+    {
+        "value": "wechatmini",
+        "label": "微信小程序（备选）",
+        "recommended": False,
+        "hint": "备选：115 小程序授权链在部分账号或客户端上不会完成确认；失败时请改用 115生活 App",
     },
     {
         "value": "tv",

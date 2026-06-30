@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from typing import Any, Optional
 
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +48,35 @@ class EventTriggerPayload(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+def _validate_workflow_activation(
+    *,
+    trigger_type: str | None,
+    state: str | None,
+    timer: str | None,
+    event_type: str | None,
+) -> None:
+    if str(state or "P").strip() != "W":
+        return
+
+    normalized_trigger = str(trigger_type or "timer").strip().lower()
+    if normalized_trigger == "timer":
+        timer_expr = str(timer or "").strip()
+        if not timer_expr:
+            raise HTTPException(status_code=400, detail="运行中的定时器工作流必须填写 cron 定时表达式")
+        try:
+            CronTrigger.from_crontab(timer_expr)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"无效的 cron 定时表达式: {exc}") from exc
+        return
+
+    if normalized_trigger == "event":
+        if not str(event_type or "").strip():
+            raise HTTPException(status_code=400, detail="运行中的事件工作流必须选择事件类型")
+        return
+
+    raise HTTPException(status_code=400, detail=f"不支持的工作流触发器类型: {trigger_type}")
+
+
 @router.get("")
 async def list_workflows(db: AsyncSession = Depends(get_db)):
     return await WorkflowService(db).list_all()
@@ -77,6 +107,12 @@ async def create_workflow(payload: WorkflowPayload, db: AsyncSession = Depends(g
     service = WorkflowService(db)
     if await service.get_by_name(payload.name):
         raise HTTPException(status_code=400, detail="Workflow name already exists")
+    _validate_workflow_activation(
+        trigger_type=payload.trigger_type,
+        state=payload.state,
+        timer=payload.timer,
+        event_type=payload.event_type,
+    )
 
     workflow = await service.create(
         {
@@ -111,6 +147,13 @@ async def update_workflow(workflow_id: int, payload: WorkflowUpdatePayload, db: 
         existing = await service.get_by_name(data["name"])
         if existing:
             raise HTTPException(status_code=400, detail="Workflow name already exists")
+
+    _validate_workflow_activation(
+        trigger_type=data.get("trigger_type", workflow.trigger_type),
+        state=data.get("state", workflow.state),
+        timer=data.get("timer", workflow.timer),
+        event_type=data.get("event_type", workflow.event_type),
+    )
 
     mapped = {}
     for key, value in data.items():
@@ -155,6 +198,13 @@ async def start_workflow(workflow_id: int, db: AsyncSession = Depends(get_db)):
     workflow = await service.get(workflow_id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
+
+    _validate_workflow_activation(
+        trigger_type=workflow.trigger_type,
+        state="W",
+        timer=workflow.timer,
+        event_type=workflow.event_type,
+    )
 
     workflow.state = "W"
     await db.commit()

@@ -86,6 +86,7 @@ class RuntimeSettingsRequest(BaseModel):
     tmdb_local_db_path: Optional[str] = None
     emby_url: Optional[str] = None
     emby_api_key: Optional[str] = None
+    strm_output_dir: Optional[str] = None
     emby_sync_enabled: Optional[bool] = None
     emby_sync_interval_hours: Optional[int] = None
     emby_sync_interval_minutes: Optional[int] = None

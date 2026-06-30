@@ -13,7 +13,8 @@ export const schedulerApi = {
     return withResponseData(response, extractItems<SchedulerJob>(response.data));
   },
 
-  runJob: (jobId: string) => api.post(`/scheduler/run/${encodeURIComponent(jobId)}`),
+  runJob: (jobId: string, force = false) =>
+    api.post(`/scheduler/run/${encodeURIComponent(jobId)}`, null, { params: { force } }),
 
   listTasks: () => api.get<SchedulerTask[]>('/scheduler/tasks'),
 

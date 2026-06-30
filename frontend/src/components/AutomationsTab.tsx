@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import type { WorkflowItem } from "../api/types";
 import { workflowApi } from "../api";
+import type { WorkflowSavePayload } from "../api/workflow";
+import { getApiErrorMessage } from "../api/errors";
 import {
   Play,
   Trash2,
@@ -30,6 +32,81 @@ interface AutomationsTabProps {
 interface EventTypeOption {
   value: string;
   title: string;
+}
+
+const DEFAULT_ACTIONS_INPUT = JSON.stringify(
+  [
+    {
+      id: "log",
+      type: "send_log_message",
+      name: "记录触发",
+      params: { message: "工作流已触发" },
+    },
+  ],
+  null,
+  2,
+);
+
+function formatJsonEditorValue(value: unknown, fallback: unknown): string {
+  if (value == null || value === "") return JSON.stringify(fallback, null, 2);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return JSON.stringify(fallback, null, 2);
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+      return trimmed;
+    }
+  }
+  return JSON.stringify(value, null, 2);
+}
+
+function parseJsonArrayInput(value: string, label: string): Record<string, unknown>[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  const parsed = JSON.parse(trimmed) as unknown;
+  if (!Array.isArray(parsed)) throw new Error(`${label} 必须是 JSON 数组`);
+  return parsed.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`${label} 第 ${index + 1} 项必须是对象`);
+    }
+    return item as Record<string, unknown>;
+  });
+}
+
+function parseJsonObjectInput(value: string, label: string): Record<string, unknown> {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  const parsed = JSON.parse(trimmed) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} 必须是 JSON 对象`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function getWorkflowActionCount(raw: unknown): number {
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw || "[]") : raw;
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function getLastResultStatus(raw: string | null): { label: string; color: string; bg: string } | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { success?: boolean };
+    if (parsed.success === true) {
+      return { label: "最近成功", color: "var(--accent-ok)", bg: "rgba(34,197,94,0.12)" };
+    }
+    if (parsed.success === false) {
+      return { label: "最近失败", color: "var(--accent-danger)", bg: "rgba(239,68,68,0.12)" };
+    }
+  } catch {
+    return { label: "有结果", color: "var(--txt-muted)", bg: "var(--surface-subtle)" };
+  }
+  return null;
 }
 
 /** Map backend state code to human-readable label and style */
@@ -78,9 +155,15 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
   const [formEventType, setFormEventType] = useState("");
   const [formTimer, setFormTimer] = useState("");
   const [formState, setFormState] = useState("P");
+  const [formActionsInput, setFormActionsInput] = useState(DEFAULT_ACTIONS_INPUT);
+  const [formFlowsInput, setFormFlowsInput] = useState("[]");
+  const [formContextInput, setFormContextInput] = useState("{}");
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Event types for dropdown
   const [eventTypes, setEventTypes] = useState<EventTypeOption[]>([]);
+  const [manualEventType, setManualEventType] = useState("manual.trigger");
+  const [manualTriggerLoading, setManualTriggerLoading] = useState(false);
 
   // Per-item action loading
   const [actionLoading, setActionLoading] = useState<Record<number, string>>({});
@@ -93,7 +176,9 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
         const res = await workflowApi.listEventTypes();
         if (!cancelled) {
           const data = (res.data as { items?: EventTypeOption[] }) || {};
-          setEventTypes(Array.isArray(data.items) ? data.items : []);
+          const items = Array.isArray(data.items) ? data.items : [];
+          setEventTypes(items);
+          setManualEventType(items.find((item) => item.value === "manual.trigger")?.value || items[0]?.value || "manual.trigger");
         }
       } catch {
         // event types are non-critical; leave dropdown empty
@@ -104,25 +189,37 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
   }, []);
 
   // Reload workflows from backend
-  const reloadWorkflows = async () => {
+  const reloadWorkflows = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await workflowApi.list();
       if (Array.isArray(res.data)) {
-        setWorkflows(res.data as WorkflowItem[]);
+        setWorkflows(res.data);
       }
     } catch (e: unknown) {
-      setError((e as Error)?.message || "加载失败");
+      setError(getApiErrorMessage(e, "加载失败"));
     } finally {
       setLoading(false);
     }
-  };
+  }, [setWorkflows]);
+
+  useEffect(() => {
+    void reloadWorkflows();
+  }, [reloadWorkflows]);
 
   // Toggle start / pause
   const handleToggle = async (wf: WorkflowItem) => {
     const id = wf.id;
     const isActive = wf.state === "W";
+    if (!isActive && wf.trigger_type === "timer" && !String(wf.timer || "").trim()) {
+      addLog("WARN", `工作流【${wf.name}】缺少 cron 定时表达式，请先编辑后再启动`);
+      return;
+    }
+    if (!isActive && wf.trigger_type === "event" && !String(wf.event_type || "").trim()) {
+      addLog("WARN", `工作流【${wf.name}】缺少事件类型，请先编辑后再启动`);
+      return;
+    }
     setActionLoading((prev) => ({ ...prev, [id]: "toggle" }));
     try {
       if (isActive) {
@@ -135,7 +232,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
         addLog("SUCCESS", `工作流【${wf.name}】已启动`);
       }
     } catch (e: unknown) {
-      addLog("ERROR", `操作失败: ${(e as Error)?.message || "未知错误"}`);
+      addLog("ERROR", `操作失败: ${getApiErrorMessage(e)}`);
     } finally {
       setActionLoading((prev) => { const next = { ...prev }; delete next[id]; return next; });
     }
@@ -144,6 +241,10 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
   // Manual run
   const handleRun = async (wf: WorkflowItem) => {
     const id = wf.id;
+    if (getWorkflowActionCount(wf.actions) === 0) {
+      addLog("WARN", `工作流【${wf.name}】没有可执行动作，请先编辑动作列表`);
+      return;
+    }
     setActionLoading((prev) => ({ ...prev, [id]: "run" }));
     try {
       await workflowApi.run(String(id));
@@ -152,7 +253,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
       const res = await workflowApi.get(String(id));
       setWorkflows((prev) => prev.map((w) => (w.id === id ? (res.data as WorkflowItem) : w)));
     } catch (e: unknown) {
-      addLog("ERROR", `执行失败: ${(e as Error)?.message || "未知错误"}`);
+      addLog("ERROR", `执行失败: ${getApiErrorMessage(e)}`);
     } finally {
       setActionLoading((prev) => { const next = { ...prev }; delete next[id]; return next; });
     }
@@ -168,7 +269,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
       setWorkflows((prev) => prev.filter((w) => w.id !== id));
       addLog("WARN", `工作流【${wf.name}】已删除`);
     } catch (e: unknown) {
-      addLog("ERROR", `删除失败: ${(e as Error)?.message || "未知错误"}`);
+      addLog("ERROR", `删除失败: ${getApiErrorMessage(e)}`);
     } finally {
       setActionLoading((prev) => { const next = { ...prev }; delete next[id]; return next; });
     }
@@ -183,6 +284,10 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
     setFormEventType("");
     setFormTimer("");
     setFormState("P");
+    setFormActionsInput(DEFAULT_ACTIONS_INPUT);
+    setFormFlowsInput("[]");
+    setFormContextInput("{}");
+    setFormError(null);
     setShowModal(true);
   };
 
@@ -195,6 +300,10 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
     setFormEventType(wf.event_type || "");
     setFormTimer(wf.timer || "");
     setFormState(wf.state);
+    setFormActionsInput(formatJsonEditorValue(wf.actions, []));
+    setFormFlowsInput(formatJsonEditorValue(wf.flows, []));
+    setFormContextInput(formatJsonEditorValue(wf.context, {}));
+    setFormError(null);
     setShowModal(true);
   };
 
@@ -204,33 +313,55 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
     if (!formName.trim()) return;
 
     setSaving(true);
+    setFormError(null);
     try {
-      const payload: Record<string, unknown> = {
+      if (formTriggerType === "event" && !formEventType.trim()) {
+        throw new Error("事件驱动工作流必须选择事件类型");
+      }
+      if (formTriggerType === "timer" && formState === "W" && !formTimer.trim()) {
+        throw new Error("运行中的定时器工作流必须填写 cron 定时表达式");
+      }
+
+      const actions = parseJsonArrayInput(formActionsInput, "动作列表");
+      if (actions.length === 0) {
+        throw new Error("动作列表不能为空，否则工作流运行时没有可执行动作");
+      }
+      const flows = parseJsonArrayInput(formFlowsInput, "流程连线");
+      const context = parseJsonObjectInput(formContextInput, "初始上下文");
+
+      const payload: WorkflowSavePayload = {
         name: formName.trim(),
         description: formDesc.trim() || null,
         trigger_type: formTriggerType,
         state: formState,
+        actions,
+        flows,
+        context,
       };
       if (formTriggerType === "timer") {
         payload.timer = formTimer.trim() || null;
+        payload.event_type = null;
       } else {
+        payload.timer = null;
         payload.event_type = formEventType || null;
       }
 
       if (editingWorkflow) {
         // Update
-        const res = await workflowApi.update(String(editingWorkflow.id), payload as Partial<WorkflowItem>);
-        setWorkflows((prev) => prev.map((w) => (w.id === editingWorkflow.id ? (res.data as WorkflowItem) : w)));
+        const res = await workflowApi.update(String(editingWorkflow.id), payload);
+        setWorkflows((prev) => prev.map((w) => (w.id === editingWorkflow.id ? res.data : w)));
         addLog("SUCCESS", `工作流【${formName.trim()}】已更新`);
       } else {
         // Create
-        const res = await workflowApi.create(payload as Partial<WorkflowItem>);
-        setWorkflows((prev) => [...prev, res.data as WorkflowItem]);
+        const res = await workflowApi.create(payload);
+        setWorkflows((prev) => [res.data, ...prev]);
         addLog("SUCCESS", `工作流【${formName.trim()}】已创建`);
       }
       setShowModal(false);
     } catch (e: unknown) {
-      addLog("ERROR", `${editingWorkflow ? "更新" : "创建"}失败: ${(e as Error)?.message || "未知错误"}`);
+      const detail = getApiErrorMessage(e);
+      setFormError(detail);
+      addLog("ERROR", `${editingWorkflow ? "更新" : "创建"}失败: ${detail}`);
     } finally {
       setSaving(false);
     }
@@ -247,6 +378,24 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
   const runningCount = workflows.filter((w) => w.state === "W").length;
   const pausedCount = workflows.filter((w) => w.state === "P").length;
   const totalRuns = workflows.reduce((sum, w) => sum + (w.run_count || 0), 0);
+
+  const handleManualTrigger = async () => {
+    if (!manualEventType.trim()) {
+      addLog("WARN", "请先选择要触发的事件类型");
+      return;
+    }
+    setManualTriggerLoading(true);
+    try {
+      const res = await workflowApi.triggerEvent({ event_type: manualEventType, payload: { source: "ui" } });
+      const count = Number((res.data as { count?: number }).count || 0);
+      addLog(count > 0 ? "SUCCESS" : "WARN", `已触发事件 ${manualEventType}，匹配 ${count} 个工作流`);
+      await reloadWorkflows();
+    } catch (e: unknown) {
+      addLog("ERROR", `触发事件失败: ${getApiErrorMessage(e)}`);
+    } finally {
+      setManualTriggerLoading(false);
+    }
+  };
 
   return (
     <div className="liquid-page space-y-8">
@@ -290,8 +439,18 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
             </div>
 
             <button
+              onClick={() => void reloadWorkflows()}
+              disabled={loading}
+              className="px-4 py-3 glass glass-hover rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+              style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              <span>刷新</span>
+            </button>
+
+            <button
               onClick={openCreate}
-              className="px-6 py-3 bg-brand-primary text-white rounded-2xl font-bold flex items-center gap-2 transition-all hover:bg-opacity-90 active:scale-95 shadow-md shadow-brand-primary/10"
+              className="px-6 py-3 bg-brand-primary text-white rounded-2xl font-bold flex items-center gap-2 transition-all hover:bg-opacity-90 active:scale-95 shadow-md shadow-brand-primary/10 cursor-pointer"
             >
               <Plus className="w-4.5 h-4.5" />
               <span>创建工作流</span>
@@ -324,7 +483,21 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
       )}
 
       {/* Cards Grid */}
-      {!loading && !error && workflows.length > 0 && (
+      {!loading && !error && workflows.length > 0 && filtered.length === 0 && (
+        <div className="glass-heavy glass-iridescent rounded-3xl flex flex-col items-center gap-4 py-16 text-[var(--txt-muted)]">
+          <Workflow className="w-10 h-10" />
+          <p className="font-semibold">当前筛选无工作流</p>
+          <button
+            type="button"
+            onClick={() => setFilterState("all")}
+            className="px-4 py-2 rounded-lg text-xs font-bold bg-brand-primary text-white cursor-pointer"
+          >
+            查看全部
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && workflows.length > 0 && filtered.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pb-12">
           {filtered.map((wf, idx) => {
             const isWideCard = idx % 3 === 0;
@@ -332,6 +505,9 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
             const si = stateStyle(wf.state);
             const isActive = wf.state === "W";
             const isLoading = !!actionLoading[wf.id];
+            const actionCount = getWorkflowActionCount(wf.actions);
+            const canRun = actionCount > 0;
+            const lastResult = getLastResultStatus(wf.last_result);
 
             return (
               <div
@@ -372,8 +548,8 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
                       {/* Manual run */}
                       <button
                         onClick={() => handleRun(wf)}
-                        disabled={isLoading}
-                        title="手动执行一次"
+                        disabled={isLoading || !canRun}
+                        title={canRun ? "手动执行一次" : "没有可执行动作，请先编辑"}
                         className="p-1.5 rounded-lg hover:bg-[var(--surface-hover)] text-[var(--txt-muted)] hover:text-brand-primary transition-colors disabled:opacity-50"
                       >
                         {isLoading && actionLoading[wf.id] === "run" ? (
@@ -429,15 +605,31 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
                         {wf.timer}
                       </span>
                     )}
+                    <span
+                      className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                      style={actionCount > 0
+                        ? { color: "var(--accent-ok)", background: "rgba(34,197,94,0.12)" }
+                        : { color: "var(--accent-warn)", background: "rgba(245,158,11,0.14)" }}
+                    >
+                      动作 {actionCount}
+                    </span>
+                    {lastResult && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                        style={{ color: lastResult.color, background: lastResult.bg }}
+                      >
+                        {lastResult.label}
+                      </span>
+                    )}
                   </div>
                 </div>
 
                 {/* Bottom info row */}
                 <div className="relative z-10 mt-6 pt-5 border-t flex items-center justify-between text-xs font-semibold" style={{ borderTopColor: "var(--border)", color: "var(--txt-muted)" }}>
                   <div className="flex items-center gap-3">
-                    <span title="执行次数">
+                    <span title="运行尝试次数">
                       <RefreshCw className="w-3.5 h-3.5 inline mr-1" />
-                      {wf.run_count || 0} 次
+                      {wf.run_count || 0} 次尝试
                     </span>
                     <span title="最后运行" className="hidden sm:inline">
                       {formatTime(wf.last_run_at)}
@@ -481,7 +673,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
               <p className="font-headline text-3xl font-extrabold text-emerald-600">{runningCount}</p>
             </div>
             <div className="space-y-1">
-              <span className="text-[10px] font-bold text-[var(--txt-muted)] uppercase tracking-widest">累计执行次数</span>
+              <span className="text-[10px] font-bold text-[var(--txt-muted)] uppercase tracking-widest">累计运行尝试</span>
               <p className="font-headline text-3xl font-extrabold text-brand-primary">{totalRuns}</p>
             </div>
             <div className="space-y-1">
@@ -511,7 +703,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="glass-heavy glass-iridescent rounded-3xl p-6 md:p-8 max-w-md w-full relative z-10 shadow-2xl space-y-6"
+              className="glass-heavy glass-iridescent rounded-3xl p-6 md:p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto relative z-10 shadow-2xl space-y-6"
             >
               <div className="flex justify-between items-start">
                 <div>
@@ -531,6 +723,16 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
+                {formError && (
+                  <div
+                    role="alert"
+                    className="rounded-xl px-3 py-2 text-xs font-semibold"
+                    style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "var(--accent-danger)" }}
+                  >
+                    {formError}
+                  </div>
+                )}
+
                 {/* Name */}
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-[var(--txt-secondary)]">工作流名称 *</label>
@@ -579,7 +781,7 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
                     <label className="text-xs font-bold text-[var(--txt-secondary)]">定时表达式（可选）</label>
                     <input
                       type="text"
-                      placeholder="例如: */30 * * * * (cron) 或 3600 (秒)"
+                      placeholder="例如: */30 * * * *（每 30 分钟）"
                       value={formTimer}
                       onChange={(e) => setFormTimer(e.target.value)}
                       className="w-full text-sm px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary"
@@ -619,6 +821,40 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
                   </select>
                 </div>
 
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-[var(--txt-secondary)]">动作列表 JSON *</label>
+                  <textarea
+                    rows={7}
+                    value={formActionsInput}
+                    onChange={(e) => setFormActionsInput(e.target.value)}
+                    className="w-full text-[11px] px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary bg-[var(--surface)] font-mono leading-relaxed resize-y"
+                    spellCheck={false}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-[var(--txt-secondary)]">流程连线 JSON</label>
+                    <textarea
+                      rows={4}
+                      value={formFlowsInput}
+                      onChange={(e) => setFormFlowsInput(e.target.value)}
+                      className="w-full text-[11px] px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary bg-[var(--surface)] font-mono leading-relaxed resize-y"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-[var(--txt-secondary)]">初始上下文 JSON</label>
+                    <textarea
+                      rows={4}
+                      value={formContextInput}
+                      onChange={(e) => setFormContextInput(e.target.value)}
+                      className="w-full text-[11px] px-3.5 py-2.5 rounded-lg border border-brand-surface-high focus:outline-none focus:border-brand-primary bg-[var(--surface)] font-mono leading-relaxed resize-y"
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
+
                 <div className="flex gap-3 pt-4 justify-end">
                   <button
                     type="button"
@@ -647,11 +883,33 @@ export default function AutomationsTab({ workflows, setWorkflows, addLog }: Auto
       </AnimatePresence>
 
       {/* 工作流高级工具 */}
-      <div className="glass rounded-2xl p-4 space-y-2">
+      <div className="glass rounded-2xl p-4 space-y-3">
         <p className="text-[10px] font-black" style={{ color:"var(--txt-muted)" }}>工作流工具</p>
-        <div className="flex flex-wrap gap-1.5">
-          <button onClick={async () => { try { const types = await workflowApi.listEventTypes(); const r = await workflowApi.triggerEvent({ event_type: "manual_trigger", payload: { source: "ui" } }); await addLog("SUCCESS", `已触发事件: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
-            className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-secondary)", border:"1px solid var(--border)" }}>触发事件</button>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <select
+            value={manualEventType}
+            onChange={(e) => setManualEventType(e.target.value)}
+            className="min-w-0 flex-1 text-xs rounded-lg px-3 py-2"
+            style={{ background: "var(--bg-elev)", color: "var(--txt)", border: "1px solid var(--border)" }}
+          >
+            {eventTypes.length === 0 ? (
+              <option value="manual.trigger">manual.trigger</option>
+            ) : eventTypes.map((eventType) => (
+              <option key={eventType.value} value={eventType.value}>
+                {eventType.title} ({eventType.value})
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => void handleManualTrigger()}
+            disabled={manualTriggerLoading}
+            className="px-3 py-2 rounded-lg text-[10px] font-black glass-hover flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+            style={{ color:"var(--txt-secondary)", border:"1px solid var(--border)" }}
+          >
+            {manualTriggerLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
+            <span>触发事件</span>
+          </button>
         </div>
       </div>
     </div>

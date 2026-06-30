@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import io
 import random
 import re
 from datetime import datetime, timedelta
@@ -1479,7 +1480,7 @@ class Pan115Service:
                 selected.append(best if best else group[0])
         return selected
 
-    async def start_qr_login(self, app: str = "alipaymini") -> Dict[str, Any]:
+    async def start_qr_login(self, app: str = "ios") -> Dict[str, Any]:
         """
         启动115扫码登录，返回二维码链接和会话token。
         """
@@ -1487,7 +1488,11 @@ class Pan115Service:
         normalized_app = normalize_pan115_qr_login_app(app)
 
         raw_token = await asyncio.wait_for(
-            _get_p115_client_cls().login_qrcode_token(async_=True, timeout=8),
+            _get_p115_client_cls().login_qrcode_token(
+                app=normalized_app,
+                async_=True,
+                timeout=8,
+            ),
             timeout=8.5,
         )
         token_payload = self._extract_qr_data(raw_token)
@@ -1544,13 +1549,50 @@ class Pan115Service:
         uid = str(item.get("uid") or "").strip()
         if not uid:
             raise RuntimeError("扫码会话缺少uid，无法获取二维码图片")
+        qr_url = str(item.get("qr_url") or "").strip()
+        app = normalize_pan115_qr_login_app(str(item.get("app") or ""))
         image_bytes = await asyncio.wait_for(
-            _get_p115_client_cls().login_qrcode(uid, async_=True, timeout=8),
+            _get_p115_client_cls().login_qrcode(
+                uid,
+                app=app,
+                async_=True,
+                timeout=8,
+            ),
             timeout=8.5,
         )
-        if not isinstance(image_bytes, (bytes, bytearray)):
-            raise RuntimeError("二维码图片响应异常")
-        return bytes(image_bytes)
+        if isinstance(image_bytes, (bytes, bytearray)):
+            raw = bytes(image_bytes)
+            if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+                return raw
+
+        if not qr_url:
+            raise RuntimeError("二维码图片响应异常，且缺少可本地生成的二维码链接")
+        return self._build_qr_login_image(qr_url)
+
+    @staticmethod
+    def _build_qr_login_image(content: str) -> bytes:
+        """本地生成扫码二维码 PNG，用于 115 生活 App 这类上游不直接返回图片的 app。"""
+        value = str(content or "").strip()
+        if not value:
+            raise RuntimeError("二维码内容不能为空")
+        try:
+            import qrcode
+        except Exception as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError("二维码生成依赖 qrcode 不可用") from exc
+
+        buffer = io.BytesIO()
+        try:
+            image = qrcode.make(value)
+            image.save(buffer, format="PNG")
+        except ModuleNotFoundError:
+            from qrcode.image.svg import SvgImage
+
+            qr = qrcode.QRCode(image_factory=SvgImage)
+            qr.add_data(value)
+            qr.make(fit=True)
+            image = qr.make_image()
+            image.save(buffer)
+        return buffer.getvalue()
 
     async def check_qr_login_status(self, token: str) -> Dict[str, Any]:
         """
@@ -1568,6 +1610,7 @@ class Pan115Service:
 
         now = beijing_now()
         expires_at = item.get("expires_at")
+        session_app = normalize_pan115_qr_login_app(str(item.get("app") or ""))
         if isinstance(expires_at, datetime) and now >= expires_at:
             async with self._QR_LOGIN_LOCK:
                 self._QR_LOGIN_PENDING.pop(normalized, None)
@@ -1577,6 +1620,7 @@ class Pan115Service:
                 "status": "expired",
                 "message": "二维码已过期，请重新生成",
                 "expires_at": expires_at.isoformat(),
+                "app": session_app,
             }
 
         current_state = str(item.get("state") or "pending")
@@ -1590,6 +1634,7 @@ class Pan115Service:
                 "expires_at": expires_at.isoformat()
                 if isinstance(expires_at, datetime)
                 else "",
+                "app": session_app,
             }
 
         try:
@@ -1601,15 +1646,31 @@ class Pan115Service:
                 ),
                 timeout=8.5,
             )
-        except Exception as exc:
+        except asyncio.CancelledError:
+            message = "115扫码状态查询超时，请继续等待或稍后重试"
+            await self._update_qr_session(normalized, state="pending", message=message)
             return {
                 "authorized": False,
                 "pending": True,
                 "status": "pending",
-                "message": str(exc)[:300] or "等待扫码",
+                "message": message,
                 "expires_at": expires_at.isoformat()
                 if isinstance(expires_at, datetime)
                 else "",
+                "app": session_app,
+            }
+        except Exception as exc:
+            message = str(exc)[:300] or "等待扫码"
+            await self._update_qr_session(normalized, state="pending", message=message)
+            return {
+                "authorized": False,
+                "pending": True,
+                "status": "pending",
+                "message": message,
+                "expires_at": expires_at.isoformat()
+                if isinstance(expires_at, datetime)
+                else "",
+                "app": session_app,
             }
 
         status_data = self._extract_qr_data(status_resp)
@@ -1629,6 +1690,7 @@ class Pan115Service:
                 "expires_at": expires_at.isoformat()
                 if isinstance(expires_at, datetime)
                 else "",
+                "app": session_app,
             }
 
         if status_code == 1:
@@ -1642,6 +1704,7 @@ class Pan115Service:
                 "expires_at": expires_at.isoformat()
                 if isinstance(expires_at, datetime)
                 else "",
+                "app": session_app,
             }
 
         if status_code == -2:
@@ -1655,6 +1718,7 @@ class Pan115Service:
                 "expires_at": expires_at.isoformat()
                 if isinstance(expires_at, datetime)
                 else "",
+                "app": session_app,
             }
 
         if status_code == -1:
@@ -1668,6 +1732,7 @@ class Pan115Service:
                 "expires_at": expires_at.isoformat()
                 if isinstance(expires_at, datetime)
                 else "",
+                "app": session_app,
             }
 
         if status_code != 2:
@@ -1683,15 +1748,42 @@ class Pan115Service:
                 else "",
             }
 
-        result_resp = await asyncio.wait_for(
-            _get_p115_client_cls().login_qrcode_scan_result(
-                str(item.get("uid") or ""),
-                app=str(item.get("app") or "alipaymini"),
-                async_=True,
-                timeout=8,
-            ),
-            timeout=8.5,
-        )
+        try:
+            result_resp = await asyncio.wait_for(
+                _get_p115_client_cls().login_qrcode_scan_result(
+                    str(item.get("uid") or ""),
+                    app=session_app,
+                    async_=True,
+                    timeout=8,
+                ),
+                timeout=8.5,
+            )
+        except asyncio.CancelledError:
+            message = "已确认扫码，获取 Cookie 超时，请继续等待"
+            await self._update_qr_session(normalized, state="scanned", message=message)
+            return {
+                "authorized": False,
+                "pending": True,
+                "status": "scanned",
+                "message": message,
+                "expires_at": expires_at.isoformat()
+                if isinstance(expires_at, datetime)
+                else "",
+                "app": session_app,
+            }
+        except Exception as exc:
+            message = str(exc)[:300] or "已确认扫码，等待获取 Cookie"
+            await self._update_qr_session(normalized, state="scanned", message=message)
+            return {
+                "authorized": False,
+                "pending": True,
+                "status": "scanned",
+                "message": message,
+                "expires_at": expires_at.isoformat()
+                if isinstance(expires_at, datetime)
+                else "",
+                "app": session_app,
+            }
         result_data = check_response(result_resp)
         cookie = self._normalize_qr_cookie(result_data)
         if not cookie:
@@ -1709,6 +1801,7 @@ class Pan115Service:
             "expires_at": expires_at.isoformat()
             if isinstance(expires_at, datetime)
             else "",
+            "app": session_app,
         }
 
     async def cancel_qr_login(self, token: str) -> Dict[str, Any]:

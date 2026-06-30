@@ -1,6 +1,6 @@
 import api from './client';
 import { extractItems, withResponseData } from './response';
-import type { ArchiveConfig, ArchiveFolder, ArchiveTask } from './types';
+import type { ArchiveConfig, ArchiveFolder, ArchiveTask, PaginatedList } from './types';
 
 export const archiveApi = {
   getSubdirOptions: () => api.get('/archive/subdir-options'),
@@ -20,6 +20,9 @@ export const archiveApi = {
     const response = await api.get('/archive/tasks', { params });
     return withResponseData(response, extractItems<ArchiveTask>(response.data));
   },
+
+  listTasksPage: (params?: Record<string, unknown>) =>
+    api.get<PaginatedList<ArchiveTask>>('/archive/tasks', { params }),
 
   runScan: () => api.post('/archive/scan', null, { timeout: 300000 }),
 

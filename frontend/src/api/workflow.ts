@@ -1,14 +1,27 @@
 import api from './client';
 import type { WorkflowItem } from './types';
 
+export interface WorkflowSavePayload {
+  name: string;
+  description?: string | null;
+  timer?: string | null;
+  trigger_type: 'timer' | 'event';
+  event_type?: string | null;
+  event_conditions?: Record<string, unknown>;
+  actions?: Record<string, unknown>[];
+  flows?: Record<string, unknown>[];
+  context?: Record<string, unknown>;
+  state?: string;
+}
+
 export const workflowApi = {
   list: () => api.get<WorkflowItem[]>('/workflow'),
 
   get: (id: string) => api.get<WorkflowItem>(`/workflow/${id}`),
 
-  create: (data: Partial<WorkflowItem>) => api.post('/workflow', data),
+  create: (data: WorkflowSavePayload) => api.post<WorkflowItem>('/workflow', data),
 
-  update: (id: string, data: Partial<WorkflowItem>) => api.put(`/workflow/${id}`, data),
+  update: (id: string, data: Partial<WorkflowSavePayload>) => api.put<WorkflowItem>(`/workflow/${id}`, data),
 
   delete: (id: string) => api.delete(`/workflow/${id}`),
 

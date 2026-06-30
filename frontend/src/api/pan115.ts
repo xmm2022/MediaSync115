@@ -17,7 +17,7 @@ export const pan115Api = {
     return withResponseData(response, extractItems<Record<string, unknown>>(response.data));
   },
 
-  startQrLogin: (app = 'alipaymini') => api.post('/pan115/login/qr/start', { app }),
+  startQrLogin: (app = 'ios') => api.post('/pan115/login/qr/start', { app }),
 
   getQrImage: (token: string) =>
     api.get('/pan115/login/qr/image', { params: { token }, responseType: 'blob' }),

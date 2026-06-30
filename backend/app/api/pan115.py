@@ -14,7 +14,10 @@ from pydantic import BaseModel
 
 from app.services.media_postprocess_service import media_postprocess_service
 from app.services.operation_log_service import operation_log_service
-from app.constants.pan115_qr_login import list_pan115_qr_login_app_options
+from app.constants.pan115_qr_login import (
+    normalize_pan115_qr_login_app,
+    list_pan115_qr_login_app_options,
+)
 from app.services.pan115_service import Pan115Service, pan115_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.sync_service import sync_service
@@ -268,7 +271,7 @@ class Pan115QrStatusRequest(BaseModel):
 class Pan115QrStartRequest(BaseModel):
     """115扫码启动请求"""
 
-    app: Optional[str] = "alipaymini"
+    app: Optional[str] = "ios"
 
 
 class Pan115QrCancelRequest(BaseModel):
@@ -447,7 +450,7 @@ async def start_qr_login(request: Pan115QrStartRequest):
     """
     try:
         result = await pan115_service.start_qr_login(
-            app=str(request.app or "alipaymini")
+            app=normalize_pan115_qr_login_app(request.app)
         )
         token = str(result.get("token") or "")
         return {
@@ -479,7 +482,9 @@ async def get_qr_login_image(token: str = Query(..., description="二维码会�
         raise HTTPException(status_code=400, detail="二维码会话标识不能为空")
     try:
         image_bytes = await pan115_service.get_qr_login_image(normalized)
-        return Response(content=image_bytes, media_type="image/png")
+        stripped = image_bytes.lstrip()
+        media_type = "image/svg+xml" if stripped.startswith((b"<?xml", b"<svg")) else "image/png"
+        return Response(content=image_bytes, media_type=media_type)
     except Exception as exc:
         if is_retryable_115_error(str(exc)):
             raise HTTPException(
@@ -513,6 +518,7 @@ async def check_qr_login_status(request: Pan115QrStatusRequest):
                 "status": status,
                 "message": message,
                 "expires_at": expires_at,
+                "app": result.get("app"),
             }
 
         if not cookie:
@@ -535,6 +541,7 @@ async def check_qr_login_status(request: Pan115QrStatusRequest):
             "status": "authorized",
             "message": message or "扫码登录成功",
             "expires_at": expires_at,
+            "app": result.get("app"),
             "configured": True,
             "masked_cookie": _mask_cookie(cookie),
             "user_info": verified.get("user_info"),
@@ -963,7 +970,14 @@ async def parse_share_link(share_url: str = Query(..., description="分享链接
     service = get_service()
     share_url = _normalize_pan115_share_or_400(share_url)
     try:
+        share_code, receive_code = service._resolve_share_payload(share_url)
         result = await service.parse_share_link(share_url)
+        if isinstance(result, dict):
+            normalized = dict(result)
+            normalized["share_code"] = share_code
+            if receive_code and not normalized.get("receive_code"):
+                normalized["receive_code"] = receive_code
+            return normalized
         return result
     except Exception as e:
         handle_115_error(e)
@@ -988,6 +1002,23 @@ async def get_share_file_list(
         result = await service.get_share_file_list(
             share_code, receive_code, cid, offset, limit
         )
+        if isinstance(result, dict) and isinstance(result.get("list"), list):
+            normalized_list = []
+            for item in result.get("list") or []:
+                if not isinstance(item, dict):
+                    continue
+                row = dict(item)
+                is_folder = service._is_share_folder_item(row)
+                if not row.get("file_id"):
+                    row["file_id"] = service._share_item_fid(row)
+                if not row.get("name"):
+                    row["name"] = service._share_item_name(row)
+                if row.get("size") in (None, ""):
+                    row["size"] = service._share_item_size(row)
+                row["type"] = "folder" if is_folder else "file"
+                normalized_list.append(row)
+            result = dict(result)
+            result["list"] = normalized_list
         return result
     except Exception as e:
         handle_115_error(e)

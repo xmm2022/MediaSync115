@@ -118,13 +118,24 @@ class FeiniuService:
     async def check_connection_with_config(
         self, base_url: str, secret: str, api_key: str
     ) -> dict[str, Any]:
-        """兼容旧接口：使用 URL + 已存凭据检测连接。"""
-        previous = self.base_url
+        """使用临时 URL 检测连接，不覆盖当前运行时客户端配置。"""
+        client = self._build_client(base_url=base_url)
+        if not client.base_url:
+            return {
+                "valid": False,
+                "message": "飞牛影视 URL 未配置",
+                "user": None,
+            }
+        if not await client.ensure_token():
+            return {
+                "valid": False,
+                "message": "请先登录飞牛影视获取凭证",
+                "user": None,
+            }
         try:
-            self.set_config(base_url, secret, api_key)
-            return await self.check_connection()
+            return await client.get_user_info()
         finally:
-            self.base_url = previous
+            await client.aclose()
 
     async def check_connection_with_session(self) -> dict[str, Any]:
         return await self.check_connection()

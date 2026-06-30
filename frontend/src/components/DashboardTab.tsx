@@ -670,7 +670,7 @@ export default function DashboardTab({
             <p className="text-xs text-white/85 mt-2 leading-relaxed">
               {pan115Ready
                 ? "已确认 115 Cookie 会话有效，转存、离线下载与目录访问可继续使用。"
-                : `${pan115CookieStatus.message}。请前往配置与终端更新 115 Cookie 或使用扫码登录。`}
+                : `${pan115CookieStatus.message}。请前往配置中心更新 115 Cookie 或使用扫码登录。`}
             </p>
           </div>
 

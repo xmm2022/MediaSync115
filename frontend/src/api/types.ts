@@ -52,8 +52,13 @@ export interface OperationLogItem {
 export interface ArchiveConfig {
   archive_enabled?: boolean;
   archive_watch_cid?: string;
+  archive_watch_name?: string;
   archive_output_cid?: string;
+  archive_output_name?: string;
   archive_interval_minutes?: number;
+  archive_auto_on_transfer?: boolean;
+  archive_auto_on_offline?: boolean;
+  runtime?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -745,7 +750,7 @@ export interface StrmConfig {
   strm_enabled?: boolean;
   strm_output_dir?: string;
   strm_base_url?: string;
-  strm_redirect_mode?: string;
+  strm_redirect_mode?: 'auto' | 'redirect' | 'proxy';
   strm_refresh_emby_after_generate?: boolean;
   strm_refresh_feiniu_after_generate?: boolean;
   strm_proxy_enabled?: boolean;

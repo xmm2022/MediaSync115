@@ -54,6 +54,28 @@ def _validate_strm_settings(payload: dict[str, object]) -> None:
         raise HTTPException(
             status_code=400, detail="STRM 播放模式仅支持 auto / redirect / proxy"
         )
+    strm_enabled = bool(
+        payload.get("strm_enabled", runtime_settings_service.get_strm_enabled())
+    )
+    if strm_enabled:
+        output_dir = str(
+            payload.get("strm_output_dir", runtime_settings_service.get_strm_output_dir())
+            or ""
+        ).strip()
+        if not output_dir:
+            raise HTTPException(status_code=400, detail="启用 STRM 时必须填写输出目录")
+        if not base_url:
+            raise HTTPException(status_code=400, detail="启用 STRM 时必须填写播放根地址")
+    proxy_enabled = bool(
+        payload.get("strm_proxy_enabled", runtime_settings_service.get_strm_proxy_enabled())
+    )
+    if proxy_enabled:
+        proxy_port = int(
+            payload.get("strm_proxy_port", runtime_settings_service.get_strm_proxy_port())
+            or 0
+        )
+        if proxy_port <= 0 or proxy_port > 65535:
+            raise HTTPException(status_code=400, detail="STRM 代理端口必须在 1-65535 之间")
     if not base_url:
         return
     parsed = urlparse(base_url)

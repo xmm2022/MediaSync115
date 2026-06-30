@@ -1338,6 +1338,17 @@ class RuntimeSettingsService:
 
         normalized = dict(self._data)
         env_updates: dict[str, Any] = {}
+        clearable_string_keys = {
+            "strm_output_dir",
+            "moviepilot_base_url",
+            "moviepilot_username",
+            "moviepilot_save_path",
+            "anirss_base_url",
+            "anirss_default_download_path",
+            "twilight_base_url",
+            "twilight_web_url",
+            "hdhive_login_username",
+        }
         if "moviepilot_password" in payload:
             self.set_moviepilot_password(str(payload.get("moviepilot_password") or ""))
             normalized["moviepilot_password_enc"] = self._data.get(
@@ -1362,7 +1373,7 @@ class RuntimeSettingsService:
                 continue
 
             if value is None:
-                if key == "tg_bot_token":
+                if key == "tg_bot_token" or key in clearable_string_keys:
                     normalized[key] = ""
                 continue
 
@@ -1374,7 +1385,7 @@ class RuntimeSettingsService:
                 if key in {"moviepilot_base_url", "anirss_base_url", "mikan_base_url", "twilight_base_url", "twilight_web_url"}:
                     cleaned = cleaned.rstrip("/")
                 if not cleaned:
-                    if key in {"tg_bot_token", "moviepilot_access_token", "anirss_default_download_path"}:
+                    if key in {"tg_bot_token", "moviepilot_access_token"} or key in clearable_string_keys:
                         normalized[key] = ""
                     continue
                 normalized[key] = cleaned

@@ -13,12 +13,13 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  FolderOpen, File, Search, Plus, Trash2, RefreshCw, RotateCcw, HardDrive,
-  Shield, User, CheckCircle2, Upload, FolderPlus, Download,
-  Layers, X, ChevronRight, Home, Database, Zap, Info, FileText, Share2, QrCode, Copy, ArrowRight,
+  FolderOpen, File, Search, Plus, Trash2, RefreshCw, RotateCcw,
+  Shield, User, Upload, FolderPlus, Download,
+  Layers, ChevronRight, Home, Database, Zap, Info, FileText, Share2, Copy, ArrowRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import ErrorBanner from "./ui/ErrorBanner";
+import { getApiErrorMessage } from "../api/errors";
 import { pan115Api } from "../api/pan115";
 import Pan115Progress, {
   type Pan115ProgressState,
@@ -28,6 +29,8 @@ import Pan115Progress, {
 interface Pan115FilesTabProps {
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
 }
+
+const FILE_PAGE_SIZE = 100;
 
 /** 115 文件对象（前端规范化后） */
 interface Pan115File {
@@ -65,6 +68,13 @@ interface OfflineQuota {
   remaining: number;
 }
 
+interface ShareFileItem {
+  file_id: string;
+  name: string;
+  size?: number;
+  type: "file" | "folder";
+}
+
 /** Cookie 状态 */
 interface CookieStatus {
   valid: boolean;
@@ -84,14 +94,113 @@ function formatBytes(bytes: number | string): string {
   return b + " B";
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractRecordList(data: unknown, keys: string[] = ["data", "list", "files", "tasks"]): Record<string, unknown>[] {
+  if (Array.isArray(data)) {
+    return data.filter(isPlainRecord);
+  }
+  if (!isPlainRecord(data)) return [];
+
+  for (const key of keys) {
+    const value = data[key];
+    if (Array.isArray(value)) {
+      return value.filter(isPlainRecord);
+    }
+    if (isPlainRecord(value)) {
+      const nested = extractRecordList(value, keys);
+      if (nested.length > 0) return nested;
+    }
+  }
+
+  return [];
+}
+
+function extractTotalCount(data: unknown): number | null {
+  if (!isPlainRecord(data)) return null;
+  const direct = data.total ?? data.count ?? data.total_count ?? data.file_count;
+  const value = Number(direct);
+  if (Number.isFinite(value) && value >= 0) return value;
+  for (const key of ["data", "meta", "pagination"]) {
+    const nested = data[key];
+    if (isPlainRecord(nested)) {
+      const nestedTotal = extractTotalCount(nested);
+      if (nestedTotal !== null) return nestedTotal;
+    }
+  }
+  return null;
+}
+
+function unwrapRecord(data: unknown, keys: string[]): Record<string, unknown> {
+  if (!isPlainRecord(data)) return {};
+  for (const key of keys) {
+    const value = data[key];
+    if (isPlainRecord(value)) return value;
+  }
+  return data;
+}
+
+function isEnabledFlag(value: unknown): boolean {
+  if (value === true) return true;
+  const text = String(value ?? "").trim().toLowerCase();
+  return text === "1" || text === "true" || text === "yes";
+}
+
+function isFailureFlag(value: unknown): boolean {
+  if (value === false || value === 0) return true;
+  const text = String(value ?? "").trim().toLowerCase();
+  return text === "false" || text === "0" || text === "failed" || text === "fail";
+}
+
+function getOperationFailure(data: unknown): string {
+  if (!isPlainRecord(data)) return "";
+
+  const errorText = String(
+    data.error
+    || data.error_msg
+    || data.errmsg
+    || "",
+  ).trim();
+  const messageText = String(data.message || data.msg || "").trim();
+
+  const flag = data.success ?? data.state ?? data.ok;
+  if (flag !== undefined && isFailureFlag(flag)) {
+    return errorText || messageText || "115 返回操作失败";
+  }
+
+  if (errorText && flag === undefined) {
+    return errorText;
+  }
+
+  return "";
+}
+
+function assertApiSuccess(data: unknown, fallback: string): void {
+  const failure = getOperationFailure(data);
+  if (failure) {
+    throw new Error(failure || fallback);
+  }
+}
+
 function normalizeFile(raw: Record<string, unknown>): Pan115File {
   const name = String(raw.n || raw.name || "未命名");
-  const size = Number(raw.s || raw.size || 0);
-  const fileType = Number(raw.t ?? raw.type ?? raw.file_type ?? 0);
-  const isFolder = fileType === 1 || String(raw.t) === "1" || String(raw.type) === "folder";
+  const size = Number(raw.s ?? raw.size ?? raw.fs ?? 0);
+  const icon = String(raw.ico ?? raw.icon ?? "").trim().toLowerCase();
+  const fileType = String(raw.t ?? raw.type ?? raw.file_type ?? raw.category ?? "").trim().toLowerCase();
+  const isFolder = icon === "folder"
+    || fileType === "folder"
+    || fileType === "dir"
+    || fileType === "directory"
+    || fileType === "1"
+    || isEnabledFlag(raw.is_dir)
+    || isEnabledFlag(raw.is_folder)
+    || isEnabledFlag(raw.folder);
   const isVideo = Boolean(raw.iv) || String(raw.iv) === "1" || String(raw.is_video) === "1";
+  const fid = String(raw.fid || raw.file_id || raw.id || (isFolder ? raw.cid : "") || "");
   return {
-    fid: String(raw.fid || raw.file_id || raw.id || ""),
+    fid,
     name,
     size,
     sizeDisplay: isFolder ? "-" : formatBytes(size),
@@ -103,6 +212,28 @@ function normalizeFile(raw: Record<string, unknown>): Pan115File {
     time: String(raw.te || raw.time || raw.created_at || ""),
     icon: String(raw.ico || raw.icon || ""),
     sha: String(raw.sha || raw.sha1 || ""),
+  };
+}
+
+function sortPan115Files(list: Pan115File[]): Pan115File[] {
+  return [...list].sort((a, b) => {
+    if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+    return a.name.localeCompare(b.name, "zh");
+  });
+}
+
+function normalizeShareFile(raw: Record<string, unknown>): ShareFileItem {
+  const type: "file" | "folder" = isEnabledFlag(raw.is_dir)
+    || isEnabledFlag(raw.is_folder)
+    || isEnabledFlag(raw.folder)
+    || String(raw.type ?? raw.category ?? raw.file_type ?? "").toLowerCase() === "folder"
+    ? "folder"
+    : "file";
+  return {
+    file_id: String(raw.file_id || raw.fid || raw.id || ""),
+    name: String(raw.name || raw.n || raw.fn || raw.file_name || "未命名"),
+    size: Number(raw.size ?? raw.s ?? raw.fs ?? 0),
+    type,
   };
 }
 
@@ -155,6 +286,9 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   // 文件浏览
   const [files, setFiles] = useState<Pan115File[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
+  const [filesLoadingMore, setFilesLoadingMore] = useState(false);
+  const [filesHasMore, setFilesHasMore] = useState(false);
+  const [filesTotal, setFilesTotal] = useState<number | null>(null);
   // 文件列表加载/搜索失败信息：与「目录真空」区分，避免错误被空态掩盖
   const [filesError, setFilesError] = useState<string | null>(null);
   const [currentCid, setCurrentCid] = useState("0");
@@ -167,6 +301,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   // 离线任务
   const [offlineTasks, setOfflineTasks] = useState<OfflineTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
   const [showAddTask, setShowAddTask] = useState(false);
   const [addTaskUrl, setAddTaskUrl] = useState("");
   const [addTaskTitle, setAddTaskTitle] = useState("");
@@ -176,6 +311,9 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   // 默认文件夹
   const [defaultFolderId, setDefaultFolderId] = useState("");
   const [defaultFolderName, setDefaultFolderName] = useState("");
+  const [transferDefaultFolder, setTransferDefaultFolder] = useState("");
+  const [transferDefaultName, setTransferDefaultName] = useState("");
+  const [savedTransferDefault, setSavedTransferDefault] = useState({ folderId: "0", folderName: "根目录" });
 
   // 转存进度弹窗
   const [progress, setProgress] = useState<Pan115ProgressState>(deriveDefaultProgressState());
@@ -189,13 +327,16 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       try {
         const cookieResp = await pan115Api.checkCookie();
         const data = cookieResp.data as Record<string, unknown>;
+        const cookieUser = unwrapRecord(data, ["user_info", "data"]);
         cookieValid = Boolean(data.valid || data.success || data.ok);
+        const userSnapshot = Object.keys(cookieUser).length > 0 ? cookieUser : null;
         setCookieStatus({
           valid: cookieValid,
-          username: String(data.username || data.user_name || data.nickname || ""),
-          avatar: String(data.avatar || data.face || ""),
+          username: String(cookieUser.user_name || cookieUser.username || cookieUser.nickname || cookieUser.nick_name || ""),
+          avatar: String(cookieUser.user_face || cookieUser.avatar || cookieUser.face || ""),
           message: String(data.message || data.msg || ""),
         });
+        setUserInfo(userSnapshot);
       } catch {
         setCookieStatus({ valid: false, message: "Cookie 无效或已过期" });
       }
@@ -210,15 +351,16 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       // 用户信息
       try {
         const userResp = await pan115Api.getUserInfo();
-        setUserInfo(userResp.data as Record<string, unknown>);
+        const userData = unwrapRecord(userResp.data, ["data", "user_info"]);
+        setUserInfo(prev => ({ ...(prev || {}), ...userData }));
       } catch {
-        setUserInfo(null);
+        setUserInfo(prev => prev);
       }
 
       // 离线配额
       try {
         const quotaResp = await pan115Api.getOfflineQuota();
-        const qData = quotaResp.data as Record<string, unknown>;
+        const qData = unwrapRecord(quotaResp.data, ["quota_info", "data"]);
         setOfflineQuota({
           total: Number(qData.total_quota ?? qData.total ?? 0),
           used: Number(qData.used_quota ?? qData.used ?? 0),
@@ -232,7 +374,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       try {
         const riskResp = await pan115Api.getRiskHealth();
         const rData = riskResp.data as Record<string, unknown>;
-        const level = String(rData.level ?? rData.risk_level ?? rData.status ?? "unknown");
+        const level = String(rData.status ?? rData.level ?? rData.risk_level ?? "unknown");
         setRiskStatus(level);
       } catch {
         setRiskStatus("unknown");
@@ -242,8 +384,8 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       try {
         const dfResp = await pan115Api.getOfflineDefaultFolder();
         const dfData = dfResp.data as Record<string, unknown>;
-        setDefaultFolderId(String(dfData.folder_id ?? dfData.cid ?? dfData.fid ?? ""));
-        setDefaultFolderName(String(dfData.folder_name ?? dfData.name ?? ""));
+        setDefaultFolderId(String(dfData.folder_id ?? dfData.cid ?? dfData.fid ?? "0"));
+        setDefaultFolderName(String(dfData.folder_name ?? dfData.name ?? "根目录"));
       } catch {
         // 静默
       }
@@ -254,37 +396,41 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   }, []);
 
   // ---- 文件列表加载 ----
-  const loadFiles = useCallback(async (cid: string) => {
-    setFilesLoading(true);
+  const loadFiles = useCallback(async (cid: string, options: { offset?: number; append?: boolean } = {}) => {
+    const offset = options.offset ?? 0;
+    const append = Boolean(options.append);
+    if (append) {
+      setFilesLoadingMore(true);
+    } else {
+      setFilesLoading(true);
+      setFilesHasMore(false);
+      setFilesTotal(null);
+    }
     setFilesError(null);
     try {
-      const resp = await pan115Api.getFileList(cid, 0, 100);
-      const data = resp.data as Record<string, unknown>;
-      const rawList = Array.isArray(data.data)
-        ? (data.data as Record<string, unknown>[])
-        : Array.isArray(data.list)
-          ? (data.list as Record<string, unknown>[])
-          : Array.isArray(data)
-            ? (data as Record<string, unknown>[])
-            : [];
-      const normalized = rawList.map(normalizeFile);
-      // 文件夹排前面，文件排后面
-      normalized.sort((a, b) => {
-        if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
-        return a.name.localeCompare(b.name, "zh");
-      });
-      setFiles(normalized);
+      const resp = await pan115Api.getFileList(cid, offset, FILE_PAGE_SIZE);
+      const rawList = extractRecordList(resp.data);
+      const normalized = sortPan115Files(rawList.map(normalizeFile));
+      const total = extractTotalCount(resp.data);
+      setFilesTotal(total);
+      setFiles(prev => append ? sortPan115Files([...prev, ...normalized]) : normalized);
+      setFilesHasMore(total !== null ? offset + rawList.length < total : rawList.length >= FILE_PAGE_SIZE);
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-        || String(err);
+      const msg = getApiErrorMessage(err);
       console.error("Failed to load file list:", msg);
       await addLog("ERROR", `加载 115 文件列表失败: ${msg}`);
       setFilesError(`加载文件列表失败: ${msg}`);
-      setFiles([]);
+      if (!append) setFiles([]);
     } finally {
       setFilesLoading(false);
+      setFilesLoadingMore(false);
     }
   }, [addLog]);
+
+  const loadMoreFiles = async () => {
+    if (filesLoadingMore || filesLoading || !filesHasMore || fileSearch.trim()) return;
+    await loadFiles(currentCid, { offset: files.length, append: true });
+  };
 
   // ---- 搜索文件 ----
   const handleFileSearch = async () => {
@@ -296,16 +442,14 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
     setFilesError(null);
     try {
       const resp = await pan115Api.searchFile(fileSearch.trim(), currentCid);
-      const data = resp.data as Record<string, unknown>;
-      const rawList = Array.isArray(data.data)
-        ? (data.data as Record<string, unknown>[])
-        : Array.isArray(data.list)
-          ? (data.list as Record<string, unknown>[])
-          : [];
-      setFiles(rawList.map(normalizeFile));
+      setFiles(sortPan115Files(extractRecordList(resp.data).map(normalizeFile)));
+      setFilesHasMore(false);
+      setFilesTotal(null);
     } catch (err: unknown) {
-      await addLog("ERROR", `搜索文件失败: ${String(err)}`);
-      setFilesError(`搜索文件失败: ${String(err)}`);
+      const detail = getApiErrorMessage(err);
+      await addLog("ERROR", `搜索文件失败: ${detail}`);
+      setFilesError(`搜索文件失败: ${detail}`);
+      setFiles([]);
     } finally {
       setFilesLoading(false);
     }
@@ -340,13 +484,15 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
     if (!newFolderName.trim()) return;
     setCreatingFolder(true);
     try {
-      await pan115Api.createFolder(currentCid, newFolderName.trim());
+      const resp = await pan115Api.createFolder(currentCid, newFolderName.trim());
+      assertApiSuccess(resp.data, "创建文件夹失败");
+      const createdName = newFolderName.trim();
       setNewFolderName("");
       setShowCreateFolder(false);
-      await addLog("SUCCESS", `已创建文件夹: ${newFolderName.trim()}`);
+      await addLog("SUCCESS", `已创建文件夹: ${createdName}`);
       await loadFiles(currentCid);
     } catch (err: unknown) {
-      await addLog("ERROR", `创建文件夹失败: ${String(err)}`);
+      await addLog("ERROR", `创建文件夹失败: ${getApiErrorMessage(err)}`);
     } finally {
       setCreatingFolder(false);
     }
@@ -355,15 +501,15 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   // ---- 离线任务 ----
   const loadOfflineTasks = useCallback(async () => {
     setTasksLoading(true);
+    setTasksError(null);
     try {
       const resp = (await pan115Api.getOfflineTasks(1)) as { data: Record<string, unknown> | { tasks: unknown[] } };
-      const data = resp.data as Record<string, unknown>;
-      const rawTasks: Record<string, unknown>[] = Array.isArray(data.tasks)
-        ? (data.tasks as Record<string, unknown>[])
-        : [];
+      const rawTasks = extractRecordList(resp.data, ["tasks", "data", "list"]);
       setOfflineTasks(rawTasks.map(normalizeOfflineTask));
     } catch (err: unknown) {
-      console.error("Failed to load offline tasks:", err);
+      const detail = getApiErrorMessage(err);
+      console.error("Failed to load offline tasks:", detail);
+      setTasksError(`加载离线任务失败: ${detail}`);
     } finally {
       setTasksLoading(false);
     }
@@ -373,14 +519,16 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
     if (!addTaskUrl.trim()) return;
     setAddingTask(true);
     try {
-      await pan115Api.addOfflineTask(addTaskUrl.trim(), "", addTaskTitle.trim());
+      const targetFolder = defaultFolderId.trim();
+      const resp = await pan115Api.addOfflineTask(addTaskUrl.trim(), targetFolder, addTaskTitle.trim());
+      assertApiSuccess(resp.data, "添加离线任务失败");
       setAddTaskUrl("");
       setAddTaskTitle("");
       setShowAddTask(false);
-      await addLog("SUCCESS", "已添加离线下载任务");
+      await addLog("SUCCESS", `已添加离线下载任务${defaultFolderName ? `，保存到 ${defaultFolderName}` : ""}`);
       await loadOfflineTasks();
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+      const detail = getApiErrorMessage(err);
       await addLog("ERROR", `添加离线任务失败: ${detail}`);
     } finally {
       setAddingTask(false);
@@ -390,11 +538,12 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   const handleRetryTask = async (task: OfflineTask) => {
     if (!task.infoHash) return;
     try {
-      await pan115Api.restartOfflineTask(task.infoHash);
+      const resp = await pan115Api.restartOfflineTask(task.infoHash);
+      assertApiSuccess(resp.data, "重试离线任务失败");
       await addLog("INFO", `已重试离线任务: ${task.name}`);
       await loadOfflineTasks();
     } catch (err: unknown) {
-      await addLog("ERROR", `重试失败: ${String(err)}`);
+      await addLog("ERROR", `重试失败: ${getApiErrorMessage(err)}`);
     }
   };
 
@@ -402,11 +551,12 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
     if (!task.infoHash) return;
     setDeletingTaskHash(task.infoHash);
     try {
-      await pan115Api.deleteOfflineTasks([task.infoHash]);
+      const resp = await pan115Api.deleteOfflineTasks([task.infoHash]);
+      assertApiSuccess(resp.data, "删除离线任务失败");
       setOfflineTasks(prev => prev.filter(t => t.infoHash !== task.infoHash));
       await addLog("WARN", `已删除离线任务: ${task.name}`);
     } catch (err: unknown) {
-      await addLog("ERROR", `删除失败: ${String(err)}`);
+      await addLog("ERROR", `删除失败: ${getApiErrorMessage(err)}`);
     } finally {
       setDeletingTaskHash(null);
     }
@@ -414,21 +564,26 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
 
   const handleClearCompleted = async () => {
     try {
-      await pan115Api.clearOfflineTasks("completed");
+      const resp = await pan115Api.clearOfflineTasks("completed");
+      assertApiSuccess(resp.data, "清空已完成离线任务失败");
       await addLog("SUCCESS", "已清空已完成的离线任务");
       await loadOfflineTasks();
     } catch (err: unknown) {
-      await addLog("ERROR", `清空失败: ${String(err)}`);
+      await addLog("ERROR", `清空失败: ${getApiErrorMessage(err)}`);
     }
   };
 
   const handleSetDefaultFolder = async () => {
     if (!defaultFolderId.trim()) return;
     try {
-      await pan115Api.setOfflineDefaultFolder(defaultFolderId.trim(), defaultFolderName.trim());
+      const resp = await pan115Api.setOfflineDefaultFolder(defaultFolderId.trim(), defaultFolderName.trim());
+      assertApiSuccess(resp.data, "设置默认离线文件夹失败");
+      const data = resp.data as Record<string, unknown>;
+      setDefaultFolderId(String(data.folder_id ?? defaultFolderId.trim()));
+      setDefaultFolderName(String(data.folder_name ?? defaultFolderName.trim()));
       await addLog("SUCCESS", `已设置默认离线文件夹: ${defaultFolderName || defaultFolderId}`);
     } catch (err: unknown) {
-      await addLog("ERROR", `设置默认文件夹失败: ${String(err)}`);
+      await addLog("ERROR", `设置默认文件夹失败: ${getApiErrorMessage(err)}`);
     }
   };
 
@@ -439,20 +594,22 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   const handleRenameFile = async (fid: string, newName: string) => {
     if (!newName.trim()) return;
     try {
-      await pan115Api.renameFile(fid, newName.trim());
+      const resp = await pan115Api.renameFile(fid, newName.trim());
+      assertApiSuccess(resp.data, "重命名失败");
       setRenamingFile(null);
       await addLog("SUCCESS", `已重命名为: ${newName.trim()}`);
       await loadFiles(currentCid);
-    } catch (err: unknown) { await addLog("ERROR", `重命名失败: ${String(err)}`); }
+    } catch (err: unknown) { await addLog("ERROR", `重命名失败: ${getApiErrorMessage(err)}`); }
   };
 
   const handleDeleteFile = async (file: Pan115File) => {
     if (!confirm(`确定删除 [${file.name}]？此操作不可撤销。`)) return;
     try {
-      await pan115Api.deleteFile(file.fid);
+      const resp = await pan115Api.deleteFile(file.fid);
+      assertApiSuccess(resp.data, "删除失败");
       await addLog("WARN", `已删除: ${file.name}`);
       await loadFiles(currentCid);
-    } catch (err: unknown) { await addLog("ERROR", `删除失败: ${String(err)}`); }
+    } catch (err: unknown) { await addLog("ERROR", `删除失败: ${getApiErrorMessage(err)}`); }
   };
 
   const handleCopyDownloadUrl = async (pickCode: string, name: string) => {
@@ -465,14 +622,14 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       } else {
         await addLog("WARN", `无法获取下载链接: ${name}`);
       }
-    } catch (err: unknown) { await addLog("ERROR", `获取下载链接失败: ${String(err)}`); }
+    } catch (err: unknown) { await addLog("ERROR", `获取下载链接失败: ${getApiErrorMessage(err)}`); }
   };
 
   // ---- 分享管理: 解析 + 浏览 + 保存 ----
   interface ShareState {
     shareUrl: string;
     receiveCode: string;
-    files: { file_id: string; name: string; size?: number }[];
+    files: ShareFileItem[];
     shareCode: string;
     loading: boolean;
     error: string;
@@ -480,79 +637,111 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   const [share, setShare] = useState<ShareState>({ shareUrl: "", receiveCode: "", files: [], shareCode: "", loading: false, error: "" });
   const [showShare, setShowShare] = useState(false);
 
+  const getTransferTarget = () => {
+    const folderId = String(savedTransferDefault.folderId || "0").trim() || "0";
+    const folderName = String(savedTransferDefault.folderName || "").trim() || (folderId === "0" ? "根目录" : folderId);
+    return { folderId, folderName };
+  };
+
   const handleParseShare = async () => {
     if (!share.shareUrl.trim()) return;
     setShare(s => ({ ...s, loading: true, error: "", files: [] }));
     try {
       const resp = await pan115Api.parseShareLink(share.shareUrl.trim());
       const d = resp.data as Record<string, unknown>;
-      const sc = String(d.share_code || d.code || d.receive_code || "");
+      const sc = String(d.share_code || d.code || "");
       const rc = share.receiveCode || String(d.receive_code || d.access_code || "");
+      if (!sc) {
+        throw new Error("未解析到 115 分享码");
+      }
       setShare(s => ({ ...s, shareCode: sc, receiveCode: rc, loading: false }));
       // Load share file list
-      if (sc) {
-        const flResp = await pan115Api.getShareFileList(sc, rc);
-        const flData = flResp.data as { files?: unknown[]; list?: unknown[]; data?: unknown[] } | unknown[];
-        const rawFiles = Array.isArray(flData)
-          ? flData
-          : (flData as Record<string, unknown>)?.files || (flData as Record<string, unknown>)?.list || (flData as Record<string, unknown>)?.data || [];
-        setShare(s => ({ ...s, files: (rawFiles as Record<string, unknown>[]).map(f => ({ file_id: String(f.file_id || f.fid || ""), name: String(f.name || f.file_name || ""), size: Number(f.size || 0) })), loading: false }));
-      }
+      const flResp = await pan115Api.getShareFileList(sc, rc);
+      const rawFiles = extractRecordList(flResp.data, ["list", "files", "data"]);
+      setShare(s => ({
+        ...s,
+        files: rawFiles.map(normalizeShareFile).filter(f => f.file_id),
+        loading: false,
+      }));
     } catch (err: unknown) {
-      setShare(s => ({ ...s, loading: false, error: `解析失败: ${String(err)}` }));
+      setShare(s => ({ ...s, loading: false, error: `解析失败: ${getApiErrorMessage(err)}` }));
     }
   };
 
   const handleSaveShareFile = async (fileId: string, name: string) => {
     if (!share.shareCode) return;
+    const target = getTransferTarget();
+    setProgress({
+      visible: true,
+      phase: "progress",
+      status: "loading",
+      resourceLabel: name,
+      message: `正在转存到 ${target.folderName}`,
+      actionType: "transfer",
+    });
     try {
-      await pan115Api.saveShareFile(share.shareCode, fileId, "0", share.receiveCode);
-      await addLog("SUCCESS", `已保存分享文件: ${name}`);
-    } catch (err: unknown) { await addLog("ERROR", `保存失败: ${String(err)}`); }
+      const resp = await pan115Api.saveShareFile(share.shareCode, fileId, target.folderId, share.receiveCode);
+      assertApiSuccess(resp.data, "保存分享文件失败");
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "success",
+        resourceLabel: name,
+        message: `已转存到 ${target.folderName}`,
+        actionType: "transfer",
+      });
+      await addLog("SUCCESS", `已保存分享文件到 ${target.folderName}: ${name}`);
+      if (currentCid === target.folderId) await loadFiles(currentCid);
+    } catch (err: unknown) {
+      const detail = getApiErrorMessage(err);
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "failed",
+        resourceLabel: name,
+        message: detail,
+        actionType: "transfer",
+      });
+      await addLog("ERROR", `保存失败: ${detail}`);
+    }
   };
 
   const handleSaveAllShare = async () => {
     if (!share.shareCode) return;
+    const target = getTransferTarget();
+    setProgress({
+      visible: true,
+      phase: "progress",
+      status: "loading",
+      resourceLabel: "分享内容",
+      message: `正在按后端规则转存到 ${target.folderName}`,
+      actionType: "transfer",
+    });
     try {
-      await pan115Api.saveShareAll(share.shareCode, "0", share.receiveCode);
-      await addLog("SUCCESS", `已提交全部分享文件转存`);
-    } catch (err: unknown) { await addLog("ERROR", `转存失败: ${String(err)}`); }
-  };
-
-  // ---- 115 扫码登录 ----
-  const [qrToken, setQrToken] = useState<string | null>(null);
-  const [qrImage, setQrImage] = useState<string | null>(null);
-  const [qrPolling, setQrPolling] = useState(false);
-  const [qrStatus, setQrStatus] = useState<string | null>(null);
-
-  const start115QrLogin = async () => {
-    setQrPolling(true); setQrStatus("启动中…");
-    try {
-      const startResp = await pan115Api.startQrLogin();
-      const d = startResp.data as { token?: string; qr_url?: string };
-      if (d.token) {
-        setQrToken(d.token);
-        try {
-          const imgResp = await pan115Api.getQrImage(d.token);
-          setQrImage(URL.createObjectURL(imgResp.data as Blob));
-        } catch { setQrImage(null); }
-        setQrStatus("请用 115 客户端扫描二维码");
-        for (let i = 0; i < 30; i++) {
-          await new Promise(r => setTimeout(r, 2000));
-          try {
-            const sResp = await pan115Api.checkQrLogin(d.token);
-            const sData = sResp.data as { status?: string };
-            if (sData.status === "success" || sData.status === "authorized") { setQrStatus("登录成功!"); setQrImage(null); setQrToken(null); break; }
-            if (sData.status === "cancelled" || sData.status === "expired") { setQrStatus(`二维码${sData.status === "expired" ? "过期" : "已取消"}`); break; }
-          } catch { /* poll */ }
-        }
-      } else { setQrStatus("未获取到 token"); }
-    } catch (err: unknown) { setQrStatus(`失败: ${String(err)}`); } finally { setQrPolling(false); }
-  };
-
-  const cancelQrLogin = async () => {
-    if (qrToken) { try { await pan115Api.cancelQrLogin(qrToken); } catch {} }
-    setQrToken(null); setQrImage(null); setQrPolling(false); setQrStatus(null);
+      const resp = await pan115Api.saveShareAll(share.shareCode, target.folderId, share.receiveCode);
+      assertApiSuccess(resp.data, "转存分享内容失败");
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "success",
+        resourceLabel: "分享内容",
+        message: `已提交转存到 ${target.folderName}`,
+        actionType: "transfer",
+      });
+      await addLog("SUCCESS", `已提交分享内容转存到 ${target.folderName}`);
+      if (currentCid === target.folderId) await loadFiles(currentCid);
+    } catch (err: unknown) {
+      const detail = getApiErrorMessage(err);
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "failed",
+        resourceLabel: "分享内容",
+        message: detail,
+        actionType: "transfer",
+      });
+      await addLog("ERROR", `转存失败: ${detail}`);
+    }
   };
 
   // ---- 文件复制/移动 ----
@@ -562,43 +751,121 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   const handleCopyFile = async (fid: string, name: string) => {
     if (!targetCid.trim()) { await addLog("WARN", "请输入目标目录 CID"); return; }
     setCopyingFile(fid);
-    try { await pan115Api.copyFile(fid, targetCid.trim()); await addLog("SUCCESS", `已复制: ${name}`); setCopyingFile(null); }
-    catch (err: unknown) { await addLog("ERROR", `复制失败: ${String(err)}`); setCopyingFile(null); }
+    try {
+      const resp = await pan115Api.copyFile(fid, targetCid.trim());
+      assertApiSuccess(resp.data, "复制失败");
+      await addLog("SUCCESS", `已复制到 ${targetCid.trim()}: ${name}`);
+    } catch (err: unknown) {
+      await addLog("ERROR", `复制失败: ${getApiErrorMessage(err)}`);
+    } finally {
+      setCopyingFile(null);
+    }
   };
 
   const handleMoveFile = async (fid: string, name: string) => {
     if (!targetCid.trim()) { await addLog("WARN", "请输入目标目录 CID"); return; }
     setCopyingFile(fid);
-    try { await pan115Api.moveFile(fid, targetCid.trim()); await addLog("SUCCESS", `已移动: ${name}`); setCopyingFile(null); await loadFiles(currentCid); }
-    catch (err: unknown) { await addLog("ERROR", `移动失败: ${String(err)}`); setCopyingFile(null); }
+    try {
+      const resp = await pan115Api.moveFile(fid, targetCid.trim());
+      assertApiSuccess(resp.data, "移动失败");
+      await addLog("SUCCESS", `已移动到 ${targetCid.trim()}: ${name}`);
+      await loadFiles(currentCid);
+    } catch (err: unknown) {
+      await addLog("ERROR", `移动失败: ${getApiErrorMessage(err)}`);
+    } finally {
+      setCopyingFile(null);
+    }
   };
 
   // ---- 转移默认文件夹 ----
-  const [transferDefaultFolder, setTransferDefaultFolder] = useState("");
-  const [transferDefaultName, setTransferDefaultName] = useState("");
   useEffect(() => {
     pan115Api.getDefaultFolder().then(r => {
       const d = r.data as Record<string, unknown>;
-      setTransferDefaultFolder(String(d.folder_id || d.cid || ""));
-      setTransferDefaultName(String(d.folder_name || d.name || ""));
+      const folderId = String(d.folder_id || d.cid || "0");
+      const folderName = String(d.folder_name || d.name || (folderId === "0" ? "根目录" : ""));
+      setTransferDefaultFolder(folderId);
+      setTransferDefaultName(folderName);
+      setSavedTransferDefault({ folderId, folderName });
     }).catch(() => {});
   }, []);
 
   const handleSetTransferDefault = async () => {
     if (!transferDefaultFolder.trim()) return;
-    try { await pan115Api.setDefaultFolder(transferDefaultFolder.trim(), transferDefaultName.trim()); await addLog("SUCCESS", `已设置转移默认文件夹`); }
-    catch (err: unknown) { await addLog("ERROR", `设置失败: ${String(err)}`); }
+    try {
+      const resp = await pan115Api.setDefaultFolder(transferDefaultFolder.trim(), transferDefaultName.trim());
+      assertApiSuccess(resp.data, "设置转存默认文件夹失败");
+      const data = resp.data as Record<string, unknown>;
+      const folderId = String(data.folder_id ?? transferDefaultFolder.trim());
+      const folderName = String(data.folder_name ?? transferDefaultName.trim() ?? "");
+      setTransferDefaultFolder(folderId);
+      setTransferDefaultName(folderName);
+      setSavedTransferDefault({ folderId, folderName });
+      await addLog("SUCCESS", `已设置转存默认文件夹: ${folderName || folderId}`);
+    } catch (err: unknown) {
+      await addLog("ERROR", `设置失败: ${getApiErrorMessage(err)}`);
+    }
+  };
+
+  const getCurrentFolderName = () => breadcrumb[breadcrumb.length - 1]?.name || (currentCid === "0" ? "根目录" : currentCid);
+
+  const useCurrentFolderAsTarget = () => {
+    setTargetCid(currentCid);
+  };
+
+  const useCurrentFolderAsTransferDefault = () => {
+    setTransferDefaultFolder(currentCid);
+    setTransferDefaultName(getCurrentFolderName());
+  };
+
+  const useCurrentFolderAsOfflineDefault = () => {
+    setDefaultFolderId(currentCid);
+    setDefaultFolderName(getCurrentFolderName());
   };
 
   // ---- 批量分享: saveShareFiles / extractShareFiles / saveShareFilesToFolder ----
   const [batchShareSaving, setBatchShareSaving] = useState(false);
   const handleSaveShareFiles = async () => {
     if (!share.shareCode || share.files.length === 0) return;
+    const fileIds = share.files.map(f => f.file_id).filter(Boolean);
+    if (fileIds.length === 0) {
+      await addLog("WARN", "当前分享列表没有可转存的文件 ID");
+      return;
+    }
+    const target = getTransferTarget();
     setBatchShareSaving(true);
+    setProgress({
+      visible: true,
+      phase: "progress",
+      status: "loading",
+      resourceLabel: `当前列表 ${fileIds.length} 项`,
+      message: `正在转存到 ${target.folderName}`,
+      actionType: "transfer",
+    });
     try {
-      await pan115Api.saveShareFiles(share.shareCode, share.files.map(f => f.file_id).filter(Boolean), "0", share.receiveCode);
-      await addLog("SUCCESS", `已批量保存 ${share.files.length} 个文件`);
-    } catch (err: unknown) { await addLog("ERROR", `批量保存失败: ${String(err)}`); }
+      const resp = await pan115Api.saveShareFiles(share.shareCode, fileIds, target.folderId, share.receiveCode);
+      assertApiSuccess(resp.data, "批量保存失败");
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "success",
+        resourceLabel: `当前列表 ${fileIds.length} 项`,
+        message: `已转存到 ${target.folderName}`,
+        actionType: "transfer",
+      });
+      await addLog("SUCCESS", `已批量保存 ${fileIds.length} 个文件到 ${target.folderName}`);
+      if (currentCid === target.folderId) await loadFiles(currentCid);
+    } catch (err: unknown) {
+      const detail = getApiErrorMessage(err);
+      setProgress({
+        visible: true,
+        phase: "result",
+        status: "failed",
+        resourceLabel: `当前列表 ${fileIds.length} 项`,
+        message: detail,
+        actionType: "transfer",
+      });
+      await addLog("ERROR", `批量保存失败: ${detail}`);
+    }
     finally { setBatchShareSaving(false); }
   };
 
@@ -607,7 +874,10 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
     const hasValidCookie = await loadStatus();
     if (!hasValidCookie) {
       setFiles([]);
+      setFilesHasMore(false);
+      setFilesTotal(null);
       setOfflineTasks([]);
+      setTasksError(null);
       return;
     }
     await Promise.all([loadFiles("0"), loadOfflineTasks()]);
@@ -620,18 +890,23 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
   // ---- 风险等级显示 ----
   const riskDisplay = (() => {
     switch (riskStatus) {
-      case "normal": case "ok": case "good": case "low":
+      case "healthy": case "normal": case "ok": case "good": case "low":
         return { color: "var(--accent-ok)", bg: "rgba(34,197,94,0.12)", label: "正常" };
-      case "warning": case "medium": case "limited":
-        return { color: "var(--accent-warn)", bg: "rgba(245,158,11,0.12)", label: "预警" };
+      case "warning": case "medium": case "limited": case "rate_limited":
+        return { color: "var(--accent-warn)", bg: "rgba(245,158,11,0.12)", label: "受限" };
+      case "auth_invalid":
+        return { color: "var(--accent-danger)", bg: "rgba(239,68,68,0.12)", label: "需登录" };
       case "high": case "danger": case "blocked":
         return { color: "var(--accent-danger)", bg: "rgba(239,68,68,0.12)", label: "风控" };
+      case "unavailable":
+        return { color: "var(--accent-danger)", bg: "rgba(239,68,68,0.12)", label: "不可用" };
       default:
         return { color: "var(--txt-muted)", bg: "var(--surface-subtle)", label: "未知" };
     }
   })();
 
   const completedCount = offlineTasks.filter(t => t.status === 2).length;
+  const transferTarget = getTransferTarget();
 
   return (
     <div id="pan115-files-tab" className="liquid-page space-y-6">
@@ -642,16 +917,16 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
       <div className="liquid-hero glass-heavy glass-iridescent glass-spotlight rounded-3xl p-6">
         <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5" style={{ color: "var(--txt)" }}>
           <Layers className="w-6 h-6" style={{ color: "var(--brand-primary)" }} />
-          <span>115 网盘管理</span>
+          <span>网盘工作台</span>
         </h2>
         <p className="text-xs mt-1 max-w-xl leading-relaxed" style={{ color: "var(--txt-secondary)" }}>
-          管理您的 115 网盘文件、离线下载任务与默认配置。支持文件夹浏览、文件搜索、离线任务增删改与默认文件夹设置。
+          管理 115 网盘文件、离线下载任务与分享转存。账号、Cookie 与默认目录的完整配置在配置中心的网盘集成中维护。
         </p>
       </div>
 
       {/* ====== 状态概览卡片 ====== */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Cookie 状态 + QR 登录 */}
+        {/* Cookie 状态 */}
         <div className="liquid-stat-card glass rounded-2xl p-4 space-y-2">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4" style={{ color: cookieStatus?.valid ? "var(--accent-ok)" : "var(--accent-danger)" }} />
@@ -668,33 +943,18 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                   {cookieStatus.username ? <p className="text-[10px] font-semibold truncate" style={{ color: "var(--txt-muted)" }}>{cookieStatus.username}</p> : null}
                 </div>
               </div>
-              {/* QR 登录按钮 */}
               <div className="pt-1.5" style={{ borderTop: "1px solid var(--border)" }}>
-                {!qrToken ? (
-                  <button onClick={start115QrLogin} disabled={qrPolling}
-                    className="w-full py-1.5 rounded-lg text-[10px] font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
-                    style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
-                    <QrCode className="w-3 h-3" /> {qrPolling ? "启动中…" : "扫码登录"}
-                  </button>
-                ) : (
-                  <div className="text-center">
-                    {qrImage && <img src={qrImage} alt="115 QR" className="w-28 h-28 mx-auto rounded-lg border mb-1" />}
-                    <p className="text-[9px] font-semibold" style={{ color: "var(--txt-muted)" }}>{qrStatus || "请扫码"}</p>
-                    <button onClick={cancelQrLogin} className="text-[9px] font-bold mt-1" style={{ color: "var(--accent-danger)" }}>取消</button>
-                  </div>
-                )}
+                <p className="text-[9px] font-semibold leading-snug" style={{ color: "var(--txt-muted)" }}>
+                  账号与扫码登录在配置中心的网盘集成中维护。
+                </p>
               </div>
             </div>
           ) : (
             <div className="space-y-1.5">
               <p className="text-xs font-bold" style={{ color: "var(--accent-danger)" }}>{cookieStatus?.message || "未登录或已过期"}</p>
-              <button onClick={start115QrLogin} disabled={qrPolling}
-                className="w-full py-1.5 rounded-lg text-[10px] font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
-                style={{ background: "var(--surface-subtle)", color: "var(--txt-secondary)", border: "1px solid var(--border)" }}>
-                <QrCode className="w-3 h-3" /> {qrPolling ? "启动中…" : "扫码登录"}
-              </button>
-              {qrImage && <img src={qrImage} alt="115 QR" className="w-28 h-28 mx-auto rounded-lg border" />}
-              {qrStatus && <p className="text-[9px] font-semibold" style={{ color: "var(--txt-muted)" }}>{qrStatus}</p>}
+              <p className="text-[9px] font-semibold leading-snug" style={{ color: "var(--txt-muted)" }}>
+                请前往配置中心的网盘集成重新扫码登录或更新 Cookie。
+              </p>
             </div>
           )}
         </div>
@@ -713,8 +973,8 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                 {String(userInfo.user_name || userInfo.nickname || userInfo.nick_name || "-")}
               </p>
               <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" }}>
-                空间: {String(userInfo.size || userInfo.space || "-")}
-                {userInfo.used ? ` / 已用 ${String(userInfo.used)}` : ""}
+                空间: {String(userInfo.space_total_format || userInfo.size || userInfo.space || "-")}
+                {userInfo.space_used_format || userInfo.used ? ` / 已用 ${String(userInfo.space_used_format || userInfo.used)}` : ""}
               </p>
             </div>
           ) : (
@@ -784,7 +1044,9 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
               <h3 className="text-sm font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
                 <FolderOpen className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
                 <span>文件浏览</span>
-                <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>{files.length} 项</span>
+                <span className="text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>
+                  {files.length}{filesTotal !== null ? ` / ${filesTotal}` : ""} 项
+                </span>
               </h3>
               <div className="flex items-center gap-1.5">
                 <button
@@ -869,14 +1131,21 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
             </AnimatePresence>
 
             {/* 复制/移动目标 CID */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[9px] font-bold shrink-0" style={{ color: "var(--txt-muted)" }}>目标CID:</span>
               <input
                 type="text" placeholder="用于复制/移动的目标目录 CID"
                 value={targetCid} onChange={e => setTargetCid(e.target.value)}
-                className="flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold outline-none"
+                className="flex-1 min-w-[12rem] px-2.5 py-1.5 rounded-lg text-[10px] font-semibold outline-none"
                 style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
               />
+              <button
+                onClick={useCurrentFolderAsTarget}
+                className="px-2.5 py-1.5 rounded-lg text-[10px] font-black glass-hover"
+                style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+              >
+                使用当前目录
+              </button>
             </div>
 
             {/* Breadcrumb 导航 */}
@@ -956,7 +1225,7 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                     </div>
 
                     {/* 文件操作按钮 */}
-                    <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                       {file.type === "folder" ? (
                         <ChevronRight className="w-4 h-4" style={{ color: "var(--txt-muted)" }} />
                       ) : (
@@ -979,17 +1248,20 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                               {file.pickCode && (
                                 <button onClick={(e) => { e.stopPropagation(); handleCopyDownloadUrl(file.pickCode, file.name); }}
                                   className="p-1 rounded hover:bg-[var(--surface-hover)]" title="复制下载链接"
+                                  aria-label={`复制下载链接: ${file.name}`}
                                   style={{ color: "var(--txt-muted)" }}>
                                   <Download className="w-3 h-3" />
                                 </button>
                               )}
                               <button onClick={(e) => { e.stopPropagation(); setRenamingFile(file.fid); setRenameValue(file.name); }}
                                 className="p-1 rounded hover:bg-[var(--surface-hover)]" title="重命名"
+                                aria-label={`重命名: ${file.name}`}
                                 style={{ color: "var(--txt-muted)" }}>
                                 <FileText className="w-3 h-3" />
                               </button>
                               <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }}
                                 className="p-1 rounded hover:bg-[rgba(239,68,68,0.12)]" title="删除"
+                                aria-label={`删除: ${file.name}`}
                                 style={{ color: "var(--accent-danger)" }}>
                                 <Trash2 className="w-3 h-3" />
                               </button>
@@ -998,12 +1270,14 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                                   <button onClick={(e) => { e.stopPropagation(); handleCopyFile(file.fid, file.name); }}
                                     disabled={copyingFile === file.fid}
                                     className="p-1 rounded hover:bg-[var(--surface-hover)]" title="复制到目标"
+                                    aria-label={`复制到目标: ${file.name}`}
                                     style={{ color: "var(--txt-muted)" }}>
                                     <Copy className="w-3 h-3" />
                                   </button>
                                   <button onClick={(e) => { e.stopPropagation(); handleMoveFile(file.fid, file.name); }}
                                     disabled={copyingFile === file.fid}
                                     className="p-1 rounded hover:bg-[var(--surface-hover)]" title="移动到目标"
+                                    aria-label={`移动到目标: ${file.name}`}
                                     style={{ color: "var(--txt-muted)" }}>
                                     <ArrowRight className="w-3 h-3" />
                                   </button>
@@ -1016,6 +1290,22 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                     </div>
                   </div>
                 ))}
+                {filesHasMore && !fileSearch.trim() && (
+                  <button
+                    onClick={loadMoreFiles}
+                    disabled={filesLoadingMore}
+                    className="w-full mt-2 py-2 rounded-xl text-xs font-black glass-hover disabled:opacity-50 flex items-center justify-center gap-2"
+                    style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${filesLoadingMore ? "animate-spin" : ""}`} />
+                    {filesLoadingMore ? "加载中…" : "加载更多"}
+                  </button>
+                )}
+                {filesHasMore && fileSearch.trim() && (
+                  <p className="text-[10px] font-semibold text-center pt-2" style={{ color: "var(--txt-muted)" }}>
+                    搜索结果不分页，清空搜索后可继续加载目录内容
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -1058,12 +1348,15 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                     />
                     <input
                       type="text"
-                      placeholder="任务名称（可选）"
+                      placeholder="备注（仅用于日志，可选）"
                       value={addTaskTitle}
                       onChange={(e) => setAddTaskTitle(e.target.value)}
                       className="w-full px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
                       style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--txt-secondary)" }}
                     />
+                    <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" }}>
+                      保存到默认离线文件夹: {defaultFolderName || defaultFolderId || "后端默认目录"}
+                    </p>
                     <div className="flex gap-2">
                       <button
                         onClick={handleAddTask}
@@ -1089,6 +1382,10 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
             {tasksLoading ? (
               <div className="text-center py-6">
                 <RefreshCw className="w-5 h-5 animate-spin mx-auto" style={{ color: "var(--txt-muted)" }} />
+              </div>
+            ) : tasksError ? (
+              <div className="rounded-xl" style={{ background: "var(--surface-subtle)" }}>
+                <ErrorBanner variant="block" message={tasksError} onRetry={loadOfflineTasks} />
               </div>
             ) : offlineTasks.length === 0 ? (
               <div className="text-center py-6 rounded-xl" style={{ background: "var(--surface-subtle)" }}>
@@ -1166,15 +1463,18 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
             )}
           </div>
 
-          {/* 转移默认文件夹 */}
+          {/* 分享转存默认文件夹 */}
           <div className="glass rounded-2xl p-4 space-y-3">
             <h4 className="text-xs font-black flex items-center gap-2" style={{ color: "var(--txt)" }}>
               <FolderOpen className="w-3.5 h-3.5" style={{ color: "var(--txt-secondary)" }} />
-              <span>转存默认文件夹</span>
+              <span>分享转存默认文件夹</span>
             </h4>
-            {transferDefaultName ? (
-              <p className="text-[11px] font-bold" style={{ color: "var(--txt-secondary)" }}>当前: {transferDefaultName}</p>
-            ) : null}
+            <p className="text-[11px] font-bold" style={{ color: "var(--txt-secondary)" }}>
+              已保存: {savedTransferDefault.folderName || savedTransferDefault.folderId}
+              <span className="text-[9px] ml-1 font-semibold" style={{ color: "var(--txt-muted)" }}>
+                (ID: {savedTransferDefault.folderId})
+              </span>
+            </p>
             <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_3.5rem] gap-2">
               <input type="text" placeholder="文件夹 ID" value={transferDefaultFolder} onChange={e => setTransferDefaultFolder(e.target.value)}
                 className="min-w-0 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
@@ -1185,6 +1485,13 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
               <button onClick={handleSetTransferDefault} disabled={!transferDefaultFolder.trim()}
                 className="shrink-0 min-w-[3.5rem] px-3 py-1.5 rounded-lg text-xs font-black bg-brand-primary text-white disabled:opacity-50">设置</button>
             </div>
+            <button
+              onClick={useCurrentFolderAsTransferDefault}
+              className="w-full py-1.5 rounded-lg text-[10px] font-black glass-hover"
+              style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+            >
+              使用当前目录
+            </button>
           </div>
 
           {/* 默认离线文件夹 */}
@@ -1226,6 +1533,13 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                 设置
               </button>
             </div>
+            <button
+              onClick={useCurrentFolderAsOfflineDefault}
+              className="w-full py-1.5 rounded-lg text-[10px] font-black glass-hover"
+              style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)" }}
+            >
+              使用当前目录
+            </button>
           </div>
 
           {/* 分享链接管理 */}
@@ -1243,6 +1557,10 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
             </div>
             {showShare && (
               <div className="space-y-2">
+                <p className="text-[10px] font-semibold" style={{ color: "var(--txt-muted)" }}>
+                  当前转存目标: {transferTarget.folderName}
+                  <span className="ml-1">(ID: {transferTarget.folderId})</span>
+                </p>
                 <div className="flex gap-1.5">
                   <input
                     type="text"
@@ -1277,10 +1595,14 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                         style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                         <span className="text-[10px] font-semibold truncate" style={{ color: "var(--txt)" }}>{f.name}</span>
                         <div className="flex items-center gap-1 shrink-0">
+                          {f.type === "folder" && (
+                            <span className="text-[8px] font-semibold" style={{ color: "var(--brand-primary)" }}>目录</span>
+                          )}
                           {f.size && f.size > 0 && (
                             <span className="text-[8px] font-semibold" style={{ color: "var(--txt-muted)" }}>{formatBytes(f.size)}</span>
                           )}
                           <button onClick={() => handleSaveShareFile(f.file_id, f.name)}
+                            disabled={!f.file_id}
                             className="px-1.5 py-0.5 rounded text-[8px] font-black text-white"
                             style={{ background: "var(--brand-primary)" }}>
                             转存
@@ -1293,12 +1615,12 @@ export default function Pan115FilesTab({ addLog }: Pan115FilesTabProps) {
                         <button onClick={handleSaveAllShare}
                           className="w-full py-1.5 rounded-lg text-[10px] font-black text-white mt-1"
                           style={{ background: "var(--brand-primary)" }}>
-                          全部转存 ({share.files.length} 个文件)
+                          按规则转存分享内容
                         </button>
                         <button onClick={handleSaveShareFiles} disabled={batchShareSaving}
                           className="w-full py-1.5 rounded-lg text-[10px] font-black text-white disabled:opacity-50"
                           style={{ background: "var(--accent-info)" }}>
-                          {batchShareSaving ? "批量保存中…" : `批量保存 (${share.files.length} 个)`}
+                          {batchShareSaving ? "转存当前列表中…" : `转存当前列表 (${share.files.length} 项)`}
                         </button>
                       </div>
                     )}
