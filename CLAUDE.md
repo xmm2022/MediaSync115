@@ -72,12 +72,28 @@ docker build -t mediasync115:local .
 docker compose up -d
 
 # 或使用单独的容器部署（本地开发常用）
+# 应用必须连接 PostgreSQL；单独运行应用容器前先准备同网络下的数据库容器。
+docker network create mediasync115-net
+docker volume create mediasync115-postgres-data
+docker run -d \
+  --name mediasync115-postgres \
+  --network mediasync115-net \
+  -e POSTGRES_DB=mediasync115 \
+  -e POSTGRES_USER=mediasync \
+  -e POSTGRES_PASSWORD=mediasync \
+  -e TZ=Asia/Shanghai \
+  -v mediasync115-postgres-data:/var/lib/postgresql/data \
+  --restart unless-stopped \
+  postgres:16-alpine
+
 docker run -d \
   --name mediasync115 \
+  --network mediasync115-net \
   -p 5173:5173 \
   -p 9008:9008 \
   -p 8099:8099 \
   -e TZ=Asia/Shanghai \
+  -e DATABASE_URL=postgresql+asyncpg://mediasync:mediasync@mediasync115-postgres:5432/mediasync115 \
   -v mediasync115-data:/app/data \
   --restart unless-stopped \
   mediasync115:local
