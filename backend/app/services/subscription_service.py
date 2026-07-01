@@ -68,6 +68,10 @@ from app.services.subscriptions.execution_logs import (
     create_step_log as create_subscription_step_log,
     prune_step_logs as prune_subscription_step_logs,
 )
+from app.services.subscriptions.pre_scan_cleanup import (
+    PreScanCleanupDependencies,
+    evaluate_pre_scan_cleanup as evaluate_pre_scan_cleanup_flow,
+)
 from app.services.subscriptions.fixed_source_scan import (
     FixedSourceScanDependencies,
     scan_fixed_sources_for_subscription as scan_fixed_sources_flow,
@@ -1038,239 +1042,22 @@ class SubscriptionService:
         channel: str,
         sub: "SubscriptionSnapshot",
     ) -> dict[str, Any]:
-        if sub.media_type == MediaType.MOVIE:
-            if sub.has_successful_transfer:
-                await self._delete_subscription_with_records(db, sub.id)
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="subscription_cleanup_movie_transferred",
-                    status="success",
-                    message="电影已有转存记录，无需重复处理",
-                    payload={"reason": "successful_transfer"},
-                )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.cleanup_pre_scan",
-                    status="success",
-                    message=f"[{sub.title}] 预扫描清理：电影已有成功转存记录，自动删除订阅",
-                    trace_id=run_id,
-                    extra={
-                        "subscription_id": sub.id,
-                        "title": sub.title,
-                        "reason": "successful_transfer",
-                    },
-                )
-                return {"deleted": True}
-
-            if sub.tmdb_id is None:
-                return {"deleted": False, "tv_missing_snapshot": None}
-
-            # Emby 检查
-            movie_status = await emby_service.get_movie_status_by_tmdb(sub.tmdb_id)
-            status_text = str(movie_status.get("status") or "")
-            if status_text == "ok":
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="movie_emby_check_done",
-                    status="info",
-                    message="已检查媒体库中电影的入库状态",
-                    payload={
-                        "tmdb_id": sub.tmdb_id,
-                        "exists": bool(movie_status.get("exists")),
-                        "matched_count": len(movie_status.get("item_ids") or []),
-                    },
-                )
-                if bool(movie_status.get("exists")):
-                    await self._delete_subscription_with_records(db, sub.id)
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=channel,
-                        subscription_id=sub.id,
-                        subscription_title=sub.title,
-                    step="subscription_cleanup_movie_emby_exists",
-                    status="success",
-                    message="电影已在媒体库中，无需继续订阅",
-                        payload={
-                            "tmdb_id": sub.tmdb_id,
-                            "matched_item_ids": movie_status.get("item_ids") or [],
-                        },
-                    )
-                    await operation_log_service.log_background_event(
-                        source_type="background_task",
-                        module="subscriptions",
-                        action="subscription.item.cleanup_pre_scan",
-                        status="success",
-                        message=f"[{sub.title}] 预扫描清理：电影已存在于 Emby，自动删除订阅",
-                        trace_id=run_id,
-                        extra={
-                            "subscription_id": sub.id,
-                            "title": sub.title,
-                            "reason": "emby_exists",
-                            "tmdb_id": sub.tmdb_id,
-                        },
-                    )
-                    return {"deleted": True}
-            elif status_text:
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="movie_emby_check_failed",
-                    status="warning",
-                    message=f"媒体库查询失败，暂跳过自动清理：{movie_status.get('message') or '未知错误'}",
-                    payload={"tmdb_id": sub.tmdb_id, "status": status_text},
-                )
-
-            # 飞牛检查
-            feiniu_movie_status = await self._check_feiniu_movie_status(sub.tmdb_id)
-            if feiniu_movie_status.get("checked") and feiniu_movie_status.get("exists"):
-                await self._delete_subscription_with_records(db, sub.id)
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="subscription_cleanup_movie_feiniu_exists",
-                    status="success",
-                    message="电影已在飞牛媒体库中，无需继续订阅",
-                    payload={
-                        "tmdb_id": sub.tmdb_id,
-                        "matched_item_ids": feiniu_movie_status.get("item_ids") or [],
-                    },
-                )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.cleanup_pre_scan",
-                    status="success",
-                    message=f"[{sub.title}] 预扫描清理：电影已存在于飞牛，自动删除订阅",
-                    trace_id=run_id,
-                    extra={
-                        "subscription_id": sub.id,
-                        "title": sub.title,
-                        "reason": "feiniu_exists",
-                        "tmdb_id": sub.tmdb_id,
-                    },
-                )
-                return {"deleted": True}
-
-            return {"deleted": False, "tv_missing_snapshot": None}
-
-        if sub.media_type != MediaType.TV or sub.tmdb_id is None:
-            return {"deleted": False, "tv_missing_snapshot": None}
-
-        # Emby 缺集检查
-        await self._create_step_log(
+        dependencies = PreScanCleanupDependencies(
+            delete_subscription_with_records=self._delete_subscription_with_records,
+            create_step_log=self._create_step_log,
+            log_background_event=operation_log_service.log_background_event,
+            get_movie_status_by_tmdb=emby_service.get_movie_status_by_tmdb,
+            check_feiniu_movie_status=self._check_feiniu_movie_status,
+            get_tv_missing_status=tv_missing_service.get_tv_missing_status,
+            has_upcoming_episodes=has_upcoming_episodes_in_subscription_scope,
+        )
+        return await evaluate_pre_scan_cleanup_flow(
             db,
             run_id=run_id,
             channel=channel,
-            subscription_id=sub.id,
-            subscription_title=sub.title,
-            step="tv_missing_fetch_start",
-            status="info",
-            message="正在检查剧集的缺集状态",
-            payload={"tmdb_id": sub.tmdb_id},
+            sub=sub,
+            dependencies=dependencies,
         )
-        tv_kwargs = build_tv_missing_status_kwargs(sub)
-        tv_missing_result = await tv_missing_service.get_tv_missing_status(
-            sub.tmdb_id,
-            **tv_kwargs,
-        )
-        status_text = str(tv_missing_result.get("status") or "")
-        if status_text == "ok":
-            counts = (
-                tv_missing_result.get("counts")
-                if isinstance(tv_missing_result.get("counts"), dict)
-                else {}
-            )
-            missing_count = int(counts.get("missing") or 0)
-            follow_mode = normalize_tv_follow_mode(sub.tv_follow_mode)
-            has_upcoming = False
-            if follow_mode == "new":
-                has_upcoming = await has_upcoming_episodes_in_subscription_scope(
-                    sub.tmdb_id, sub
-                )
-            await self._create_step_log(
-                db,
-                run_id=run_id,
-                channel=channel,
-                subscription_id=sub.id,
-                subscription_title=sub.title,
-                step="tv_missing_fetch_done",
-                status="success",
-                message=f"缺集检查完成：共 {int(counts.get('aired') or 0)} 集，已有 {int(counts.get('existing') or 0)} 集，缺失 {missing_count} 集",
-                payload={
-                    "aired_count": int(counts.get("aired") or 0),
-                    "existing_count": int(counts.get("existing") or 0),
-                    "missing_count": missing_count,
-                    "follow_mode": follow_mode,
-                    "has_upcoming_episodes": has_upcoming,
-                },
-            )
-            should_cleanup, cleanup_reason = evaluate_tv_cleanup(
-                tv_missing_result,
-                follow_mode=follow_mode,
-                has_upcoming_episodes=has_upcoming,
-            )
-            if should_cleanup:
-                await self._delete_subscription_with_records(db, sub.id)
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="subscription_cleanup_tv_no_missing",
-                    status="success",
-                    message=cleanup_reason or "剧集已全部入库，无需继续订阅",
-                    payload={
-                        "tmdb_id": sub.tmdb_id,
-                        "missing_count": 0,
-                        "follow_mode": follow_mode,
-                    },
-                )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.cleanup_pre_scan",
-                    status="success",
-                    message=f"[{sub.title}] 预扫描清理：{cleanup_reason}，自动删除订阅",
-                    trace_id=run_id,
-                    extra={
-                        "subscription_id": sub.id,
-                        "title": sub.title,
-                        "reason": cleanup_reason,
-                        "tmdb_id": sub.tmdb_id,
-                    },
-                )
-                return {"deleted": True, "tv_missing_snapshot": tv_missing_result}
-            return {"deleted": False, "tv_missing_snapshot": tv_missing_result}
-
-        await self._create_step_log(
-            db,
-            run_id=run_id,
-            channel=channel,
-            subscription_id=sub.id,
-            subscription_title=sub.title,
-            step="tv_missing_fetch_failed",
-            status="warning",
-            message=f"缺集检查失败，暂跳过自动清理：{tv_missing_result.get('message') or '未知错误'}",
-            payload={"tmdb_id": sub.tmdb_id, "status": status_text or "unknown"},
-        )
-        return {"deleted": False, "tv_missing_snapshot": None}
 
     async def _delete_subscription_with_records(
         self, db: AsyncSession, subscription_id: int
