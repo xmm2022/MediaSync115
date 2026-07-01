@@ -102,7 +102,7 @@ from app.services.subscriptions.auto_transfer_batch import (
 )
 from app.services.subscriptions.resource_metadata import is_video_filename
 from app.services.subscriptions.tv_episode_selection import (
-    select_tv_missing_episode_files,
+    select_missing_episode_files as select_tv_missing_episode_files,
 )
 from app.services.tv_missing_service import tv_missing_service
 
