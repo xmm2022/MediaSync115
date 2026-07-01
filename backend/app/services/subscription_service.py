@@ -119,14 +119,11 @@ from app.services.subscriptions.run_finalize_flow import (
     RunFinalizeDependencies,
     finalize_subscription_run,
 )
-from app.services.subscriptions.run_counters import (
-    set_checked_count,
-)
-from app.services.subscriptions.run_state import (
-    build_initial_run_result,
-    build_start_progress_payload,
-)
 from app.services.subscriptions.run_loader import load_active_subscription_snapshots
+from app.services.subscriptions.run_start_flow import (
+    SubscriptionRunStartDependencies,
+    start_subscription_run,
+)
 from app.services.subscriptions.run_dispatch_flow import (
     SubscriptionRunDispatchDependencies,
     dispatch_subscription_checks,
@@ -182,46 +179,27 @@ class SubscriptionService:
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         normalized_channel = normalize_subscription_channel(channel)
-        run_id = uuid4().hex
-        started_at = beijing_now()
-        await operation_log_service.log_background_event(
-            source_type="background_task",
-            module="subscriptions",
-            action="subscription.check.start",
-            status="info",
-            message=f"订阅检查任务启动（频道：{normalized_channel}）",
-            trace_id=run_id,
-            extra={
-                "channel": normalized_channel,
-                "force_auto_download": force_auto_download,
-            },
-        )
-
-        result = build_initial_run_result(normalized_channel, run_id, started_at)
-        hdhive_unlock_context = self._build_hdhive_unlock_context()
-        source_order = self._resolve_source_order(normalized_channel)
-
-        subscriptions = await load_active_subscription_snapshots(db)
-        set_checked_count(result, len(subscriptions))
-        await self._create_step_log(
-            db,
-            run_id=run_id,
+        run_start = await start_subscription_run(
+            db=db,
             channel=normalized_channel,
-            step="run_start",
-            status="info",
-            message=f"开始本轮检查，共有 {len(subscriptions)} 个订阅需要处理",
-            payload={
-                "checked_count": len(subscriptions),
-                "source_order": source_order,
-                "scope": {
-                    "is_active": True,
-                    "exclude_transferred_success": False,
-                    "cleanup_enabled": True,
-                },
-            },
+            force_auto_download=force_auto_download,
+            progress_callback=progress_callback,
+            dependencies=SubscriptionRunStartDependencies(
+                log_background_event=operation_log_service.log_background_event,
+                create_step_log=self._create_step_log,
+                load_active_subscriptions=load_active_subscription_snapshots,
+                build_hdhive_unlock_context=self._build_hdhive_unlock_context,
+                resolve_source_order=self._resolve_source_order,
+                now=beijing_now,
+                make_run_id=lambda: uuid4().hex,
+            ),
         )
-        if progress_callback:
-            await progress_callback(build_start_progress_payload(result))
+        run_id = run_start.run_id
+        started_at = run_start.started_at
+        result = run_start.result
+        hdhive_unlock_context = run_start.hdhive_unlock_context
+        source_order = run_start.source_order
+        subscriptions = run_start.subscriptions
 
         result_lock = asyncio.Lock()
 
