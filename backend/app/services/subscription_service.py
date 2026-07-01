@@ -128,6 +128,13 @@ from app.services.subscriptions.run_state import (
     build_start_progress_payload,
 )
 from app.services.subscriptions.run_loader import load_active_subscription_snapshots
+from app.services.subscriptions.run_item_logs import (
+    build_fetch_done_event_kwargs,
+    build_fetch_resources_summary_step,
+    build_fetch_trace_step_log,
+    build_store_done_event_kwargs,
+    build_store_new_resources_step,
+)
 from app.services.subscriptions.auto_transfer_batch import (
     AutoTransferBatchDependencies,
     AutoTransferBatchStatuses,
@@ -287,59 +294,43 @@ class SubscriptionService:
                             source_order=source_order,
                         )
                         for trace in fetch_trace:
+                            fetch_trace_step_log = build_fetch_trace_step_log(trace)
                             await self._create_step_log(
                                 inner_db,
                                 run_id=run_id,
                                 channel=normalized_channel,
                                 subscription_id=sub_id,
                                 subscription_title=sub_title,
-                                step=str(trace.get("step") or "fetch_trace"),
-                                status=str(trace.get("status") or "info"),
-                                message=str(trace.get("message") or ""),
-                                payload=trace.get("payload")
-                                if isinstance(trace.get("payload"), dict)
-                                else None,
+                                **fetch_trace_step_log,
                             )
 
                         # 记录来源尝试链路汇总日志
-                        source_summary = source_attempt_info.get("summary", "")
+                        fetch_summary_step_log = (
+                            build_fetch_resources_summary_step(
+                                resources,
+                                source_attempt_info,
+                            )
+                        )
                         await self._create_step_log(
                             inner_db,
                             run_id=run_id,
                             channel=normalized_channel,
                             subscription_id=sub_id,
                             subscription_title=sub_title,
-                            step="fetch_resources_summary",
-                            status="success" if resources else "warning",
-                            message=f"搜索完成，找到 {len(resources)} 个可用资源" if resources else "本轮未找到新资源",
-                            payload={
-                                "resource_count": len(resources),
-                                "source_order": source_attempt_info.get("source_order", []),
-                                "attempts": source_attempt_info.get("attempts", []),
-                                "summary": source_summary,
-                            },
+                            **fetch_summary_step_log,
                         )
 
                         # 为每部影视记录资源抓取汇总
-                        fetch_sources_tried = [
-                            t.get("payload", {}).get("source", t.get("step", ""))
-                            for t in fetch_trace
-                            if t.get("step") == "fetch_source_selected"
-                        ]
                         await operation_log_service.log_background_event(
-                            source_type="background_task",
-                            module="subscriptions",
-                            action="subscription.item.fetch_done",
-                            status="success" if resources else "warning",
-                            message=(f"[{sub_title}] {source_summary}"),
-                            trace_id=run_id,
-                            extra={
-                                "subscription_id": sub_id,
-                                "title": sub_title,
-                                "resource_count": len(resources),
-                                "sources_hit": fetch_sources_tried,
-                                "source_attempt_summary": source_summary,
-                            },
+                            **build_fetch_done_event_kwargs(
+                                subscription_id=sub_id,
+                                subscription_title=sub_title,
+                                channel=normalized_channel,
+                                trace_id=run_id,
+                                resources=resources,
+                                fetch_trace=fetch_trace,
+                                source_attempt_info=source_attempt_info,
+                            )
                         )
                         store_stats = await self._store_new_resources(inner_db, sub_id, resources)
                         created_records = store_stats["created_records"]
@@ -352,36 +343,19 @@ class SubscriptionService:
                             channel=normalized_channel,
                             subscription_id=sub_id,
                             subscription_title=sub_title,
-                            step="store_new_resources",
-                            status="info",
-                            message=(
-                                f"发现 {len(created_records)} 个新资源待处理"
-                                if created_records
-                                else "未发现新资源"
+                            **build_store_new_resources_step(
+                                store_stats,
+                                created_records,
                             ),
-                            payload={
-                                "checked_count": store_stats["checked_count"],
-                                "new_count": len(created_records),
-                                "duplicate_count": store_stats["duplicate_count"],
-                                "invalid_count": store_stats["invalid_count"],
-                            },
                         )
                         await operation_log_service.log_background_event(
-                            source_type="background_task",
-                            module="subscriptions",
-                            action="subscription.item.store_done",
-                            status="success" if created_records else "info",
-                            message=(
-                                f"[{sub_title}] 资源入库：新增 {len(created_records)} 条，"
-                                f"重复 {store_stats['duplicate_count']} 条，无效 {store_stats['invalid_count']} 条"
-                            ),
-                            trace_id=run_id,
-                            extra={
-                                "subscription_id": sub_id,
-                                "title": sub_title,
-                                "new": len(created_records),
-                                "dup": store_stats["duplicate_count"],
-                            },
+                            **build_store_done_event_kwargs(
+                                subscription_id=sub_id,
+                                subscription_title=sub_title,
+                                trace_id=run_id,
+                                created_records=created_records,
+                                store_stats=store_stats,
+                            )
                         )
 
                         should_auto_download = force_auto_download or bool(sub.auto_download)
