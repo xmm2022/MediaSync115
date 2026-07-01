@@ -1,6 +1,8 @@
 import pytest
+from sqlalchemy import delete
 
 from app.api.anime import AniRssSubscriptionPayload
+from app.models.models import MediaType, Subscription
 from app.services.anirss_provider_service import (
     AniRssProviderError,
     AniRssProviderService,
@@ -111,6 +113,27 @@ class _FakeReadOnlyAniRssClient:
         return {"items": [], "omitList": []}
 
 
+class _FakeCreateAniRssClient:
+    base_url = "http://ani-rss:7789"
+
+    def __init__(self, *, external_id: str, title: str):
+        self.external_id = external_id
+        self.title = title
+        self.added_ani = None
+
+    async def rss_to_ani(self, payload):
+        return {
+            "id": self.external_id,
+            "title": self.title,
+            "enable": True,
+            "url": payload["url"],
+        }
+
+    async def add_ani(self, ani):
+        self.added_ani = dict(ani)
+        return {"code": 200, "message": "ok"}
+
+
 @pytest.mark.asyncio
 async def test_list_subscriptions_without_db_is_read_only_and_lightweight():
     fake = _FakeReadOnlyAniRssClient()
@@ -124,6 +147,50 @@ async def test_list_subscriptions_without_db_is_read_only_and_lightweight():
     assert result["sync"]["include_preview"] is False
     assert result["sync"]["updated_local"] is False
     assert result["items"][0]["external_subscription_id"] == "ani-1"
+
+
+@pytest.mark.asyncio
+async def test_create_subscription_does_not_disable_existing_title_match() -> None:
+    from app.core.database import async_session_maker, ensure_tables_exist
+
+    title = "Existing Active ANI-RSS Title Match"
+    await ensure_tables_exist()
+    fake = _FakeCreateAniRssClient(external_id="ani-new-title-match", title=title)
+    service = AniRssProviderService(client_factory=lambda: fake)
+
+    async with async_session_maker() as db:
+        await db.execute(delete(Subscription).where(Subscription.title == title))
+        await db.commit()
+
+        existing = Subscription(
+            title=title,
+            media_type=MediaType.TV,
+            provider="anirss",
+            external_system="anirss",
+            external_subscription_id="ani-existing-title-match",
+            external_status="tracking",
+            is_active=True,
+            auto_download=False,
+        )
+        db.add(existing)
+        await db.commit()
+        await db.refresh(existing)
+
+        created = await service.create_subscription(
+            db,
+            {
+                "rss_url": "https://example.test/anirss-title-match.xml",
+                "title": title,
+            },
+        )
+        await db.refresh(existing)
+
+        assert fake.added_ani["enable"] is False
+        assert created.id != existing.id
+        assert created.external_subscription_id == "ani-new-title-match"
+        assert created.is_active is False
+        assert existing.external_subscription_id == "ani-existing-title-match"
+        assert existing.is_active is True
 
 
 def test_extract_download_client_config_is_sanitized():

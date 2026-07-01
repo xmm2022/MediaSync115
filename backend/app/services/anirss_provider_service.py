@@ -1533,6 +1533,10 @@ class AniRssProviderService:
                         Subscription.provider == "anirss",
                         Subscription.external_system == "anirss",
                     ),
+                    or_(
+                        Subscription.external_subscription_id.is_(None),
+                        Subscription.external_subscription_id == "",
+                    ),
                 )
                 .limit(1)
             )
