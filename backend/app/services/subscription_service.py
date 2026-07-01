@@ -54,10 +54,8 @@ from app.services.subscriptions.resource_metadata import (
     build_tg_keyword,
     determine_resource_type,
     extract_resource_name,
-    is_already_received_error,
     is_video_filename,
     normalize_hdhive_subscription_items,
-    split_share_link_and_receive_code,
 )
 from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
@@ -92,24 +90,10 @@ from app.services.subscriptions.run_summary import (
     normalize_subscription_channel,
     resolve_run_status,
 )
-from app.services.subscriptions.auto_transfer_context import (
-    build_auto_transfer_tv_missing_context,
-)
-from app.services.subscriptions.auto_transfer_already_received import (
-    handle_already_received_transfer,
-)
-from app.services.subscriptions.auto_transfer_failure import (
-    handle_transfer_failure,
-)
-from app.services.subscriptions.auto_transfer_offline import (
-    is_offline_transfer_record,
-    submit_offline_transfer_record,
-)
-from app.services.subscriptions.auto_transfer_precise import (
-    submit_precise_transfer_record,
-)
-from app.services.subscriptions.auto_transfer_share import (
-    submit_share_transfer_record,
+from app.services.subscriptions.auto_transfer_batch import (
+    AutoTransferBatchDependencies,
+    AutoTransferBatchStatuses,
+    auto_save_resources_batch,
 )
 from app.services.subscriptions.hdhive_unlock import (
     allow_unlock_by_threshold,
@@ -130,9 +114,7 @@ from app.services.subscription_source_service import (
 from app.services.tg_service import tg_service
 from app.services.subscription_delete_service import subscription_delete_service
 from app.services.subscription_cleanup_policy import (
-    evaluate_tv_cleanup,
     has_upcoming_episodes_in_subscription_scope,
-    normalize_tv_follow_mode,
 )
 from app.services.tv_missing_service import tv_missing_service
 
@@ -1950,8 +1932,6 @@ class SubscriptionService:
         source: str,
         tv_missing_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        from app.models.models import MediaStatus
-
         runtime_cookie = runtime_settings_service.get_pan115_cookie()
         pan_service = Pan115Service(runtime_cookie)
         # 订阅自动转存应使用“默认转存文件夹”，而不是离线下载目录。
@@ -1960,24 +1940,6 @@ class SubscriptionService:
         )
         parent_folder_id = str(default_folder_id or "0")
         quality_filter = self._resolve_subscription_quality_filter(sub)
-
-        saved = 0
-        failed = 0
-        errors: list[dict[str, Any]] = []
-        subscription_completed = False
-        cleanup_step = ""
-        cleanup_message = ""
-        cleanup_payload: dict[str, Any] = {}
-
-        async def create_tv_missing_step_log(**kwargs: Any) -> None:
-            await self._create_step_log(
-                db,
-                run_id=run_id,
-                channel=channel,
-                subscription_id=sub.id,
-                subscription_title=sub.title,
-                **kwargs,
-            )
 
         async def fetch_tv_missing_status(**kwargs: Any) -> dict[str, Any]:
             _ = kwargs.pop("tmdb_id", None)
@@ -2000,6 +1962,14 @@ class SubscriptionService:
             return await pan_service.offline_task_add(
                 url=url,
                 wp_path_id=folder_id,
+            )
+
+        def get_offline_folder_id() -> str:
+            return str(
+                runtime_settings_service.get_pan115_offline_folder().get(
+                    "folder_id", "0"
+                )
+                or "0"
             )
 
         def emit_transfer_success(data: dict[str, Any]) -> None:
@@ -2027,177 +1997,47 @@ class SubscriptionService:
                 is_video_file=is_video_file,
             )
 
-        tv_missing_context = await build_auto_transfer_tv_missing_context(
-            sub=sub,
-            tv_missing_snapshot=tv_missing_snapshot,
-            fetch_tv_missing_status=fetch_tv_missing_status,
-            create_step_log=create_tv_missing_step_log,
+        statuses = AutoTransferBatchStatuses(
+            transferring=MediaStatus.TRANSFERRING,
+            downloading=MediaStatus.DOWNLOADING,
+            offline_submitted=MediaStatus.OFFLINE_SUBMITTED,
+            matched=MediaStatus.MATCHED,
+            completed=MediaStatus.COMPLETED,
+            failed=MediaStatus.FAILED,
         )
-        tv_missing_enabled = tv_missing_context.tv_missing_enabled
-        missing_episodes = tv_missing_context.missing_episodes
-        is_tv_subscription = tv_missing_context.is_tv_subscription
-
-        for record in records:
-            await self._create_step_log(
-                db,
-                run_id=run_id,
-                channel=channel,
-                subscription_id=sub.id,
-                subscription_title=sub.title,
-                step="auto_transfer_item_start",
-                status="info",
-                message=f"正在处理资源：{record.resource_name}",
-                payload={
-                    "source": source,
-                    "record_id": record.id,
-                    "resource_url": record.resource_url,
-                },
-            )
-            try:
-                # 磁力/ED2K 离线下载路径
-                if is_offline_transfer_record(record):
-                    offline_folder_id = str(
-                        runtime_settings_service.get_pan115_offline_folder().get(
-                            "folder_id", "0"
-                        )
-                        or "0"
-                    )
-                    offline_submission = await submit_offline_transfer_record(
-                        sub=sub,
-                        record=record,
-                        source=source,
-                        offline_folder_id=offline_folder_id,
-                        downloading_status=MediaStatus.DOWNLOADING,
-                        offline_submitted_status=MediaStatus.OFFLINE_SUBMITTED,
-                        now=beijing_now,
-                        submit_offline_task=submit_offline_task,
-                        log_operation=operation_log_service.log_background_event,
-                        create_step_log=create_auto_transfer_step_log,
-                        emit_transfer_success=emit_transfer_success,
-                    )
-                    saved += offline_submission.saved_increment
-                    if offline_submission.should_stop:
-                        break
-                    continue
-
-                share_link, receive_code = split_share_link_and_receive_code(
-                    record.resource_url
-                )
-                record.status = MediaStatus.TRANSFERRING
-                if tv_missing_enabled and is_tv_subscription:
-                    precise_submission = await submit_precise_transfer_record(
-                        sub=sub,
-                        record=record,
-                        source=source,
-                        share_link=share_link,
-                        receive_code=receive_code,
-                        parent_folder_id=parent_folder_id,
-                        quality_filter=quality_filter,
-                        missing_episodes=missing_episodes,
-                        matched_status=MediaStatus.MATCHED,
-                        extract_share_code=pan_service._extract_share_code,
-                        get_share_all_files_recursive=pan_service.get_share_all_files_recursive,
-                        select_missing_episode_files=select_precise_missing_episode_files,
-                        save_share_files_directly=pan_service.save_share_files_directly,
-                        apply_postprocess_status=self._apply_precise_transfer_postprocess_status,
-                        notify_transfer_success=self._notify_transfer_success,
-                        log_operation=operation_log_service.log_background_event,
-                        create_step_log=create_auto_transfer_step_log,
-                        emit_transfer_success=emit_transfer_success,
-                        normalize_follow_mode=normalize_tv_follow_mode,
-                        has_upcoming_episodes=has_upcoming_episodes_in_subscription_scope,
-                        evaluate_cleanup=evaluate_tv_cleanup,
-                        is_video_file=is_video_filename,
-                        trace_id=run_id,
-                    )
-                    saved += precise_submission.saved_increment
-                    subscription_completed = precise_submission.subscription_completed
-                    cleanup_step = precise_submission.cleanup_step
-                    cleanup_message = precise_submission.cleanup_message
-                    cleanup_payload = precise_submission.cleanup_payload
-                    if precise_submission.should_continue:
-                        continue
-                    if precise_submission.should_stop:
-                        break
-                else:
-                    share_submission = await submit_share_transfer_record(
-                        sub=sub,
-                        record=record,
-                        source=source,
-                        share_link=share_link,
-                        receive_code=receive_code,
-                        parent_folder_id=parent_folder_id,
-                        quality_filter=quality_filter,
-                        completed_status=MediaStatus.COMPLETED,
-                        now=beijing_now,
-                        save_share_directly=pan_service.save_share_directly,
-                        notify_transfer_success=self._notify_transfer_success,
-                        trigger_archive_after_transfer=media_postprocess_service.trigger_archive_after_transfer,
-                        log_operation=operation_log_service.log_background_event,
-                        create_step_log=create_auto_transfer_step_log,
-                        emit_transfer_success=emit_transfer_success,
-                        trace_id=run_id,
-                    )
-                    saved += share_submission.saved_increment
-                    subscription_completed = share_submission.subscription_completed
-                    cleanup_step = share_submission.cleanup_step
-                    cleanup_message = share_submission.cleanup_message
-                    cleanup_payload = share_submission.cleanup_payload
-                    if share_submission.should_stop:
-                        break
-            except Exception as exc:
-                if is_already_received_error(str(exc)):
-                    already_received_result = await handle_already_received_transfer(
-                        sub=sub,
-                        record=record,
-                        source=source,
-                        parent_folder_id=parent_folder_id,
-                        is_tv_subscription=is_tv_subscription,
-                        tv_missing_enabled=tv_missing_enabled,
-                        completed_status=MediaStatus.COMPLETED,
-                        now=beijing_now,
-                        apply_precise_postprocess_status=self._apply_precise_transfer_postprocess_status,
-                        notify_transfer_success=self._notify_transfer_success,
-                        create_step_log=create_auto_transfer_step_log,
-                        log_operation=operation_log_service.log_background_event,
-                        trace_id=run_id,
-                    )
-                    saved += already_received_result.saved_increment
-                    subscription_completed = (
-                        already_received_result.subscription_completed
-                    )
-                    cleanup_step = already_received_result.cleanup_step
-                    cleanup_message = already_received_result.cleanup_message
-                    cleanup_payload = already_received_result.cleanup_payload
-                    if already_received_result.should_stop:
-                        break
-                    if already_received_result.should_continue:
-                        continue
-                failure_result = await handle_transfer_failure(
-                    sub=sub,
-                    record=record,
-                    source=source,
-                    exc=exc,
-                    failed_status=MediaStatus.FAILED,
-                    create_step_log=create_auto_transfer_step_log,
-                    log_operation=operation_log_service.log_background_event,
-                    trace_id=run_id,
-                )
-                failed += failure_result.failed_increment
-                errors.append(failure_result.error_entry)
-
-        return {
-            "saved": saved,
-            "failed": failed,
-            "errors": errors,
-            "subscription_completed": subscription_completed,
-            "cleanup_step": cleanup_step,
-            "cleanup_message": cleanup_message,
-            "cleanup_payload": cleanup_payload,
-            "remaining_missing_count": len(missing_episodes)
-            if tv_missing_enabled
-            else None,
-        }
+        dependencies = AutoTransferBatchDependencies(
+            fetch_tv_missing_status=fetch_tv_missing_status,
+            create_step_log=create_auto_transfer_step_log,
+            get_offline_folder_id=get_offline_folder_id,
+            submit_offline_task=submit_offline_task,
+            emit_transfer_success=emit_transfer_success,
+            select_precise_missing_episode_files=select_precise_missing_episode_files,
+            extract_share_code=pan_service._extract_share_code,
+            get_share_all_files_recursive=pan_service.get_share_all_files_recursive,
+            save_share_files_directly=pan_service.save_share_files_directly,
+            save_share_directly=pan_service.save_share_directly,
+            apply_precise_postprocess_status=(
+                self._apply_precise_transfer_postprocess_status
+            ),
+            notify_transfer_success=self._notify_transfer_success,
+            trigger_archive_after_transfer=(
+                media_postprocess_service.trigger_archive_after_transfer
+            ),
+            log_operation=operation_log_service.log_background_event,
+            now=beijing_now,
+            is_video_file=is_video_filename,
+        )
+        return await auto_save_resources_batch(
+            sub=sub,
+            records=records,
+            source=source,
+            parent_folder_id=parent_folder_id,
+            quality_filter=quality_filter,
+            statuses=statuses,
+            dependencies=dependencies,
+            tv_missing_snapshot=tv_missing_snapshot,
+            trace_id=run_id,
+        )
 
     async def _create_execution_log(
         self,
