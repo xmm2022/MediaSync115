@@ -28,6 +28,10 @@ from app.services.feiniu_sync_index_service import feiniu_sync_index_service
 from app.services.butailing_service import butailing_service
 from app.services.hdhive_service import hdhive_service
 from app.services.pansou_service import pansou_service
+from app.services.resource_search import (
+    normalize_pansou_pan115_list as _resource_normalize_pansou_pan115_list,
+    search_pansou_pan115_resources as _resource_search_pansou_pan115_resources,
+)
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.operation_log_service import operation_log_service
 from app.services.seedhub_service import seedhub_service
@@ -1024,54 +1028,7 @@ def _build_seedhub_keyword_candidates(
 
 
 def _normalize_pansou_pan115_list(payload: Any) -> list[dict]:
-    rows = _extract_pansou_rows(payload)
-    items: list[dict] = []
-    seen_links: set[str] = set()
-
-    for index, row in enumerate(rows):
-        if not isinstance(row, dict):
-            continue
-
-        share_link = _extract_pansou_share_link(row)
-        if not _is_likely_115_share_identifier(share_link):
-            continue
-
-        # 基于 share_link 去重，避免同一个分享链接出现多次
-        link_key = share_link.strip().lower()
-        if link_key in seen_links:
-            continue
-        seen_links.add(link_key)
-
-        title = _extract_first_string_value(
-            row,
-            ["title", "name", "resource_name", "file_name", "filename", "text"],
-        )
-        if not title or title == "盘搜资源":
-            # 尝试从 share_link 中提取更有意义的标题
-            title = f"115资源 #{len(items) + 1}"
-
-        size = _extract_first_string_value(row, ["size"])
-        resolution = _extract_first_string_value(row, ["resolution"])
-        quality = _extract_first_string_value(row, ["quality"])
-
-        resource_id = row.get("id")
-        if resource_id is None:
-            resource_id = f"pansou-pan115-{hashlib.md5(link_key.encode('utf-8')).hexdigest()[:12]}-{index}"
-
-        items.append(
-            {
-                "id": resource_id,
-                "title": title,
-                "size": size,
-                "resolution": resolution,
-                "quality": quality,
-                "share_link": share_link,
-                "source_service": "pansou",
-                "raw_item": row,
-            }
-        )
-
-    return items
+    return _resource_normalize_pansou_pan115_list(payload)
 
 
 _QUARK_SHARE_URL_PATTERN_API = re.compile(
@@ -2483,77 +2440,7 @@ async def _load_media_payload(tmdb_id: int, media_type: str) -> dict:
 async def _search_pansou_pan115_resources(
     tmdb_id: int, media_type: str, season: int | None = None
 ) -> dict[str, Any]:
-    pansou_service.set_base_url(runtime_settings_service.get_pansou_base_url())
-    media_payload = await _load_media_payload(tmdb_id, media_type)
-
-    keyword_candidates = _build_pansou_keyword_candidates(
-        media_payload, media_type, tmdb_id, season
-    )
-    selected_keyword = (
-        keyword_candidates[0] if keyword_candidates else f"TMDB {tmdb_id}"
-    )
-    attempted_keywords: list[str] = []
-    attempts: list[dict[str, Any]] = []
-
-    # 并行搜索所有关键词，取第一个有结果的
-    async def _try_pansou_keyword(kw: str) -> dict[str, Any] | None:
-        try:
-            pansou_payload = await pansou_service.search_115(kw, res="results")
-            pansou_list = _normalize_pansou_pan115_list(pansou_payload)
-            return {
-                "keyword": kw,
-                "list": pansou_list,
-                "status": "ok",
-                "count": len(pansou_list),
-            }
-        except Exception as exc:
-            attempts.append(
-                {
-                    "service": "pansou",
-                    "keyword": kw,
-                    "status": "error",
-                    "error": str(exc),
-                }
-            )
-            return None
-
-    tasks = [_try_pansou_keyword(kw) for kw in keyword_candidates]
-    attempted_keywords = list(keyword_candidates)
-    for coro in asyncio.as_completed(tasks):
-        result = await coro
-        if result and result["list"]:
-            attempts.append(
-                {
-                    "service": "pansou",
-                    "keyword": result["keyword"],
-                    "status": "ok",
-                    "count": result["count"],
-                }
-            )
-            return {
-                "keyword": result["keyword"],
-                "list": result["list"],
-                "attempted_keywords": attempted_keywords,
-                "keyword_hit_index": keyword_candidates.index(result["keyword"]),
-                "attempts": attempts,
-            }
-        if result:
-            attempts.append(
-                {
-                    "service": "pansou",
-                    "keyword": result["keyword"],
-                    "status": "ok",
-                    "count": 0,
-                }
-            )
-
-    return {
-        "keyword": selected_keyword,
-        "list": [],
-        "attempted_keywords": attempted_keywords,
-        "keyword_hit_index": None,
-        "attempts": attempts,
-    }
+    return await _resource_search_pansou_pan115_resources(tmdb_id, media_type, season)
 
 
 async def _search_pansou_quark_resources(

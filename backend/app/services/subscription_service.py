@@ -24,10 +24,6 @@ from app.models.models import (
     SubscriptionSource,
     SubscriptionStepLog,
 )
-from app.api.search import (
-    _normalize_pansou_pan115_list,
-    _search_pansou_pan115_resources,
-)
 from app.core.database import async_session_maker
 from app.services.butailing_service import butailing_service
 from app.services.media_postprocess_service import media_postprocess_service
@@ -38,6 +34,10 @@ from app.services.feiniu_sync_index_service import feiniu_sync_index_service
 from app.services.hdhive_service import hdhive_service
 from app.services.pan115_service import Pan115Service
 from app.services.pansou_service import pansou_service
+from app.services.resource_search import (
+    normalize_pansou_pan115_list as _normalize_pansou_pan115_list,
+    search_pansou_pan115_resources as _search_pansou_pan115_resources,
+)
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.seedhub_service import seedhub_service
 from app.services.subscription_source_service import (
