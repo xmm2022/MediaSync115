@@ -43,8 +43,6 @@ from app.services.subscriptions.link_fallback_flow import (
 )
 from app.services.subscriptions.record_selection import (
     dedupe_records_by_resource_url,
-    exclude_new_records,
-    merge_records,
     select_retryable_records,
 )
 from app.services.subscriptions.resource_metadata import (
@@ -157,6 +155,10 @@ from app.services.subscriptions.run_lifecycle_logs import (
     build_subscription_failed_event_kwargs,
     build_subscription_failed_step,
     build_subscription_start_step,
+)
+from app.services.subscriptions.auto_transfer_retry_records import (
+    AutoTransferRetryRecordDependencies,
+    select_auto_transfer_retry_records,
 )
 from app.services.subscriptions.auto_transfer_batch import (
     AutoTransferBatchDependencies,
@@ -377,20 +379,19 @@ class SubscriptionService:
                         sub_failed_transfer_count = 0
                         cleanup_after_auto: dict[str, Any] | None = None
                         if should_auto_download:
-                            retry_records = []
-                            if sub.auto_download:
-                                retry_records = await self._load_retryable_records(inner_db, sub_id)
-                            if force_auto_download and duplicate_urls:
-                                duplicate_retry_records = await self._load_force_retry_records(
-                                    inner_db,
-                                    sub_id,
-                                    duplicate_urls,
-                                )
-                                retry_records = merge_records(
-                                    retry_records, duplicate_retry_records
-                                )
-                            retry_records = exclude_new_records(
-                                retry_records, created_records
+                            retry_records = await select_auto_transfer_retry_records(
+                                db=inner_db,
+                                subscription_id=sub_id,
+                                auto_download=bool(sub.auto_download),
+                                force_auto_download=force_auto_download,
+                                duplicate_urls=duplicate_urls,
+                                created_records=created_records,
+                                dependencies=AutoTransferRetryRecordDependencies(
+                                    load_retryable_records=self._load_retryable_records,
+                                    load_force_retry_records=(
+                                        self._load_force_retry_records
+                                    ),
+                                ),
                             )
 
                             if created_records:
