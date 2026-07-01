@@ -146,6 +146,10 @@ from app.services.subscriptions.run_state import (
     build_start_progress_payload,
 )
 from app.services.subscriptions.run_loader import load_active_subscription_snapshots
+from app.services.subscriptions.run_dispatch_flow import (
+    SubscriptionRunDispatchDependencies,
+    dispatch_subscription_checks,
+)
 from app.services.subscriptions.transfer_phase_run_flow import (
     SubscriptionTransferPhaseDependencies,
     run_subscription_transfer_phase,
@@ -242,7 +246,6 @@ class SubscriptionService:
         if progress_callback:
             await progress_callback(build_start_progress_payload(result))
 
-        scan_semaphore = asyncio.Semaphore(_SUBSCRIPTION_SCAN_CONCURRENCY)
         result_lock = asyncio.Lock()
 
         async def _process_subscription(sub: SubscriptionSnapshot) -> None:
@@ -465,13 +468,13 @@ class SubscriptionService:
                             progress_callback=progress_callback,
                         )
 
-
-        async def _bounded_subscription(sub: SubscriptionSnapshot) -> None:
-            async with scan_semaphore:
-                await _process_subscription(sub)
-
-        if subscriptions:
-            await asyncio.gather(*(_bounded_subscription(sub) for sub in subscriptions))
+        await dispatch_subscription_checks(
+            subscriptions=subscriptions,
+            concurrency=_SUBSCRIPTION_SCAN_CONCURRENCY,
+            dependencies=SubscriptionRunDispatchDependencies(
+                process_subscription=_process_subscription,
+            ),
+        )
 
         await finalize_subscription_run(
             db=db,
