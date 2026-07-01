@@ -143,6 +143,12 @@ from app.services.subscriptions.run_transfer_logs import (
     build_auto_transfer_start_step,
     build_auto_transfer_summary_step,
 )
+from app.services.subscriptions.run_cleanup_logs import (
+    build_cleanup_after_transfer_event_kwargs,
+    build_cleanup_after_transfer_step,
+    build_fixed_source_movie_cleanup_event_kwargs,
+    build_fixed_source_movie_cleanup_step,
+)
 from app.services.subscriptions.auto_transfer_batch import (
     AutoTransferBatchDependencies,
     AutoTransferBatchStatuses,
@@ -536,17 +542,12 @@ class SubscriptionService:
                             if cleanup_after_auto is not None:
                                 await self._delete_subscription_with_records(inner_db, sub_id)
                                 await operation_log_service.log_background_event(
-                                    source_type="background_task",
-                                    module="subscriptions",
-                                    action="subscription.item.cleanup_after_transfer",
-                                    status="success",
-                                    message=f"[{sub_title}] 转存完成后自动清理订阅：{str(cleanup_after_auto.get('cleanup_message') or '订阅已自动清理')}",
-                                    trace_id=run_id,
-                                    extra={
-                                        "subscription_id": sub_id,
-                                        "title": sub_title,
-                                        "reason": cleanup_after_auto.get("cleanup_step"),
-                                    },
+                                    **build_cleanup_after_transfer_event_kwargs(
+                                        subscription_id=sub_id,
+                                        subscription_title=sub_title,
+                                        trace_id=run_id,
+                                        cleanup_stats=cleanup_after_auto,
+                                    )
                                 )
                                 await self._create_step_log(
                                     inner_db,
@@ -554,20 +555,9 @@ class SubscriptionService:
                                     channel=normalized_channel,
                                     subscription_id=sub_id,
                                     subscription_title=sub_title,
-                                    step=str(
-                                        cleanup_after_auto.get("cleanup_step")
-                                        or "subscription_cleanup_after_transfer"
+                                    **build_cleanup_after_transfer_step(
+                                        cleanup_after_auto
                                     ),
-                                    status="success",
-                                    message=str(
-                                        cleanup_after_auto.get("cleanup_message")
-                                        or "订阅已自动清理"
-                                    ),
-                                    payload=cleanup_after_auto.get("cleanup_payload")
-                                    if isinstance(
-                                        cleanup_after_auto.get("cleanup_payload"), dict
-                                    )
-                                    else None,
                                 )
                                 async with result_lock:
                                     apply_cleanup_stats(
@@ -615,17 +605,11 @@ class SubscriptionService:
                             if sub.media_type == MediaType.MOVIE and fixed_saved > 0:
                                 await self._delete_subscription_with_records(inner_db, sub_id)
                                 await operation_log_service.log_background_event(
-                                    source_type="background_task",
-                                    module="subscriptions",
-                                    action="subscription.item.cleanup_after_fixed_source",
-                                    status="success",
-                                    message=f"[{sub_title}] 电影固定来源转存完成，自动删除订阅",
-                                    trace_id=run_id,
-                                    extra={
-                                        "subscription_id": sub_id,
-                                        "title": sub_title,
-                                        "reason": "movie_fixed_source_transferred",
-                                    },
+                                    **build_fixed_source_movie_cleanup_event_kwargs(
+                                        subscription_id=sub_id,
+                                        subscription_title=sub_title,
+                                        trace_id=run_id,
+                                    )
                                 )
                                 await self._create_step_log(
                                     inner_db,
@@ -633,10 +617,9 @@ class SubscriptionService:
                                     channel=normalized_channel,
                                     subscription_id=sub_id,
                                     subscription_title=sub_title,
-                                    step="subscription_cleanup_movie_fixed_source",
-                                    status="success",
-                                    message="电影固定来源转存完成，订阅已自动清理",
-                                    payload={"fixed_saved": fixed_saved},
+                                    **build_fixed_source_movie_cleanup_step(
+                                        fixed_saved
+                                    ),
                                 )
                                 async with result_lock:
                                     apply_cleanup_stats(
