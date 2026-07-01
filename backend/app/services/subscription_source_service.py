@@ -306,6 +306,7 @@ class SubscriptionSourceService:
                         "skipped_reason": "already_transferred",
                     }
 
+                selected_file_ids_fallback = False
                 if configured_file_ids:
                     selected_items = [
                         item
@@ -314,6 +315,12 @@ class SubscriptionSourceService:
                         and _item_file_id(item) in configured_file_ids
                         and is_video_filename(str(item.get("name") or ""))
                     ]
+                    if not selected_items:
+                        selected_items = pan_service._select_files_for_best_quality_transfer(
+                            all_files,
+                            quality_filter or {},
+                        )
+                        selected_file_ids_fallback = True
                 else:
                     selected_items = pan_service._select_files_for_best_quality_transfer(
                         all_files,
@@ -348,6 +355,8 @@ class SubscriptionSourceService:
                 source.last_error = None
                 source.last_found_episode = None
                 source.last_transferred_count = len(selected_file_ids)
+                if selected_file_ids_fallback:
+                    source.selected_file_ids = encode_selected_file_ids(selected_file_ids)
                 source.updated_at = now
                 await db.flush()
                 return {
@@ -355,6 +364,7 @@ class SubscriptionSourceService:
                     "total_files": len(all_files),
                     "selected_count": len(selected_file_ids),
                     "transferred_count": len(selected_file_ids),
+                    "selected_file_ids_fallback": selected_file_ids_fallback,
                 }
 
             selected_items, parsed_count, unparsed_video_count = (

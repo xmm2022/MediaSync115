@@ -204,6 +204,75 @@ async def test_scan_manual_movie_source_transfers_best_video():
 
 
 @pytest.mark.asyncio
+async def test_scan_manual_movie_source_falls_back_when_selected_file_ids_are_stale():
+    from app.core.database import async_session_maker, ensure_tables_exist
+    from app.services.subscription_source_service import (
+        decode_selected_file_ids,
+        subscription_source_service,
+    )
+
+    class FakePanService:
+        saved_file_ids: list[str] = []
+
+        def _extract_share_code(self, share_url: str) -> str:
+            return "abc125"
+
+        async def get_share_all_files_recursive(self, share_code: str, receive_code: str):
+            return [
+                {"fid": "replacement-low", "name": "Movie.2026.720p.mkv", "size": 100},
+                {"fid": "replacement-high", "name": "Movie.2026.2160p.mkv", "size": 400},
+            ]
+
+        def _select_files_for_best_quality_transfer(self, files, quality_filter=None):
+            return [files[1]]
+
+        async def save_share_files_directly(self, *, share_url, file_ids, parent_id, receive_code):
+            self.saved_file_ids = list(file_ids)
+            return {"success": True}
+
+    await ensure_tables_exist()
+    async with async_session_maker() as db:
+        await _delete_sources_by_share(db, "abc125")
+        await _delete_subscription_by_tmdb(db, 2003)
+        await db.commit()
+        movie = Subscription(
+            tmdb_id=2003,
+            title="Movie Source Replaced",
+            media_type=MediaType.MOVIE,
+            auto_download=True,
+        )
+        db.add(movie)
+        await db.commit()
+        await db.refresh(movie)
+
+        source = await subscription_source_service.create_manual_pan115_source(
+            db,
+            subscription_id=movie.id,
+            share_url="https://115.com/s/abc125?password=abcd",
+            receive_code="",
+            display_name="Movie Source Replaced",
+            selected_file_ids=["stale-file-id"],
+        )
+        pan_service = FakePanService()
+
+        result = await subscription_source_service.scan_manual_pan115_source(
+            db,
+            source=source,
+            subscription=movie,
+            pan_service=pan_service,
+            parent_folder_id="0",
+            missing_episodes=set(),
+            quality_filter={},
+        )
+        await db.commit()
+
+        assert result["transferred_count"] == 1
+        assert result["selected_file_ids_fallback"] is True
+        assert pan_service.saved_file_ids == ["replacement-high"]
+        assert decode_selected_file_ids(source.selected_file_ids) == ["replacement-high"]
+
+
+@pytest.mark.asyncio
 async def test_scan_manual_tv_source_respects_selected_file_ids():
     from app.core.database import async_session_maker, ensure_tables_exist
     from app.services.subscription_source_service import (
