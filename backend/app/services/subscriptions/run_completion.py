@@ -81,3 +81,33 @@ def build_run_finish_step_payload(result: dict[str, Any]) -> dict[str, Any]:
         "hdhive_unlock_skipped_count": result["hdhive_unlock_skipped_count"],
         "hdhive_unlock_points_spent": result["hdhive_unlock_points_spent"],
     }
+
+
+def apply_run_finalize_error(
+    result: dict[str, Any],
+    *,
+    summary_message: str,
+    finalize_error: str,
+    success_status_value: str,
+    partial_status_value: str,
+) -> None:
+    result["errors"].append({"stage": "run_finalize", "error": finalize_error})
+    result["finalize_error"] = finalize_error
+    result["message"] = f"{summary_message}；收尾阶段异常: {finalize_error[:200]}"
+    if result["status"] == success_status_value:
+        result["status"] = partial_status_value
+
+
+def build_run_finalize_failed_message(finalize_error: str) -> str:
+    return f"写入执行日志失败：{finalize_error[:200]}"
+
+
+def build_run_finalize_failed_payload(
+    finalize_error: str,
+    *,
+    status_before_finalize: str,
+) -> dict[str, Any]:
+    return {
+        "error": finalize_error[:500],
+        "status_before_finalize": status_before_finalize,
+    }

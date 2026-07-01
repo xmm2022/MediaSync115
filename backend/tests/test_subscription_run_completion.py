@@ -6,6 +6,9 @@ from typing import Any
 
 from app.services.subscriptions.run_completion import (
     apply_hdhive_unlock_stats,
+    apply_run_finalize_error,
+    build_run_finalize_failed_message,
+    build_run_finalize_failed_payload,
     build_run_finish_event_extra,
     build_run_finish_event_message,
     build_run_finish_step_payload,
@@ -114,6 +117,63 @@ def test_build_run_finish_step_payload_matches_existing_shape() -> None:
         "hdhive_unlock_failed_count": 1,
         "hdhive_unlock_skipped_count": 1,
         "hdhive_unlock_points_spent": 9,
+    }
+
+
+def test_apply_run_finalize_error_downgrades_success_and_records_error() -> None:
+    result = {
+        "status": "success",
+        "message": "old",
+        "errors": [],
+    }
+    finalize_error = "x" * 205
+
+    apply_run_finalize_error(
+        result,
+        summary_message="共 4 个订阅",
+        finalize_error=finalize_error,
+        success_status_value="success",
+        partial_status_value="partial",
+    )
+
+    assert result["status"] == "partial"
+    assert result["finalize_error"] == finalize_error
+    assert result["errors"] == [{"stage": "run_finalize", "error": finalize_error}]
+    assert result["message"] == f"共 4 个订阅；收尾阶段异常: {'x' * 200}"
+
+
+def test_apply_run_finalize_error_keeps_non_success_status() -> None:
+    result = {
+        "status": "partial",
+        "message": "old",
+        "errors": [],
+    }
+
+    apply_run_finalize_error(
+        result,
+        summary_message="共 4 个订阅",
+        finalize_error="write failed",
+        success_status_value="success",
+        partial_status_value="partial",
+    )
+
+    assert result["status"] == "partial"
+    assert result["message"] == "共 4 个订阅；收尾阶段异常: write failed"
+
+
+def test_build_run_finalize_failed_message_truncates_error() -> None:
+    assert build_run_finalize_failed_message("e" * 205) == (
+        f"写入执行日志失败：{'e' * 200}"
+    )
+
+
+def test_build_run_finalize_failed_payload_truncates_error() -> None:
+    assert build_run_finalize_failed_payload(
+        "e" * 505,
+        status_before_finalize="success",
+    ) == {
+        "error": "e" * 500,
+        "status_before_finalize": "success",
     }
 
 

@@ -105,6 +105,9 @@ from app.services.subscriptions.run_summary import (
 )
 from app.services.subscriptions.run_completion import (
     apply_hdhive_unlock_stats,
+    apply_run_finalize_error,
+    build_run_finalize_failed_message,
+    build_run_finalize_failed_payload,
     build_run_finish_event_extra,
     build_run_finish_event_message,
     build_run_finish_step_payload,
@@ -893,11 +896,13 @@ class SubscriptionService:
         except Exception as exc:
             finalize_error = str(exc)
             await db.rollback()
-            result["errors"].append({"stage": "run_finalize", "error": finalize_error})
-            result["finalize_error"] = finalize_error
-            result["message"] = f"{message}；收尾阶段异常: {finalize_error[:200]}"
-            if result["status"] == ExecutionStatus.SUCCESS.value:
-                result["status"] = ExecutionStatus.PARTIAL.value
+            apply_run_finalize_error(
+                result,
+                summary_message=message,
+                finalize_error=finalize_error,
+                success_status_value=ExecutionStatus.SUCCESS.value,
+                partial_status_value=ExecutionStatus.PARTIAL.value,
+            )
 
             try:
                 await self._create_step_log(
@@ -906,11 +911,11 @@ class SubscriptionService:
                     channel=normalized_channel,
                     step="run_finalize_failed",
                     status="warning",
-                    message=f"写入执行日志失败：{finalize_error[:200]}",
-                    payload={
-                        "error": finalize_error[:500],
-                        "status_before_finalize": status.value,
-                    },
+                    message=build_run_finalize_failed_message(finalize_error),
+                    payload=build_run_finalize_failed_payload(
+                        finalize_error,
+                        status_before_finalize=status.value,
+                    ),
                 )
                 await db.commit()
             except Exception:
