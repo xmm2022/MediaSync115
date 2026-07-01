@@ -19,7 +19,6 @@ from app.models.models import (
     SubscriptionSource,
 )
 from app.core.database import async_session_maker
-from app.services.butailing_service import butailing_service
 from app.services.media_postprocess_service import media_postprocess_service
 from app.services.operation_log_service import operation_log_service
 from app.services.emby_service import emby_service
@@ -27,11 +26,6 @@ from app.services.feiniu_service import feiniu_service
 from app.services.feiniu_sync_index_service import feiniu_sync_index_service
 from app.services.hdhive_service import hdhive_service
 from app.services.pan115_service import Pan115Service
-from app.services.pansou_service import pansou_service
-from app.services.resource_search import (
-    normalize_pansou_pan115_list as _normalize_pansou_pan115_list,
-    search_pansou_pan115_resources as _search_pansou_pan115_resources,
-)
 from app.services.subscriptions.resource_candidates import (
     extract_resource_url,
     normalize_share_url,
@@ -50,18 +44,11 @@ from app.services.subscriptions.record_selection import (
 from app.services.subscriptions.resource_metadata import (
     normalize_hdhive_subscription_items,
 )
-from app.services.subscriptions.resource_fetchers import (
-    fetch_from_hdhive as fetch_from_hdhive_flow,
-    fetch_from_pansou as fetch_from_pansou_flow,
-    fetch_from_tg as fetch_from_tg_flow,
-    fetch_offline_magnets as fetch_offline_magnets_flow,
-)
-from app.services.subscriptions.resource_fetcher_adapter import (
-    ResourceFetcherAdapterDependencies,
-    fetch_from_hdhive_with_adapter,
-    fetch_from_pansou_with_adapter,
-    fetch_from_tg_with_adapter,
-    fetch_offline_magnets_with_adapter,
+from app.services.subscriptions.resource_fetcher_runtime_adapter import (
+    fetch_from_hdhive_with_runtime_adapter,
+    fetch_from_pansou_with_runtime_adapter,
+    fetch_from_tg_with_runtime_adapter,
+    fetch_offline_magnets_with_runtime_adapter,
 )
 from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
@@ -142,12 +129,10 @@ from app.services.subscriptions.transfer_notifications import (
     notify_transfer_success as notify_transfer_success_flow,
 )
 from app.services.runtime_settings_service import runtime_settings_service
-from app.services.seedhub_service import seedhub_service
 from app.services.subscription_source_service import (
     MANUAL_PAN115_SOURCE,
     subscription_source_service,
 )
-from app.services.tg_service import tg_service
 from app.services.subscription_delete_service import subscription_delete_service
 from app.services.subscription_cleanup_policy import (
     has_upcoming_episodes_in_subscription_scope,
@@ -516,64 +501,26 @@ class SubscriptionService:
         )
         return resolve_source_order(priority, tg_ready=tg_ready)
 
-    def _resource_fetcher_adapter_dependencies(
-        self,
-    ) -> ResourceFetcherAdapterDependencies:
-        return ResourceFetcherAdapterDependencies(
-            search_pansou_by_tmdb=_search_pansou_pan115_resources,
-            search_pansou_keyword=pansou_service.search_115,
-            normalize_pansou_resources=_normalize_pansou_pan115_list,
-            get_hdhive_tv_pan115=hdhive_service.get_tv_pan115,
-            get_hdhive_movie_pan115=hdhive_service.get_movie_pan115,
-            get_hdhive_by_keyword=hdhive_service.get_pan115_by_keyword,
-            normalize_hdhive_items=normalize_hdhive_subscription_items,
-            prefer_hdhive_free=runtime_settings_service.get_subscription_hdhive_prefer_free,
-            sort_hdhive_free_first=hdhive_service.sort_free_first,
-            search_tg_by_keyword=tg_service.search_115_by_keyword,
-            offline_transfer_enabled=(
-                runtime_settings_service.get_subscription_offline_transfer_enabled
-            ),
-            search_seedhub_magnets=seedhub_service.search_magnets_by_keyword,
-            search_butailing_magnets=butailing_service.search_magnets,
-            log_background_event=operation_log_service.log_background_event,
-            run_fetch_from_pansou=fetch_from_pansou_flow,
-            run_fetch_from_hdhive=fetch_from_hdhive_flow,
-            run_fetch_from_tg=fetch_from_tg_flow,
-            run_fetch_offline_magnets=fetch_offline_magnets_flow,
-        )
-
     async def _fetch_from_pansou(
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_from_pansou_with_adapter(
-            sub,
-            dependencies=self._resource_fetcher_adapter_dependencies(),
-        )
+        return await fetch_from_pansou_with_runtime_adapter(sub)
 
     async def _fetch_from_hdhive(
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_from_hdhive_with_adapter(
-            sub,
-            dependencies=self._resource_fetcher_adapter_dependencies(),
-        )
+        return await fetch_from_hdhive_with_runtime_adapter(sub)
 
     async def _fetch_from_tg(
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_from_tg_with_adapter(
-            sub,
-            dependencies=self._resource_fetcher_adapter_dependencies(),
-        )
+        return await fetch_from_tg_with_runtime_adapter(sub)
 
     async def _fetch_offline_magnets(
         self,
         sub: "SubscriptionSnapshot",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_offline_magnets_with_adapter(
-            sub,
-            dependencies=self._resource_fetcher_adapter_dependencies(),
-        )
+        return await fetch_offline_magnets_with_runtime_adapter(sub)
 
     def _build_hdhive_unlock_context(self) -> dict[str, Any]:
         budget_total = runtime_settings_service.get_subscription_hdhive_unlock_budget_points_per_run()
