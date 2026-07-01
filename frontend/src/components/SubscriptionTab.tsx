@@ -1466,6 +1466,7 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
                           style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" } as React.CSSProperties}>
                           {[
                             { key: "follow" as const, label: "追新 / 转存", icon: Activity },
+                            { key: "missing" as const, label: "缺集 / 来源", icon: AlertCircle },
                           ].map((item) => {
                             const Icon = item.icon;
                             const active = detailPanelTab === item.key;

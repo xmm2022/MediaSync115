@@ -100,6 +100,16 @@ class FrontendContractsTest(unittest.TestCase):
         ):
             self.assertIn(key, settings)
 
+    def test_subscription_detail_exposes_missing_source_tab(self) -> None:
+        subscriptions = read_source("src/components/SubscriptionTab.tsx")
+
+        self.assertIn('type SubscriptionDetailTab = "follow" | "missing"', subscriptions)
+        self.assertIn(
+            '{ key: "missing" as const, label: "缺集 / 来源", icon: AlertCircle }',
+            subscriptions,
+        )
+        self.assertIn('detailPanelTab === "missing"', subscriptions)
+
     def test_settings_exposes_archive_quark_and_auth_configuration(self) -> None:
         settings = read_source("src/components/SettingsTab.tsx")
 
