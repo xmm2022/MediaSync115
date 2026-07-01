@@ -94,6 +94,10 @@ from app.services.subscriptions.fixed_source_scan import (
     scan_fixed_sources_for_subscription as scan_fixed_sources_flow,
     should_scan_fixed_sources as should_scan_fixed_sources_policy,
 )
+from app.services.subscriptions.fixed_source_run_flow import (
+    FixedSourceRunDependencies,
+    run_fixed_source_for_subscription,
+)
 from app.services.subscriptions.resource_resolver import (
     resolve_subscription_resources,
 )
@@ -144,10 +148,6 @@ from app.services.subscriptions.run_item_logs import (
     build_fetch_trace_step_log,
     build_store_done_event_kwargs,
     build_store_new_resources_step,
-)
-from app.services.subscriptions.run_cleanup_logs import (
-    build_fixed_source_movie_cleanup_event_kwargs,
-    build_fixed_source_movie_cleanup_step,
 )
 from app.services.subscriptions.run_lifecycle_logs import (
     build_subscription_auto_cleaned_event_kwargs,
@@ -467,58 +467,61 @@ class SubscriptionService:
                         )
                         cleanup_after_auto = auto_transfer_result.cleanup_after_auto
 
-                        if (
-                            cleanup_after_auto is None
-                            and self._should_scan_fixed_sources(
-                                sub,
-                                force_auto_download=force_auto_download,
-                            )
-                        ):
-                            fixed_source_stats = (
-                                await self._scan_fixed_sources_for_subscription(
-                                    inner_db,
-                                    run_id=run_id,
-                                    channel=normalized_channel,
-                                    sub=sub,
-                                    tv_missing_snapshot=tv_missing_snapshot,
-                                    force_auto_download=force_auto_download,
-                                )
-                            )
-                            fixed_saved = int(fixed_source_stats.get("saved") or 0)
-                            fixed_failed = int(fixed_source_stats.get("failed") or 0)
-                            sub_saved_count += fixed_saved
-                            sub_failed_transfer_count += fixed_failed
+                        async def apply_fixed_source_stats_for_run(
+                            saved: int,
+                            failed: int,
+                        ) -> None:
                             async with result_lock:
                                 apply_fixed_source_transfer_stats(
                                     result,
-                                    saved=fixed_saved,
-                                    failed=fixed_failed,
+                                    saved=saved,
+                                    failed=failed,
                                 )
-                            if sub.media_type == MediaType.MOVIE and fixed_saved > 0:
-                                await self._delete_subscription_with_records(inner_db, sub_id)
-                                await operation_log_service.log_background_event(
-                                    **build_fixed_source_movie_cleanup_event_kwargs(
-                                        subscription_id=sub_id,
-                                        subscription_title=sub_title,
-                                        trace_id=run_id,
-                                    )
+
+                        async def apply_fixed_source_cleanup_stats_for_run(
+                            media_type: Any,
+                        ) -> None:
+                            async with result_lock:
+                                apply_cleanup_stats(
+                                    result,
+                                    media_type,
+                                    tv_media_type=MediaType.TV,
                                 )
-                                await self._create_step_log(
-                                    inner_db,
-                                    run_id=run_id,
-                                    channel=normalized_channel,
-                                    subscription_id=sub_id,
-                                    subscription_title=sub_title,
-                                    **build_fixed_source_movie_cleanup_step(
-                                        fixed_saved
-                                    ),
-                                )
-                                async with result_lock:
-                                    apply_cleanup_stats(
-                                        result,
-                                        sub.media_type,
-                                        tv_media_type=MediaType.TV,
-                                    )
+
+                        fixed_source_result = await run_fixed_source_for_subscription(
+                            db=inner_db,
+                            run_id=run_id,
+                            channel=normalized_channel,
+                            sub=sub,
+                            cleanup_after_auto=cleanup_after_auto,
+                            force_auto_download=force_auto_download,
+                            tv_missing_snapshot=tv_missing_snapshot,
+                            dependencies=FixedSourceRunDependencies(
+                                should_scan_fixed_sources=self._should_scan_fixed_sources,
+                                scan_fixed_sources_for_subscription=(
+                                    self._scan_fixed_sources_for_subscription
+                                ),
+                                create_step_log=self._create_step_log,
+                                log_background_event=(
+                                    operation_log_service.log_background_event
+                                ),
+                                delete_subscription_with_records=(
+                                    self._delete_subscription_with_records
+                                ),
+                                apply_fixed_source_transfer_stats=(
+                                    apply_fixed_source_stats_for_run
+                                ),
+                                apply_cleanup_stats=(
+                                    apply_fixed_source_cleanup_stats_for_run
+                                ),
+                            ),
+                        )
+                        sub_saved_count += (
+                            fixed_source_result.sub_saved_count_delta
+                        )
+                        sub_failed_transfer_count += (
+                            fixed_source_result.sub_failed_transfer_count_delta
+                        )
 
                         await self._create_step_log(
                             inner_db,
