@@ -24,12 +24,7 @@ from app.services.operation_log_service import operation_log_service
 from app.services.emby_service import emby_service
 from app.services.feiniu_service import feiniu_service
 from app.services.feiniu_sync_index_service import feiniu_sync_index_service
-from app.services.hdhive_service import hdhive_service
 from app.services.pan115_service import Pan115Service
-from app.services.subscriptions.resource_candidates import (
-    extract_resource_url,
-    normalize_share_url,
-)
 from app.services.subscriptions.link_fallback_flow import (
     auto_save_records_with_link_fallback as auto_save_records_with_link_fallback_flow,
 )
@@ -40,9 +35,6 @@ from app.services.subscriptions.link_fallback_adapter import (
 from app.services.subscriptions.record_selection import (
     dedupe_records_by_resource_url,
     select_retryable_records,
-)
-from app.services.subscriptions.resource_metadata import (
-    normalize_hdhive_subscription_items,
 )
 from app.services.subscriptions.resource_fetcher_runtime_adapter import (
     fetch_from_hdhive_with_runtime_adapter,
@@ -119,10 +111,12 @@ from app.services.subscriptions.auto_save_resources_runtime_adapter import (
 )
 from app.services.subscriptions.hdhive_unlock import (
     allow_unlock_by_threshold,
-    build_hdhive_unlock_context,
-    prepare_hdhive_locked_resources,
     safe_int,
     should_stop_unlocking_on_message,
+)
+from app.services.subscriptions.hdhive_unlock_runtime_adapter import (
+    build_hdhive_unlock_context_with_runtime_adapter,
+    prepare_hdhive_locked_resources_with_runtime_adapter,
 )
 from app.services.subscriptions.transfer_notifications import (
     TransferNotificationDependencies,
@@ -523,13 +517,7 @@ class SubscriptionService:
         return await fetch_offline_magnets_with_runtime_adapter(sub)
 
     def _build_hdhive_unlock_context(self) -> dict[str, Any]:
-        budget_total = runtime_settings_service.get_subscription_hdhive_unlock_budget_points_per_run()
-        return build_hdhive_unlock_context(
-            enabled=runtime_settings_service.get_subscription_hdhive_auto_unlock_enabled(),
-            max_points_per_item=runtime_settings_service.get_subscription_hdhive_unlock_max_points_per_item(),
-            budget_total=budget_total,
-            threshold_inclusive=runtime_settings_service.get_subscription_hdhive_unlock_threshold_inclusive(),
-        )
+        return build_hdhive_unlock_context_with_runtime_adapter()
 
     async def _prepare_hdhive_locked_resources(
         self,
@@ -537,14 +525,10 @@ class SubscriptionService:
         context: dict[str, Any],
         traces: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        return await prepare_hdhive_locked_resources(
+        return await prepare_hdhive_locked_resources_with_runtime_adapter(
             resources,
             context,
             traces,
-            normalize_items=normalize_hdhive_subscription_items,
-            extract_resource_url=extract_resource_url,
-            normalize_share_url=normalize_share_url,
-            unlock_resource=hdhive_service.unlock_resource,
         )
 
     @staticmethod

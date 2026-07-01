@@ -148,10 +148,12 @@ class TestHDHiveUnlockPolicy:
                 "share_link": f"https://115.com/s/{slug}?password=abcd",
             }
 
-        from app.services import subscription_service as subscription_service_module
+        from app.services.subscriptions import (
+            hdhive_unlock_runtime_adapter as runtime_adapter_module,
+        )
 
-        original_unlock = subscription_service_module.hdhive_service.unlock_resource
-        subscription_service_module.hdhive_service.unlock_resource = fake_unlock  # type: ignore[method-assign]
+        original_unlock = runtime_adapter_module.hdhive_service.unlock_resource
+        runtime_adapter_module.hdhive_service.unlock_resource = fake_unlock  # type: ignore[method-assign]
         try:
             resources = [
                 {
@@ -202,7 +204,7 @@ class TestHDHiveUnlockPolicy:
                 service._prepare_hdhive_locked_resources(resources, context, traces)
             )
         finally:
-            subscription_service_module.hdhive_service.unlock_resource = original_unlock  # type: ignore[method-assign]
+            runtime_adapter_module.hdhive_service.unlock_resource = original_unlock  # type: ignore[method-assign]
 
         assert unlock_calls == ["slug-a"]
         assert extract_resource_url(result[0]) == (
