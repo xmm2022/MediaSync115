@@ -36,9 +36,11 @@ from app.services.subscriptions.resource_candidates import (
     extract_offline_url,
     extract_resource_url,
     filter_resources_excluding_urls,
-    merge_auto_save_stats,
     normalize_share_url,
-    should_continue_link_fallback,
+)
+from app.services.subscriptions.link_fallback_flow import (
+    LinkFallbackDependencies,
+    auto_save_records_with_link_fallback as auto_save_records_with_link_fallback_flow,
 )
 from app.services.subscriptions.record_selection import (
     dedupe_records_by_resource_url,
@@ -1796,165 +1798,66 @@ class SubscriptionService:
         enable_link_refetch: bool = True,
     ) -> dict[str, Any]:
         """转存资源；当前批链接均失败或剧集仍缺集时，自动补充搜索下一条链接直至成功。"""
-        merged: dict[str, Any] = {
-            "saved": 0,
-            "failed": 0,
-            "errors": [],
-            "subscription_completed": False,
-            "cleanup_step": "",
-            "cleanup_message": "",
-            "cleanup_payload": {},
-            "remaining_missing_count": None,
-            "link_fallback_rounds": 0,
-        }
-        pending_records = list(records or [])
-        if not pending_records:
-            return merged
+        async def create_step_log(
+            current_db: AsyncSession,
+            **kwargs: Any,
+        ) -> None:
+            await self._create_step_log(current_db, **kwargs)
 
-        last_stats: dict[str, Any] | None = None
-        last_attempted_count = 0
+        async def auto_save_resources(
+            current_db: AsyncSession,
+            *args: Any,
+            **kwargs: Any,
+        ) -> dict[str, Any]:
+            return await self._auto_save_resources(current_db, *args, **kwargs)
 
-        for round_idx in range(MAX_AUTO_TRANSFER_LINK_FALLBACK_ROUNDS):
-            if not pending_records:
-                break
-
-            last_attempted_count = len(pending_records)
-            source_label = (
-                transfer_source if round_idx == 0 else f"{transfer_source}_fallback"
+        async def load_subscription_resource_urls(
+            current_db: AsyncSession,
+            subscription_id: int,
+        ) -> set[str]:
+            return await self._load_subscription_resource_urls(
+                current_db,
+                subscription_id,
             )
-            await self._create_step_log(
-                db,
-                run_id=run_id,
-                channel=channel,
-                subscription_id=sub.id,
-                subscription_title=sub.title,
-                step="auto_transfer_batch_start",
-                status="info",
-                message=(
-                    f"开始转存 {last_attempted_count} 个资源"
-                    + (f"（补充搜索第 {round_idx} 轮）" if round_idx else "")
-                ),
-                payload={
-                    "transfer_source": source_label,
-                    "round": round_idx,
-                    "count": last_attempted_count,
-                },
+
+        async def fetch_resources(
+            *args: Any,
+            **kwargs: Any,
+        ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+            return await self._fetch_resources(*args, **kwargs)
+
+        async def store_new_resources(
+            current_db: AsyncSession,
+            subscription_id: int,
+            resources: list[dict[str, Any]],
+        ) -> dict[str, Any]:
+            return await self._store_new_resources(
+                current_db,
+                subscription_id,
+                resources,
             )
-            last_stats = await self._auto_save_resources(
-                db,
-                run_id,
-                channel,
-                sub,
-                pending_records,
-                source=source_label,
-                tv_missing_snapshot=tv_missing_snapshot,
-            )
-            merge_auto_save_stats(merged, last_stats)
-            merged["link_fallback_rounds"] = round_idx
-            pending_records = []
 
-            if not should_continue_link_fallback(
-                sub.media_type, last_stats, attempted_count=last_attempted_count
-            ):
-                break
-
-            if not enable_link_refetch:
-                break
-            if round_idx + 1 >= MAX_AUTO_TRANSFER_LINK_FALLBACK_ROUNDS:
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="auto_transfer_link_fallback_limit",
-                    status="warning",
-                    message=(
-                        f"已达链接回退上限（{MAX_AUTO_TRANSFER_LINK_FALLBACK_ROUNDS} 轮），"
-                        "停止继续搜索"
-                    ),
-                )
-                break
-
-            await self._create_step_log(
-                db,
-                run_id=run_id,
-                channel=channel,
-                subscription_id=sub.id,
-                subscription_title=sub.title,
-                step="auto_transfer_link_fallback_fetch",
-                status="info",
-                message="当前链接未转存成功，正在搜索下一条可用资源",
-                payload={"round": round_idx + 1},
-            )
-            exclude_urls = await self._load_subscription_resource_urls(db, sub.id)
-            resources, fetch_trace, source_attempt_info = await self._fetch_resources(
-                channel,
-                sub,
-                hdhive_unlock_context,
-                source_order=source_order,
-                exclude_urls=exclude_urls,
-            )
-            for trace in fetch_trace:
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step=str(trace.get("step") or "fetch_trace"),
-                    status=str(trace.get("status") or "info"),
-                    message=str(trace.get("message") or ""),
-                    payload=trace.get("payload")
-                    if isinstance(trace.get("payload"), dict)
-                    else None,
-                )
-
-            resources = filter_resources_excluding_urls(resources, exclude_urls)
-            if not resources:
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="auto_transfer_link_fallback_empty",
-                    status="warning",
-                    message="未搜索到新的可用链接，停止回退尝试",
-                    payload={
-                        "round": round_idx + 1,
-                        "excluded_url_count": len(exclude_urls),
-                        "summary": source_attempt_info.get("summary", ""),
-                    },
-                )
-                break
-
-            store_stats = await self._store_new_resources(db, sub.id, resources)
-            pending_records = list(store_stats.get("created_records") or [])
-            await self._create_step_log(
-                db,
-                run_id=run_id,
-                channel=channel,
-                subscription_id=sub.id,
-                subscription_title=sub.title,
-                step="auto_transfer_link_fallback_stored",
-                status="success" if pending_records else "warning",
-                message=(
-                    f"补充搜索完成，新增 {len(pending_records)} 条待转存资源"
-                    if pending_records
-                    else "补充搜索未获得新链接（可能均已尝试过）"
-                ),
-                payload={
-                    "round": round_idx + 1,
-                    "new_count": len(pending_records),
-                    "fetched_count": len(resources),
-                    "summary": source_attempt_info.get("summary", ""),
-                },
-            )
-            if not pending_records:
-                break
-
-        return merged
+        dependencies = LinkFallbackDependencies(
+            create_step_log=create_step_log,
+            auto_save_resources=auto_save_resources,
+            load_subscription_resource_urls=load_subscription_resource_urls,
+            fetch_resources=fetch_resources,
+            store_new_resources=store_new_resources,
+        )
+        return await auto_save_records_with_link_fallback_flow(
+            db,
+            run_id=run_id,
+            channel=channel,
+            sub=sub,
+            records=records,
+            transfer_source=transfer_source,
+            dependencies=dependencies,
+            tv_missing_snapshot=tv_missing_snapshot,
+            hdhive_unlock_context=hdhive_unlock_context,
+            source_order=source_order,
+            enable_link_refetch=enable_link_refetch,
+            max_rounds=MAX_AUTO_TRANSFER_LINK_FALLBACK_ROUNDS,
+        )
 
     def _should_scan_fixed_sources(
         self,
