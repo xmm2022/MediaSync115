@@ -50,6 +50,10 @@ from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
     resolve_source_order,
 )
+from app.services.subscriptions.resource_resolver import (
+    ResourceResolverDependencies,
+    resolve_subscription_resources,
+)
 from app.services.subscriptions.hdhive_unlock import (
     allow_unlock_by_threshold,
     build_hdhive_unlock_context,
@@ -83,7 +87,6 @@ from app.services.subscription_cleanup_policy import (
     normalize_tv_follow_mode,
 )
 from app.services.tv_missing_service import tv_missing_service
-from app.utils.resource_tags import sort_by_preference, filter_and_sort_by_quality
 
 logger = logging.getLogger(__name__)
 
@@ -1640,226 +1643,62 @@ class SubscriptionService:
         source_order: list[str] | None = None,
         exclude_urls: set[str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-        traces: list[dict[str, Any]] = []
-        source_attempts: list[dict[str, Any]] = []  # 记录每个来源的尝试结果
-        active_order = list(source_order or self._resolve_source_order(channel))
-        traces.append(
-            {
-                "step": "fetch_source_order",
-                "status": "info",
-                "message": f"按优先级执行资源搜索: {' > '.join(active_order) if active_order else '无可用来源'}",
-                "payload": {"source_order": active_order},
-            }
-        )
-        if not active_order:
-            traces.append(
-                {
-                    "step": "fetch_source_order_empty",
-                    "status": "warning",
-                    "message": "当前优先级来源均不可用，请检查配置",
-                }
-            )
-            return (
-                [],
-                traces,
-                {"source_order": active_order, "attempts": [], "summary": "无可用来源"},
-            )
-
-        primary_resources: list[dict[str, Any]] = []
-        for source in active_order:
-            source_resources: list[dict[str, Any]] = []
-            source_traces: list[dict[str, Any]] = []
-            attempt_info: dict[str, Any] = {
-                "source": source,
-                "status": "empty",
-                "count": 0,
-            }
-            try:
-                if source == "hdhive":
-                    source_resources, source_traces = await self._fetch_from_hdhive(sub)
-                elif source == "tg":
-                    source_resources, source_traces = await self._fetch_from_tg(sub)
-                else:
-                    source_resources, source_traces = await self._fetch_from_pansou(sub)
-            except Exception as exc:
-                source_traces.append(
-                    {
-                        "step": f"fetch_{source}_failed",
-                        "status": "warning",
-                        "message": f"{source} 抓取失败，继续尝试下一个来源",
-                        "payload": {"error": str(exc)[:300]},
-                    }
-                )
-                attempt_info["status"] = "failed"
-                attempt_info["error"] = str(exc)[:100]
-                source_resources = []
-
-            traces.extend(source_traces)
+        async def log_source_fetch(
+            current_sub: "SubscriptionSnapshot", source: str, count: int
+        ) -> None:
             await operation_log_service.log_background_event(
                 source_type="background_task",
                 module="subscriptions",
                 action="subscription.item.fetch_source",
-                status="success" if source_resources else "info",
-                message=f"[{sub.title}] 来源 {source} 返回 {len(source_resources)} 条资源",
+                status="success" if count else "info",
+                message=f"[{current_sub.title}] 来源 {source} 返回 {count} 条资源",
                 extra={
-                    "subscription_id": sub.id,
-                    "title": sub.title,
+                    "subscription_id": current_sub.id,
+                    "title": current_sub.title,
                     "source": source,
-                    "count": len(source_resources),
+                    "count": count,
                 },
             )
-            if source_resources:
-                traces.append(
-                    {
-                        "step": "fetch_source_selected",
-                        "status": "success",
-                        "message": f"来源 {source} 命中资源 {len(source_resources)} 条，已加入候选列表",
-                        "payload": {"source": source, "count": len(source_resources)},
-                    }
-                )
-                attempt_info["status"] = "success"
-                attempt_info["count"] = len(source_resources)
-                if source == "hdhive":
-                    pref_res = self._resolve_subscription_resolutions(sub)
-                    if pref_res:
-                        source_resources = sort_by_preference(
-                            source_resources, pref_res, []
-                        )
-                    quality_filter = self._resolve_subscription_quality_filter(sub)
-                    if any(v for v in quality_filter.values() if v is not None):
-                        source_resources = filter_and_sort_by_quality(
-                            source_resources, **quality_filter
-                        )
-                    source_resources = await self._prepare_hdhive_locked_resources(
-                        source_resources,
-                        hdhive_unlock_context or self._build_hdhive_unlock_context(),
-                        traces,
-                    )
-                else:
-                    pref_res = self._resolve_subscription_resolutions(sub)
-                    if pref_res:
-                        source_resources = sort_by_preference(
-                            source_resources, pref_res, []
-                        )
-                if exclude_urls:
-                    before_exclude = len(source_resources)
-                    source_resources = self._filter_resources_excluding_urls(
-                        source_resources, exclude_urls
-                    )
-                    if before_exclude and not source_resources:
-                        traces.append(
-                            {
-                                "step": "fetch_source_exhausted",
-                                "status": "info",
-                                "message": f"来源 {source} 命中资源均已尝试过，继续下一个来源",
-                                "payload": {
-                                    "source": source,
-                                    "excluded_count": before_exclude,
-                                },
-                            }
-                        )
-                        attempt_info["status"] = "empty"
-                        attempt_info["count"] = 0
-                    else:
-                        attempt_info["count"] = len(source_resources)
-                        primary_resources.extend(source_resources)
-                else:
-                    attempt_info["count"] = len(source_resources)
-                    primary_resources.extend(source_resources)
 
-            source_attempts.append(attempt_info)
+        def emit_source_attempt(
+            current_sub: "SubscriptionSnapshot", attempt_info: dict[str, Any]
+        ) -> None:
+            from app.analytics import kafka_producer
 
-            # 发送来源尝试事件到 Kafka
-            try:
-                from app.analytics import kafka_producer
-
-                if kafka_producer._enabled:
-                    kafka_producer.send(
-                        event_type="source_attempt",
-                        data={
-                            "subscription_id": sub.id,
-                            "title": sub.title,
-                            "source": source,
-                            "status": attempt_info.get("status", "empty"),
-                            "resource_count": attempt_info.get("count", 0),
-                        },
-                        key=str(sub.id),
-                    )
-            except Exception:
-                pass
-
-            if primary_resources:
-                break
-
-        if not primary_resources:
-            traces.append(
-                {
-                    "step": "fetch_all_empty",
-                    "status": "warning",
-                    "message": "所有优先级来源都未命中可用资源",
-                }
-            )
-
-        # 离线转存：追加磁力资源（SeedHub + 不太灵）
-        offline_resources, offline_traces = await self._fetch_offline_magnets(sub)
-        traces.extend(offline_traces)
-        if offline_resources:
-            pref_res = self._resolve_subscription_resolutions(sub)
-            if pref_res:
-                offline_resources = sort_by_preference(
-                    offline_resources, pref_res, []
-                )
-            primary_resources.extend(offline_resources)
-            source_attempts.append(
-                {
-                    "source": "offline",
-                    "status": "success",
-                    "count": len(offline_resources),
-                }
-            )
-
-        # 生成来源尝试链路摘要
-        summary = self._build_source_attempt_summary(source_attempts, active_order)
-
-        # 按全局画质偏好排序资源（偏好仅影响优先级；排除标签/体积范围仍会硬性过滤）
-        quality_filter = self._resolve_subscription_quality_filter(sub)
-        if any(v for v in quality_filter.values() if v is not None):
-            before_count = len(primary_resources)
-            primary_resources = filter_and_sort_by_quality(primary_resources, **quality_filter)
-            excluded_count = before_count - len(primary_resources)
-            if excluded_count > 0:
-                traces.append(
-                    {
-                        "step": "quality_hard_filter_applied",
-                        "status": "info",
-                        "message": f"排除规则过滤掉 {excluded_count} 个不符合条件的资源",
-                    }
-                )
-            if primary_resources and any(
-                quality_filter.get(key)
-                for key in (
-                    "preferred_resolutions",
-                    "preferred_formats",
-                    "preferred_languages",
-                    "preferred_subtitles",
-                )
-            ):
-                traces.append(
-                    {
-                        "step": "quality_preference_sorted",
-                        "status": "info",
-                        "message": "已按全局画质偏好排序，优先尝试匹配勾选画质的资源",
-                    }
+            if kafka_producer._enabled:
+                kafka_producer.send(
+                    event_type="source_attempt",
+                    data={
+                        "subscription_id": current_sub.id,
+                        "title": current_sub.title,
+                        "source": attempt_info.get("source"),
+                        "status": attempt_info.get("status", "empty"),
+                        "resource_count": attempt_info.get("count", 0),
+                    },
+                    key=str(current_sub.id),
                 )
 
-        return (
-            primary_resources,
-            traces,
-            {
-                "source_order": active_order,
-                "attempts": source_attempts,
-                "summary": summary,
-            },
+        dependencies = ResourceResolverDependencies(
+            fetch_from_hdhive=self._fetch_from_hdhive,
+            fetch_from_tg=self._fetch_from_tg,
+            fetch_from_pansou=self._fetch_from_pansou,
+            fetch_offline_magnets=self._fetch_offline_magnets,
+            resolve_source_order=self._resolve_source_order,
+            resolve_subscription_resolutions=self._resolve_subscription_resolutions,
+            resolve_subscription_quality_filter=self._resolve_subscription_quality_filter,
+            prepare_hdhive_locked_resources=self._prepare_hdhive_locked_resources,
+            build_hdhive_unlock_context=self._build_hdhive_unlock_context,
+            filter_resources_excluding_urls=self._filter_resources_excluding_urls,
+            log_source_fetch=log_source_fetch,
+            emit_source_attempt=emit_source_attempt,
+        )
+        return await resolve_subscription_resources(
+            channel=channel,
+            sub=sub,
+            dependencies=dependencies,
+            hdhive_unlock_context=hdhive_unlock_context,
+            source_order=source_order,
+            exclude_urls=exclude_urls,
         )
 
     def _build_source_attempt_summary(
