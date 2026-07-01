@@ -61,6 +61,9 @@ from app.services.subscriptions.auto_transfer_offline import (
     is_offline_transfer_record,
     submit_offline_transfer_record,
 )
+from app.services.subscriptions.auto_transfer_precise import (
+    submit_precise_transfer_record,
+)
 from app.services.subscriptions.auto_transfer_share import (
     submit_share_transfer_record,
 )
@@ -2669,6 +2672,21 @@ class SubscriptionService:
                     key=str(sub.id),
                 )
 
+        def select_precise_missing_episode_files(
+            files: list[dict[str, Any]],
+            *,
+            missing_episodes: set[tuple[int, int]],
+            quality_filter: dict[str, Any],
+            is_video_file: Callable[[str], bool],
+        ) -> Any:
+            return select_tv_missing_episode_files(
+                files,
+                missing_episodes=missing_episodes,
+                quality_filter=quality_filter,
+                best_picker=pan_service.pick_best_video_file,
+                is_video_file=is_video_file,
+            )
+
         tv_missing_context = await build_auto_transfer_tv_missing_context(
             sub=sub,
             tv_missing_snapshot=tv_missing_snapshot,
@@ -2727,173 +2745,40 @@ class SubscriptionService:
                 )
                 record.status = MediaStatus.TRANSFERRING
                 if tv_missing_enabled and is_tv_subscription:
-                    share_code = pan_service._extract_share_code(share_link)
-                    if not share_code:
-                        raise ValueError("无效的分享链接，无法提取分享码")
-
-                    all_files = await pan_service.get_share_all_files_recursive(
-                        share_code, receive_code
-                    )
-                    selection = select_tv_missing_episode_files(
-                        all_files,
-                        missing_episodes=missing_episodes,
-                        quality_filter=quality_filter,
-                        best_picker=pan_service.pick_best_video_file,
-                        is_video_file=self._is_video_filename,
-                    )
-
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=channel,
-                        subscription_id=sub.id,
-                        subscription_title=sub.title,
-                        step="tv_record_files_parsed",
-                        status="info",
-                        message=f"已解析资源文件，找到 {selection.matched_missing_count} 个匹配缺集的文件：{record.resource_name}",
-                        payload={
-                            "record_id": record.id,
-                            "total_files": len(all_files),
-                            "parsed_count": selection.parsed_count,
-                            "matched_missing_count": selection.matched_missing_count,
-                            "unparsed_video_count": selection.unparsed_video_count,
-                            "remaining_missing_count": len(missing_episodes),
-                        },
-                    )
-
-                    selected_file_ids = selection.selected_file_ids
-                    matched_pairs = selection.matched_pairs
-                    selected_mode = "missing"
-
-                    if not selected_file_ids:
-                        record.status = MediaStatus.MATCHED
-                        record.completed_at = None
-                        record.error_message = None
-                        await self._create_step_log(
-                            db,
-                            run_id=run_id,
-                            channel=channel,
-                            subscription_id=sub.id,
-                            subscription_title=sub.title,
-                        step="tv_record_skip_no_missing",
-                        status="info",
-                        message=f"该资源不包含需要的集数，已跳过：{record.resource_name}",
-                            payload={
-                                "record_id": record.id,
-                                "remaining_missing_count": len(missing_episodes),
-                            },
-                        )
-                        continue
-
-                    result = await pan_service.save_share_files_directly(
-                        share_url=share_link,
-                        file_ids=selected_file_ids,
-                        parent_id=parent_folder_id,
+                    precise_submission = await submit_precise_transfer_record(
+                        sub=sub,
+                        record=record,
+                        source=source,
+                        share_link=share_link,
                         receive_code=receive_code,
-                    )
-
-                    if selected_mode == "missing":
-                        for pair in matched_pairs:
-                            missing_episodes.discard(pair)
-                    archive_result = (
-                        await self._apply_precise_transfer_postprocess_status(record)
-                    )
-                    record.file_id = parent_folder_id
-                    saved += 1
-                    await self._notify_transfer_success(
-                        sub.title,
-                        record.resource_name,
-                        source,
-                        "精准转存",
-                        getattr(sub, "poster_path", None),
-                    )
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=channel,
-                        subscription_id=sub.id,
-                        subscription_title=sub.title,
-                        step="tv_transfer_selected_done",
-                        status="success",
-                        message=f"已转存 {len(selected_file_ids)} 个文件到网盘（还剩 {len(missing_episodes)} 集待补）：{record.resource_name}",
-                        payload={
-                            "source": source,
-                            "record_id": record.id,
-                            "selected_mode": selected_mode,
-                            "selected_count": len(selected_file_ids),
-                            "remaining_missing_count": len(missing_episodes),
-                            "target_parent_id": parent_folder_id,
-                            "save_mode": "direct",
-                            "archive_triggered": bool(archive_result.get("triggered")),
-                            "archive_skip_reason": archive_result.get("reason"),
-                        },
-                    )
-                    await operation_log_service.log_background_event(
-                        source_type="background_task",
-                        module="subscriptions",
-                        action="subscription.record.transfer_ok",
-                        status="success",
-                        message=f"[{sub.title}] [{source}] 精准转存成功：{record.resource_name}（选中 {len(selected_file_ids)} 个文件，剩余缺集 {len(missing_episodes)} 集）",
+                        parent_folder_id=parent_folder_id,
+                        quality_filter=quality_filter,
+                        missing_episodes=missing_episodes,
+                        matched_status=MediaStatus.MATCHED,
+                        extract_share_code=pan_service._extract_share_code,
+                        get_share_all_files_recursive=pan_service.get_share_all_files_recursive,
+                        select_missing_episode_files=select_precise_missing_episode_files,
+                        save_share_files_directly=pan_service.save_share_files_directly,
+                        apply_postprocess_status=self._apply_precise_transfer_postprocess_status,
+                        notify_transfer_success=self._notify_transfer_success,
+                        log_operation=operation_log_service.log_background_event,
+                        create_step_log=create_auto_transfer_step_log,
+                        emit_transfer_success=emit_transfer_success,
+                        normalize_follow_mode=normalize_tv_follow_mode,
+                        has_upcoming_episodes=has_upcoming_episodes_in_subscription_scope,
+                        evaluate_cleanup=evaluate_tv_cleanup,
+                        is_video_file=self._is_video_filename,
                         trace_id=run_id,
-                        extra={
-                            "subscription_id": sub.id,
-                            "record_id": record.id,
-                            "source": source,
-                            "selected_count": len(selected_file_ids),
-                            "remaining_missing": len(missing_episodes),
-                        },
                     )
-                    # 发送转存成功事件到 Kafka
-                    try:
-                        from app.analytics import kafka_producer
-
-                        if kafka_producer._enabled:
-                            kafka_producer.send(
-                                event_type="transfer_success",
-                                data={
-                                    "subscription_id": sub.id,
-                                    "title": sub.title,
-                                    "source": source,
-                                    "resource_name": record.resource_name,
-                                    "transfer_type": "precise",
-                                    "status": "success",
-                                    "selected_count": len(selected_file_ids),
-                                },
-                                key=str(sub.id),
-                            )
-                    except Exception:
-                        pass
-                    if not missing_episodes:
-                        follow_mode = normalize_tv_follow_mode(sub.tv_follow_mode)
-                        has_upcoming = False
-                        if follow_mode == "new" and sub.tmdb_id is not None:
-                            has_upcoming = (
-                                await has_upcoming_episodes_in_subscription_scope(
-                                    sub.tmdb_id, sub
-                                )
-                            )
-                        should_cleanup, cleanup_reason = evaluate_tv_cleanup(
-                            {"status": "ok", "counts": {"missing": 0}},
-                            follow_mode=follow_mode,
-                            has_upcoming_episodes=has_upcoming,
-                        )
-                        if should_cleanup:
-                            subscription_completed = True
-                            cleanup_step = (
-                                "subscription_cleanup_tv_completed_after_transfer"
-                            )
-                            cleanup_message = (
-                                cleanup_reason or "剧集缺集已补齐，已自动删除订阅"
-                            )
-                            cleanup_payload = {
-                                "source": source,
-                                "record_id": record.id,
-                                "remaining_missing_count": 0,
-                                "target_parent_id": parent_folder_id,
-                                "save_mode": "direct",
-                                "follow_mode": follow_mode,
-                            }
-                            break
+                    saved += precise_submission.saved_increment
+                    subscription_completed = precise_submission.subscription_completed
+                    cleanup_step = precise_submission.cleanup_step
+                    cleanup_message = precise_submission.cleanup_message
+                    cleanup_payload = precise_submission.cleanup_payload
+                    if precise_submission.should_continue:
+                        continue
+                    if precise_submission.should_stop:
+                        break
                 else:
                     share_submission = await submit_share_transfer_record(
                         sub=sub,
