@@ -34,7 +34,6 @@ from app.services.resource_search import (
 )
 from app.services.subscriptions.resource_candidates import (
     extract_resource_url,
-    filter_resources_excluding_urls,
     normalize_share_url,
 )
 from app.services.subscriptions.link_fallback_flow import (
@@ -100,12 +99,9 @@ from app.services.subscriptions.item_processing_run_flow import (
     SubscriptionItemProcessingDependencies,
     process_subscription_item,
 )
-from app.services.subscriptions.resource_resolver import (
-    resolve_subscription_resources,
-)
-from app.services.subscriptions.resource_resolver_adapter import (
-    ResourceResolverAdapterDependencies,
-    fetch_subscription_resources_with_adapter,
+from app.services.subscriptions.resource_resolver_runtime_adapter import (
+    build_default_resource_resolver_runtime_dependencies,
+    fetch_subscription_resources_with_runtime_adapter,
 )
 from app.services.subscriptions.resource_storage import (
     store_new_resources as store_new_resources_flow,
@@ -478,23 +474,10 @@ class SubscriptionService:
         source_order: list[str] | None = None,
         exclude_urls: set[str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-        def emit_source_attempt_event(
-            subscription_id: int,
-            data: dict[str, Any],
-        ) -> None:
-            from app.analytics import kafka_producer
-
-            if kafka_producer._enabled:
-                kafka_producer.send(
-                    event_type="source_attempt",
-                    data=data,
-                    key=str(subscription_id),
-                )
-
-        return await fetch_subscription_resources_with_adapter(
+        return await fetch_subscription_resources_with_runtime_adapter(
             channel=channel,
             sub=sub,
-            dependencies=ResourceResolverAdapterDependencies(
+            dependencies=build_default_resource_resolver_runtime_dependencies(
                 fetch_from_hdhive=self._fetch_from_hdhive,
                 fetch_from_tg=self._fetch_from_tg,
                 fetch_from_pansou=self._fetch_from_pansou,
@@ -510,10 +493,6 @@ class SubscriptionService:
                     self._prepare_hdhive_locked_resources
                 ),
                 build_hdhive_unlock_context=self._build_hdhive_unlock_context,
-                filter_resources_excluding_urls=filter_resources_excluding_urls,
-                log_background_event=operation_log_service.log_background_event,
-                emit_source_attempt_event=emit_source_attempt_event,
-                run_resolver=resolve_subscription_resources,
             ),
             hdhive_unlock_context=hdhive_unlock_context,
             source_order=source_order,
