@@ -1,12 +1,27 @@
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 
 from app.api.anime import AniRssSubscriptionPayload
-from app.models.models import MediaType, Subscription
+from app.models.models import (
+    DownloadRecord,
+    MediaStatus,
+    MediaType,
+    MoviePilotCompletionRecord,
+    Subscription,
+    SubscriptionSource,
+    SubscriptionSourceFile,
+)
 from app.services.anirss_provider_service import (
     AniRssProviderError,
     AniRssProviderService,
 )
+
+
+async def _count(db, model, *where_clauses) -> int:
+    query = select(func.count()).select_from(model)
+    if where_clauses:
+        query = query.where(*where_clauses)
+    return int((await db.execute(query)).scalar_one())
 
 
 def test_anirss_create_payload_defaults_to_disabled():
@@ -481,14 +496,15 @@ async def test_preview_existing_subscription_requires_existing_ani():
 class _FakeDeleteAniRssClient:
     base_url = "http://ani-rss:7789"
 
-    def __init__(self):
+    def __init__(self, external_id: str = "ani-1"):
+        self.external_id = external_id
         self.delete_calls = []
 
     async def list_ani(self):
         return {
             "items": [
                 {
-                    "id": "ani-1",
+                    "id": self.external_id,
                     "title": "Test Anime",
                     "enable": False,
                 }
@@ -512,6 +528,120 @@ async def test_delete_subscription_calls_remote_without_deleting_files():
     assert result["external_subscription_id"] == "ani-1"
     assert result["delete_files"] is False
     assert result["deleted_local"] is False
+
+
+@pytest.mark.asyncio
+async def test_delete_subscription_removes_local_mirror_child_rows():
+    from app.core.database import async_session_maker, ensure_tables_exist
+
+    await ensure_tables_exist()
+    external_id = "ani-delete-cascade"
+    fake = _FakeDeleteAniRssClient(external_id=external_id)
+    service = AniRssProviderService(client_factory=lambda: fake)
+
+    async with async_session_maker() as db:
+        existing_ids = [
+            int(row[0])
+            for row in (
+                await db.execute(
+                    select(Subscription.id).where(
+                        Subscription.external_subscription_id == external_id
+                    )
+                )
+            ).all()
+        ]
+        for subscription_id in existing_ids:
+            await AniRssProviderService._delete_local_subscription_mirror(
+                db,
+                subscription_id,
+            )
+
+        sub = Subscription(
+            tmdb_id=920501,
+            title="ANI-RSS Delete Cascade",
+            media_type=MediaType.TV,
+            provider="anirss",
+            external_system="anirss",
+            external_subscription_id=external_id,
+            external_status="paused",
+            is_active=False,
+            auto_download=False,
+        )
+        db.add(sub)
+        await db.commit()
+        await db.refresh(sub)
+
+        download = DownloadRecord(
+            subscription_id=sub.id,
+            resource_name="ANI-RSS.Delete.Cascade.S01E01.mkv",
+            resource_url="https://example.test/anirss-delete-cascade.mkv",
+            resource_type="anirss",
+            status=MediaStatus.MATCHED,
+        )
+        source = SubscriptionSource(
+            subscription_id=sub.id,
+            share_url="https://example.test/anirss-delete-cascade",
+            receive_code="anic",
+            display_name="ANI-RSS Delete Cascade Source",
+        )
+        completion = MoviePilotCompletionRecord(
+            subscription_id=sub.id,
+            tmdb_id=920501,
+            season_number=1,
+            episode_number=1,
+            resource_hash="anirss-delete-cascade-hash",
+            status="matched",
+        )
+        db.add_all([download, source, completion])
+        await db.commit()
+        await db.refresh(download)
+        await db.refresh(source)
+
+        source_file = SubscriptionSourceFile(
+            source_id=source.id,
+            share_file_id="ani-delete-cascade-file",
+            file_name="ANI-RSS.Delete.Cascade.S01E01.mkv",
+            fingerprint="anirss-delete-cascade-fingerprint",
+            download_record_id=download.id,
+        )
+        db.add(source_file)
+        await db.commit()
+
+        result = await service.delete_subscription(external_id, db)
+
+        assert fake.delete_calls == [([external_id], False)]
+        assert result["ok"] is True
+        assert result["deleted_local"] is True
+        assert result["delete_files"] is False
+        assert await _count(db, Subscription, Subscription.id == sub.id) == 0
+        assert (
+            await _count(db, DownloadRecord, DownloadRecord.subscription_id == sub.id)
+            == 0
+        )
+        assert (
+            await _count(
+                db,
+                MoviePilotCompletionRecord,
+                MoviePilotCompletionRecord.subscription_id == sub.id,
+            )
+            == 0
+        )
+        assert (
+            await _count(
+                db,
+                SubscriptionSource,
+                SubscriptionSource.subscription_id == sub.id,
+            )
+            == 0
+        )
+        assert (
+            await _count(
+                db,
+                SubscriptionSourceFile,
+                SubscriptionSourceFile.fingerprint == "anirss-delete-cascade-fingerprint",
+            )
+            == 0
+        )
 
 
 @pytest.mark.asyncio
