@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from app.services.subscription_service import SubscriptionService
+from app.services.subscriptions.resource_candidates import extract_resource_url
 from app.services.subscriptions.hdhive_unlock import (
     build_hdhive_unlock_context,
     prepare_hdhive_locked_resources,
@@ -204,10 +205,10 @@ class TestHDHiveUnlockPolicy:
             subscription_service_module.hdhive_service.unlock_resource = original_unlock  # type: ignore[method-assign]
 
         assert unlock_calls == ["slug-a"]
-        assert service._extract_resource_url(result[0]) == (
+        assert extract_resource_url(result[0]) == (
             "https://115.com/s/slug-a?password=abcd"
         )
-        assert not service._extract_resource_url(result[1])
+        assert not extract_resource_url(result[1])
         assert any(
             trace.get("step") == "hdhive_unlock_stop"
             and trace.get("payload", {}).get("reason") == "max_unlocks_reached"

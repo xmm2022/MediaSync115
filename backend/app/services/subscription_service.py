@@ -46,6 +46,19 @@ from app.services.subscriptions.resource_candidates import (
     resource_candidate_url,
     should_continue_link_fallback,
 )
+from app.services.subscriptions.resource_metadata import (
+    build_hdhive_keyword,
+    build_pansou_keyword,
+    build_tg_keyword,
+    determine_resource_type,
+    extract_resource_name,
+    is_already_received_error,
+    is_likely_115_share_identifier,
+    is_retryable_transfer_error,
+    is_video_filename,
+    normalize_hdhive_subscription_items,
+    split_share_link_and_receive_code,
+)
 from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
     resolve_source_order,
@@ -84,12 +97,6 @@ from app.services.subscriptions.hdhive_unlock import (
     prepare_hdhive_locked_resources,
     safe_int,
     should_stop_unlocking_on_message,
-)
-from app.services.subscriptions.offline_transfer import (
-    extract_first_nested_value,
-    extract_hash_from_offline_url,
-    extract_offline_info_hash,
-    extract_offline_task_id,
 )
 from app.services.subscriptions.tv_episode_selection import (
     select_missing_episode_files as select_tv_missing_episode_files,
@@ -1793,7 +1800,7 @@ class SubscriptionService:
                     }
                 )
 
-        keyword = self._build_pansou_keyword(sub)
+        keyword = build_pansou_keyword(sub.title, sub.year)
         if not keyword:
             traces.append(
                 {
@@ -1845,7 +1852,7 @@ class SubscriptionService:
                     resources = await hdhive_service.get_tv_pan115(sub.tmdb_id)
                 else:
                     resources = await hdhive_service.get_movie_pan115(sub.tmdb_id)
-                resources = self._normalize_hdhive_subscription_items(resources)
+                resources = normalize_hdhive_subscription_items(resources)
                 if runtime_settings_service.get_subscription_hdhive_prefer_free():
                     resources = hdhive_service.sort_free_first(resources)
                 traces.append(
@@ -1868,7 +1875,7 @@ class SubscriptionService:
                     }
                 )
 
-        keyword = self._build_hdhive_keyword(sub)
+        keyword = build_hdhive_keyword(sub.title, sub.year)
         if not keyword:
             traces.append(
                 {
@@ -1891,7 +1898,7 @@ class SubscriptionService:
         keyword_resources = await hdhive_service.get_pan115_by_keyword(
             keyword, media_type=media_type
         )
-        keyword_resources = self._normalize_hdhive_subscription_items(keyword_resources)
+        keyword_resources = normalize_hdhive_subscription_items(keyword_resources)
         if runtime_settings_service.get_subscription_hdhive_prefer_free():
             keyword_resources = hdhive_service.sort_free_first(keyword_resources)
         traces.append(
@@ -1908,7 +1915,7 @@ class SubscriptionService:
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         traces: list[dict[str, Any]] = []
-        keyword = self._build_tg_keyword(sub)
+        keyword = build_tg_keyword(sub.title, sub.year)
         if not keyword:
             traces.append(
                 {
@@ -1950,7 +1957,7 @@ class SubscriptionService:
             return [], []
 
         traces: list[dict[str, Any]] = []
-        keyword = self._build_pansou_keyword(sub)
+        keyword = build_pansou_keyword(sub.title, sub.year)
         media_type = "tv" if sub.media_type == MediaType.TV else "movie"
 
         async def _seedhub() -> list[dict[str, Any]]:
@@ -2052,9 +2059,9 @@ class SubscriptionService:
             resources,
             context,
             traces,
-            normalize_items=self._normalize_hdhive_subscription_items,
-            extract_resource_url=self._extract_resource_url,
-            normalize_share_url=self._normalize_share_url,
+            normalize_items=normalize_hdhive_subscription_items,
+            extract_resource_url=extract_resource_url,
+            normalize_share_url=normalize_share_url,
             unlock_resource=hdhive_service.unlock_resource,
         )
 
@@ -2105,12 +2112,12 @@ class SubscriptionService:
         duplicate_count = 0
         invalid_count = 0
         for item in resources:
-            resource_url = self._extract_resource_url(item)
+            resource_url = extract_resource_url(item)
             resource_type = "pan115"
             if not resource_url and offline_enabled:
-                resource_url = self._extract_offline_url(item)
+                resource_url = extract_offline_url(item)
                 if resource_url:
-                    resource_type = self._determine_resource_type(resource_url)
+                    resource_type = determine_resource_type(resource_url)
             if not resource_url:
                 invalid_count += 1
                 continue
@@ -2121,7 +2128,7 @@ class SubscriptionService:
 
             record = DownloadRecord(
                 subscription_id=subscription_id,
-                resource_name=self._extract_resource_name(item),
+                resource_name=extract_resource_name(item),
                 resource_url=resource_url,
                 resource_type=resource_type,
                 status=MediaStatus.MATCHED,
@@ -2169,17 +2176,17 @@ class SubscriptionService:
         retryable: list[DownloadRecord] = []
         for row in failed_rows:
             is_offline = str(row.resource_type or "") in ("magnet", "ed2k")
-            if not is_offline and not self._is_likely_115_share_identifier(
+            if not is_offline and not is_likely_115_share_identifier(
                 row.resource_url
             ):
                 continue
-            if not self._is_retryable_transfer_error(row.error_message or ""):
+            if not is_retryable_transfer_error(row.error_message or ""):
                 continue
             retryable.append(row)
 
         for row in pending_rows:
             is_offline = str(row.resource_type or "") in ("magnet", "ed2k")
-            if not is_offline and not self._is_likely_115_share_identifier(
+            if not is_offline and not is_likely_115_share_identifier(
                 row.resource_url
             ):
                 continue
@@ -2754,7 +2761,7 @@ class SubscriptionService:
                         break
                     continue
 
-                share_link, receive_code = self._split_share_link_and_receive_code(
+                share_link, receive_code = split_share_link_and_receive_code(
                     record.resource_url
                 )
                 record.status = MediaStatus.TRANSFERRING
@@ -2781,7 +2788,7 @@ class SubscriptionService:
                         normalize_follow_mode=normalize_tv_follow_mode,
                         has_upcoming_episodes=has_upcoming_episodes_in_subscription_scope,
                         evaluate_cleanup=evaluate_tv_cleanup,
-                        is_video_file=self._is_video_filename,
+                        is_video_file=is_video_filename,
                         trace_id=run_id,
                     )
                     saved += precise_submission.saved_increment
@@ -2820,7 +2827,7 @@ class SubscriptionService:
                     if share_submission.should_stop:
                         break
             except Exception as exc:
-                if self._is_already_received_error(str(exc)):
+                if is_already_received_error(str(exc)):
                     already_received_result = await handle_already_received_transfer(
                         sub=sub,
                         record=record,
@@ -2916,56 +2923,6 @@ class SubscriptionService:
                 )
             )
 
-    @staticmethod
-    def _extract_list(payload: Any) -> list[dict[str, Any]]:
-        if isinstance(payload, dict):
-            data = payload.get("list")
-            if isinstance(data, list):
-                return [item for item in data if isinstance(item, dict)]
-        return []
-
-    @staticmethod
-    def _normalize_share_url(url: str) -> str:
-        return normalize_share_url(url)
-
-    @staticmethod
-    def _extract_resource_url(item: dict[str, Any]) -> str:
-        return extract_resource_url(item)
-
-    @staticmethod
-    def _extract_offline_url(item: dict[str, Any]) -> str:
-        """从资源条目中提取磁力链接或 ED2K 链接。"""
-        return extract_offline_url(item)
-
-    @staticmethod
-    def _extract_hash_from_offline_url(url: str) -> str:
-        return extract_hash_from_offline_url(url)
-
-    @classmethod
-    def _extract_offline_info_hash(cls, payload: Any) -> str:
-        return extract_offline_info_hash(payload)
-
-    @classmethod
-    def _extract_offline_task_id(cls, payload: Any) -> str:
-        return extract_offline_task_id(payload)
-
-    @classmethod
-    def _extract_first_nested_value(cls, payload: Any, keys: set[str]) -> str:
-        return extract_first_nested_value(payload, keys)
-
-    @staticmethod
-    def _parse_json_list_field(value: str | None) -> list[str]:
-        if not value:
-            return []
-        try:
-            import json as _json
-            parsed = _json.loads(value)
-            if isinstance(parsed, list):
-                return [str(v).strip() for v in parsed if v]
-        except Exception:
-            pass
-        return []
-
     def _resolve_subscription_resolutions(self, sub: "SubscriptionSnapshot") -> list[str]:
         return runtime_settings_service.get_resource_preferred_resolutions()
 
@@ -2982,61 +2939,6 @@ class SubscriptionService:
             "min_size_gb": runtime_settings_service.get_resource_min_size_gb(),
             "max_size_gb": runtime_settings_service.get_resource_max_size_gb(),
         }
-
-    @staticmethod
-    def _determine_resource_type(url: str) -> str:
-        lowered = url.lower()
-        if lowered.startswith("magnet:"):
-            return "magnet"
-        if lowered.startswith("ed2k://"):
-            return "ed2k"
-        return "pan115"
-
-    @staticmethod
-    def _extract_resource_name(item: dict[str, Any]) -> str:
-        name = str(
-            item.get("resource_name") or item.get("title") or item.get("name") or ""
-        ).strip()
-        return name or "未命名资源"
-
-    @staticmethod
-    def _build_pansou_keyword(sub: "SubscriptionSnapshot") -> str:
-        if sub.year:
-            return f"{sub.title} {sub.year}".strip()
-        return sub.title
-
-    @staticmethod
-    def _build_hdhive_keyword(sub: "SubscriptionSnapshot") -> str:
-        if sub.year:
-            return f"{sub.title} {sub.year}".strip()
-        return str(sub.title or "").strip()
-
-    @staticmethod
-    def _build_tg_keyword(sub: "SubscriptionSnapshot") -> str:
-        return SubscriptionService._build_pansou_keyword(sub)
-
-    @staticmethod
-    def _normalize_hdhive_subscription_items(
-        items: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        normalized: list[dict[str, Any]] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            row = dict(item)
-            if not row.get("pan115_share_link"):
-                row["pan115_share_link"] = str(row.get("share_link") or "").strip()
-            if not row.get("name") and row.get("resource_name"):
-                row["name"] = str(row.get("resource_name") or "").strip()
-            normalized.append(row)
-        return normalized
-
-    @staticmethod
-    def _build_target_folder_name(sub: "SubscriptionSnapshot") -> str:
-        base_name = str(sub.title or "订阅资源").strip() or "订阅资源"
-        if sub.year:
-            base_name = f"{base_name} ({sub.year})"
-        return re.sub(r'[\\/:*?"<>|]+', "_", base_name)
 
     @staticmethod
     async def _notify_transfer_success(
@@ -3063,97 +2965,6 @@ class SubscriptionService:
             await tg_bot_notify("\n".join(lines), poster_path=poster_path)
         except Exception:
             logger.warning("订阅转存 TG 通知发送失败", exc_info=True)
-
-    @staticmethod
-    def _split_share_link_and_receive_code(raw_link: str) -> tuple[str, str]:
-        value = str(raw_link or "").strip()
-        if not value:
-            return "", ""
-
-        code_receive_match = re.fullmatch(r"([A-Za-z0-9]+)-([A-Za-z0-9]{4})", value)
-        if code_receive_match:
-            return code_receive_match.group(1), code_receive_match.group(2)
-
-        receive_code = ""
-        for pattern in (
-            r"(?:password|receive_code|pickcode|code)=([A-Za-z0-9]{4})",
-            r"(?:提取码|访问码|密码)[:：\s]*([A-Za-z0-9]{4})",
-        ):
-            matched = re.search(pattern, value, re.IGNORECASE)
-            if matched:
-                receive_code = matched.group(1)
-                break
-
-        return value, receive_code
-
-    @staticmethod
-    def _is_video_filename(filename: str) -> bool:
-        value = str(filename or "").strip().lower()
-        if not value:
-            return False
-        return value.endswith(
-            (".mp4", ".mkv", ".avi", ".ts", ".rmvb", ".flv", ".mov", ".wmv", ".m4v")
-        )
-
-    @staticmethod
-    def _is_pan115_save_success(result: Any) -> bool:
-        if isinstance(result, list):
-            return True
-        if not isinstance(result, dict):
-            return False
-        if "success" in result:
-            return bool(result.get("success"))
-        if "state" in result:
-            return bool(result.get("state"))
-        if "errNo" in result:
-            return str(result.get("errNo")) == "0"
-        if "code" in result:
-            return str(result.get("code")) in {"0", "200"}
-        return False
-
-    @staticmethod
-    def _is_likely_115_share_identifier(raw_link: str) -> bool:
-        value = str(raw_link or "").strip()
-        if not value:
-            return False
-        lowered = value.lower()
-        if lowered.startswith(("http://", "https://", "//")):
-            return bool(
-                re.search(r"(?:115(?:cdn)?\.com|share\.115\.com|anxia\.com)", lowered)
-            )
-        return bool(re.fullmatch(r"[a-zA-Z0-9]+(?:-[a-zA-Z0-9]{4})?", value))
-
-    @staticmethod
-    def _is_retryable_transfer_error(error_text: str) -> bool:
-        text = str(error_text or "").lower()
-        if not text:
-            return False
-        tokens = (
-            "share_api_method_not_allowed",
-            "code=405",
-            "code=404",
-            "method not allowed",
-            "nothing matches the given uri",
-            "rate",
-            "timeout",
-            "频繁",
-            "受限",
-            "已有转存任务",
-        )
-        return any(token in text for token in tokens)
-
-    @staticmethod
-    def _is_already_received_error(error_text: str) -> bool:
-        text = str(error_text or "").lower()
-        if not text:
-            return False
-        tokens = (
-            "4200045",
-            "已接收",
-            "重复接收",
-            "already received",
-        )
-        return any(token in text for token in tokens)
 
     async def fetch_resources_for_media(
         self,
