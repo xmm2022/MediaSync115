@@ -57,6 +57,10 @@ from app.services.subscriptions.resource_resolver import (
 from app.services.subscriptions.auto_transfer_context import (
     build_auto_transfer_tv_missing_context,
 )
+from app.services.subscriptions.auto_transfer_offline import (
+    is_offline_transfer_record,
+    submit_offline_transfer_record,
+)
 from app.services.subscriptions.hdhive_unlock import (
     allow_unlock_by_threshold,
     build_hdhive_unlock_context,
@@ -65,7 +69,6 @@ from app.services.subscriptions.hdhive_unlock import (
     should_stop_unlocking_on_message,
 )
 from app.services.subscriptions.offline_transfer import (
-    build_submitted_offline_metadata,
     extract_first_nested_value,
     extract_hash_from_offline_url,
     extract_offline_info_hash,
@@ -2637,6 +2640,32 @@ class SubscriptionService:
                 **kwargs,
             )
 
+        async def create_auto_transfer_step_log(**kwargs: Any) -> None:
+            await self._create_step_log(
+                db,
+                run_id=run_id,
+                channel=channel,
+                subscription_id=sub.id,
+                subscription_title=sub.title,
+                **kwargs,
+            )
+
+        async def submit_offline_task(url: str, folder_id: str) -> dict[str, Any]:
+            return await pan_service.offline_task_add(
+                url=url,
+                wp_path_id=folder_id,
+            )
+
+        def emit_transfer_success(data: dict[str, Any]) -> None:
+            from app.analytics import kafka_producer
+
+            if kafka_producer._enabled:
+                kafka_producer.send(
+                    event_type="transfer_success",
+                    data=data,
+                    key=str(sub.id),
+                )
+
         tv_missing_context = await build_auto_transfer_tv_missing_context(
             sub=sub,
             tv_missing_snapshot=tv_missing_snapshot,
@@ -2665,84 +2694,28 @@ class SubscriptionService:
             )
             try:
                 # 磁力/ED2K 离线下载路径
-                if str(record.resource_type or "") in ("magnet", "ed2k"):
+                if is_offline_transfer_record(record):
                     offline_folder_id = str(
                         runtime_settings_service.get_pan115_offline_folder().get(
                             "folder_id", "0"
                         )
                         or "0"
                     )
-                    record.status = MediaStatus.DOWNLOADING
-                    offline_result = await pan_service.offline_task_add(
-                        url=record.resource_url,
-                        wp_path_id=offline_folder_id,
+                    offline_submission = await submit_offline_transfer_record(
+                        sub=sub,
+                        record=record,
+                        source=source,
+                        offline_folder_id=offline_folder_id,
+                        downloading_status=MediaStatus.DOWNLOADING,
+                        offline_submitted_status=MediaStatus.OFFLINE_SUBMITTED,
+                        now=beijing_now,
+                        submit_offline_task=submit_offline_task,
+                        log_operation=operation_log_service.log_background_event,
+                        create_step_log=create_auto_transfer_step_log,
+                        emit_transfer_success=emit_transfer_success,
                     )
-                    offline_metadata = build_submitted_offline_metadata(
-                        offline_result, record.resource_url
-                    )
-                    record.status = MediaStatus.OFFLINE_SUBMITTED
-                    record.offline_submitted_at = beijing_now()
-                    record.offline_status = "submitted"
-                    record.offline_info_hash = offline_metadata.info_hash
-                    record.offline_task_id = offline_metadata.task_id
-                    record.completed_at = None
-                    record.error_message = None
-                    record.file_id = offline_folder_id
-                    saved += 1
-                    await operation_log_service.log_background_event(
-                        source_type="background_task",
-                        module="subscriptions",
-                        action="subscription.offline_transfer",
-                        status="success",
-                        message=f"[{sub.title}] 离线下载已提交：{record.resource_name}（{record.resource_type}）",
-                        extra={
-                            "subscription_id": sub.id,
-                            "resource_type": record.resource_type,
-                            "source": source,
-                            "record_id": record.id,
-                            "offline_info_hash": record.offline_info_hash,
-                            "offline_task_id": record.offline_task_id,
-                        },
-                    )
-                    # 发送转存成功事件到 Kafka
-                    try:
-                        from app.analytics import kafka_producer
-
-                        if kafka_producer._enabled:
-                            kafka_producer.send(
-                                event_type="transfer_success",
-                                data={
-                                    "subscription_id": sub.id,
-                                    "title": sub.title,
-                                    "source": source,
-                                    "resource_name": record.resource_name,
-                                    "transfer_type": "offline",
-                                    "status": "offline_submitted",
-                                },
-                                key=str(sub.id),
-                            )
-                    except Exception:
-                        pass
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=channel,
-                        subscription_id=sub.id,
-                        subscription_title=sub.title,
-                        step="auto_transfer_offline_done",
-                        status="success",
-                        message=f"已提交离线下载，等待完成后自动入库：{record.resource_name}",
-                        payload={
-                            "source": source,
-                            "record_id": record.id,
-                            "resource_type": record.resource_type,
-                            "target_folder_id": offline_folder_id,
-                            "offline_info_hash": record.offline_info_hash,
-                            "offline_task_id": record.offline_task_id,
-                        },
-                    )
-                    if sub.media_type != MediaType.TV:
-                        # 离线提交不再等同完成；等待 offline_monitor 绑定 hash 后确认完成。
+                    saved += offline_submission.saved_increment
+                    if offline_submission.should_stop:
                         break
                     continue
 
