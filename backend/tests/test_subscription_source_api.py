@@ -9,6 +9,41 @@ from app.models.models import (
 )
 
 
+async def _delete_sources_by_ids(db, source_ids: list[int]) -> None:
+    if not source_ids:
+        return
+    await db.execute(
+        delete(SubscriptionSourceFile).where(
+            SubscriptionSourceFile.source_id.in_(source_ids)
+        )
+    )
+    await db.execute(
+        delete(SubscriptionSource).where(SubscriptionSource.id.in_(source_ids))
+    )
+
+
+async def _delete_subscription_by_tmdb(db, tmdb_id: int) -> None:
+    subscription_ids = [
+        int(row[0])
+        for row in (
+            await db.execute(select(Subscription.id).where(Subscription.tmdb_id == tmdb_id))
+        ).all()
+    ]
+    if subscription_ids:
+        source_ids = [
+            int(row[0])
+            for row in (
+                await db.execute(
+                    select(SubscriptionSource.id).where(
+                        SubscriptionSource.subscription_id.in_(subscription_ids)
+                    )
+                )
+            ).all()
+        ]
+        await _delete_sources_by_ids(db, source_ids)
+    await db.execute(delete(Subscription).where(Subscription.tmdb_id == tmdb_id))
+
+
 @pytest.mark.asyncio
 async def test_create_and_list_subscription_source(async_client):
     from app.core.database import async_session_maker, ensure_tables_exist
@@ -150,3 +185,68 @@ async def test_create_and_list_subscription_source(async_client):
     )
     assert clear_response.status_code == 200
     assert clear_response.json()["selected_file_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_scan_subscription_source_allows_movie_sources(async_client, monkeypatch):
+    from app.api import subscriptions as subscriptions_api
+    from app.core.database import async_session_maker, ensure_tables_exist
+
+    await ensure_tables_exist()
+    async with async_session_maker() as db:
+        await _delete_subscription_by_tmdb(db, 4004)
+        await db.commit()
+        sub = Subscription(
+            tmdb_id=4004,
+            title="Movie API",
+            media_type=MediaType.MOVIE,
+            auto_download=True,
+        )
+        db.add(sub)
+        await db.commit()
+        await db.refresh(sub)
+        sub_id = sub.id
+
+    login_response = await async_client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "password"},
+    )
+    assert login_response.status_code == 200
+
+    source_response = await async_client.post(
+        f"/api/subscriptions/{sub_id}/sources",
+        json={
+            "share_url": "https://115.com/s/movie4004?password=abcd",
+            "receive_code": "",
+            "display_name": "Movie API Source",
+        },
+    )
+    assert source_response.status_code == 200
+    source_id = source_response.json()["id"]
+
+    async def fake_scan_manual_pan115_source(
+        db,
+        *,
+        source,
+        subscription,
+        pan_service,
+        parent_folder_id,
+        missing_episodes,
+        quality_filter,
+    ):
+        assert subscription.media_type == MediaType.MOVIE
+        assert missing_episodes == set()
+        return {"status": "success", "selected_count": 1, "transferred_count": 1}
+
+    monkeypatch.setattr(
+        subscriptions_api.subscription_source_service,
+        "scan_manual_pan115_source",
+        fake_scan_manual_pan115_source,
+    )
+
+    scan_response = await async_client.post(
+        f"/api/subscriptions/{sub_id}/sources/{source_id}/scan"
+    )
+
+    assert scan_response.status_code == 200
+    assert scan_response.json()["stats"]["transferred_count"] == 1

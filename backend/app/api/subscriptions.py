@@ -946,10 +946,15 @@ async def scan_subscription_source(
             status_code=400,
             detail="固定 115 来源仅支持 MediaSync115 订阅",
         )
-    if sub.media_type != MediaType.TV or sub.tmdb_id is None:
+    if sub.media_type == MediaType.TV and sub.tmdb_id is None:
         raise HTTPException(
             status_code=400,
             detail="固定 115 来源扫描仅支持带 TMDB ID 的电视剧订阅",
+        )
+    if sub.media_type not in {MediaType.MOVIE, MediaType.TV}:
+        raise HTTPException(
+            status_code=400,
+            detail="固定 115 来源扫描仅支持电影或电视剧订阅",
         )
     try:
         source = await subscription_source_service.get_source(
@@ -980,26 +985,28 @@ async def scan_subscription_source(
         tv_include_specials=bool(sub.tv_include_specials),
         has_successful_transfer=False,
     )
-    tv_missing_result = await tv_missing_service.get_tv_missing_status(
-        sub.tmdb_id,
-        include_specials=bool(sub.tv_include_specials),
-        season_number=sub.tv_season_number
-        if sub.tv_scope in {"season", "episode_range"}
-        else None,
-        episode_start=sub.tv_episode_start if sub.tv_scope == "episode_range" else None,
-        episode_end=sub.tv_episode_end if sub.tv_scope == "episode_range" else None,
-        aired_only=sub.tv_follow_mode == "new",
-    )
-    if str(tv_missing_result.get("status") or "") != "ok":
-        raise HTTPException(
-            status_code=400,
-            detail=tv_missing_result.get("message") or "缺集状态不可用",
+    missing_episodes: set[tuple[int, int]] = set()
+    if sub.media_type == MediaType.TV:
+        tv_missing_result = await tv_missing_service.get_tv_missing_status(
+            sub.tmdb_id,
+            include_specials=bool(sub.tv_include_specials),
+            season_number=sub.tv_season_number
+            if sub.tv_scope in {"season", "episode_range"}
+            else None,
+            episode_start=sub.tv_episode_start if sub.tv_scope == "episode_range" else None,
+            episode_end=sub.tv_episode_end if sub.tv_scope == "episode_range" else None,
+            aired_only=sub.tv_follow_mode == "new",
         )
-    missing_episodes = {
-        (int(pair[0]), int(pair[1]))
-        for pair in (tv_missing_result.get("missing_episodes") or [])
-        if isinstance(pair, (list, tuple)) and len(pair) == 2
-    }
+        if str(tv_missing_result.get("status") or "") != "ok":
+            raise HTTPException(
+                status_code=400,
+                detail=tv_missing_result.get("message") or "缺集状态不可用",
+            )
+        missing_episodes = {
+            (int(pair[0]), int(pair[1]))
+            for pair in (tv_missing_result.get("missing_episodes") or [])
+            if isinstance(pair, (list, tuple)) and len(pair) == 2
+        }
     pan_service = Pan115Service(runtime_settings_service.get_pan115_cookie())
     default_folder = runtime_settings_service.get_pan115_default_folder() or {}
     parent_folder_id = str(default_folder.get("folder_id") or "0")

@@ -981,17 +981,18 @@ export default function SubscriptionDialog({
   };
 
   const scanFixedSourceAfterCreate = async (subId: string, sourceId: string, sourceName: string) => {
-    if (mediaType !== "tv" || !subId || !sourceId) return;
+    if (!subId || !sourceId) return;
     try {
       const response = await subscriptionApi.scanSource(subId, sourceId);
       const stats = asRecord(asRecord(response.data).stats);
       const transferredCount = firstNumber(stats.transferred_count, stats.transferredCount, 0) ?? 0;
       const selectedCount = firstNumber(stats.selected_count, stats.selectedCount, transferredCount) ?? transferredCount;
+      const scanLabel = mediaType === "tv" ? "缺集扫描" : "电影转存扫描";
       const level = transferredCount > 0 ? "SUCCESS" : "INFO";
-      await addLog(level, `固定 115 来源缺集扫描完成: ${sourceName}，匹配 ${selectedCount} 个，转存 ${transferredCount} 个`);
+      await addLog(level, `固定 115 来源${scanLabel}完成: ${sourceName}，匹配 ${selectedCount} 个，转存 ${transferredCount} 个`);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
-      await addLog("WARN", `固定 115 来源已绑定，但立即缺集扫描失败: ${msg}`);
+      await addLog("WARN", `固定 115 来源已绑定，但立即扫描失败: ${msg}`);
     }
   };
 

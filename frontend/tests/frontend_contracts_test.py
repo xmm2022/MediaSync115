@@ -311,6 +311,14 @@ class FrontendContractsTest(unittest.TestCase):
             dialog.index("const createResp = await subscriptionApi.create"),
         )
 
+    def test_fixed_pan115_movie_source_scans_after_create(self) -> None:
+        dialog = read_source("src/components/SubscriptionDialog.tsx")
+
+        self.assertIn("scanFixedSourceAfterCreate", dialog)
+        self.assertIn("if (!subId || !sourceId) return", dialog)
+        self.assertNotIn('mediaType !== "tv" || !subId || !sourceId', dialog)
+        self.assertIn('mediaType === "tv" ? "缺集扫描" : "电影转存扫描"', dialog)
+
     def test_subscription_source_mutations_refresh_parent_state(self) -> None:
         tab = read_source("src/components/SubscriptionTab.tsx")
 
