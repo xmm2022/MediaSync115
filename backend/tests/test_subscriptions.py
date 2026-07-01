@@ -1,6 +1,8 @@
 """
 订阅 API 测试
 """
+from uuid import uuid4
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -116,3 +118,74 @@ class TestSubscriptions:
             "episode_end": 3,
             "aired_only": True,
         }
+
+    def test_list_tv_missing_status_keeps_successful_transfer_rows(
+        self,
+        client: TestClient,
+        monkeypatch,
+    ) -> None:
+        """已有完成下载记录的订阅仍应由缺集服务决定是否进入待处理列表"""
+        from app.api import subscriptions as subscriptions_api
+
+        tmdb_id = 930000 + (uuid4().int % 100000)
+        title = f"Missing Overview Completed Transfer {tmdb_id}"
+
+        async def fake_get_tv_missing_statuses(tmdb_ids, **kwargs):
+            assert tmdb_id in tmdb_ids
+            return {
+                tmdb_id: {
+                    "status": "ok",
+                    "message": "缺集状态计算完成",
+                    "missing_by_season": {"1": [2]},
+                    "counts": {"aired": 2, "existing": 1, "missing": 1},
+                }
+            }
+
+        monkeypatch.setattr(
+            subscriptions_api.tv_missing_service,
+            "get_tv_missing_statuses",
+            fake_get_tv_missing_statuses,
+        )
+
+        create_response = client.post(
+            "/api/subscriptions",
+            json={
+                "title": title,
+                "media_type": "tv",
+                "tmdb_id": tmdb_id,
+                "auto_download": True,
+            },
+        )
+        assert create_response.status_code == 200
+        subscription = create_response.json()
+        sub_id = subscription["id"]
+
+        download_response = client.post(
+            f"/api/subscriptions/{sub_id}/downloads",
+            json={
+                "resource_name": f"{title}.S01E01.mkv",
+                "resource_url": "https://example.test/s01e01.mkv",
+                "resource_type": "pan115",
+            },
+        )
+        assert download_response.status_code == 200
+        download_id = download_response.json()["id"]
+        update_response = client.put(
+            f"/api/subscriptions/{sub_id}/downloads/{download_id}",
+            json={"status": "completed"},
+        )
+        assert update_response.status_code == 200
+
+        response = client.get(
+            "/api/subscriptions/missing-status/tv",
+            params={"only_missing": True, "limit": 1000},
+        )
+
+        assert response.status_code == 200
+        items = response.json()["items"]
+        matched = [item for item in items if item["subscription_id"] == sub_id]
+        assert len(matched) == 1
+        assert matched[0]["missing_count"] == 1
+        assert matched[0]["missing_by_season"] == {"1": [2]}
+
+        client.delete(f"/api/subscriptions/{sub_id}")

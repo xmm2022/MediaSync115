@@ -1010,26 +1010,12 @@ async def list_tv_missing_status(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        has_successful_transfer = (
-            select(DownloadRecord.id)
-            .where(
-                DownloadRecord.subscription_id == Subscription.id,
-                or_(
-                    DownloadRecord.completed_at.is_not(None),
-                    DownloadRecord.status.in_(
-                        (MediaStatus.COMPLETED, MediaStatus.OFFLINE_COMPLETED)
-                    ),
-                ),
-            )
-            .exists()
-        )
         result = await db.execute(
             select(Subscription)
             .where(
                 Subscription.media_type == MediaType.TV,
                 Subscription.is_active == True,  # noqa: E712
                 _mediasync115_clause(),
-                ~has_successful_transfer,
             )
             .order_by(Subscription.created_at.desc())
             .limit(limit)
