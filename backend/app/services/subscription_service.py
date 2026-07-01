@@ -49,13 +49,17 @@ from app.services.subscriptions.record_selection import (
     select_retryable_records,
 )
 from app.services.subscriptions.resource_metadata import (
-    build_hdhive_keyword,
-    build_pansou_keyword,
-    build_tg_keyword,
     determine_resource_type,
     extract_resource_name,
     is_video_filename,
     normalize_hdhive_subscription_items,
+)
+from app.services.subscriptions.resource_fetchers import (
+    ResourceFetcherDependencies,
+    fetch_from_hdhive as fetch_from_hdhive_flow,
+    fetch_from_pansou as fetch_from_pansou_flow,
+    fetch_from_tg as fetch_from_tg_flow,
+    fetch_offline_magnets as fetch_offline_magnets_flow,
 )
 from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
@@ -1298,294 +1302,115 @@ class SubscriptionService:
         )
         return resolve_source_order(priority, tg_ready=tg_ready)
 
+    def _resource_fetcher_dependencies(self) -> ResourceFetcherDependencies:
+        async def _search_pansou_by_tmdb(
+            tmdb_id: int,
+            media_type: str,
+            season_number: int | None,
+        ) -> dict[str, Any]:
+            return await _search_pansou_pan115_resources(
+                tmdb_id,
+                media_type,
+                season_number,
+            )
+
+        async def _search_pansou_by_keyword(keyword: str) -> Any:
+            return await pansou_service.search_115(keyword, res="results")
+
+        async def _get_hdhive_by_keyword(
+            keyword: str,
+            *,
+            media_type: str,
+        ) -> list[dict[str, Any]]:
+            return await hdhive_service.get_pan115_by_keyword(
+                keyword,
+                media_type=media_type,
+            )
+
+        async def _search_tg_by_keyword(
+            keyword: str,
+            *,
+            media_type: str,
+        ) -> list[dict[str, Any]]:
+            return await tg_service.search_115_by_keyword(
+                keyword,
+                media_type=media_type,
+            )
+
+        async def _search_seedhub_magnets(
+            keyword: str,
+            *,
+            limit: int,
+        ) -> list[dict[str, Any]]:
+            return await seedhub_service.search_magnets_by_keyword(
+                keyword,
+                limit=limit,
+            )
+
+        async def _search_butailing_magnets(
+            keyword: str,
+            *,
+            media_type: str,
+        ) -> list[dict[str, Any]]:
+            return await butailing_service.search_magnets(
+                keyword,
+                media_type=media_type,
+            )
+
+        async def _log_offline_source_fetch(**kwargs: Any) -> None:
+            await operation_log_service.log_background_event(**kwargs)
+
+        return ResourceFetcherDependencies(
+            search_pansou_by_tmdb=_search_pansou_by_tmdb,
+            search_pansou_by_keyword=_search_pansou_by_keyword,
+            normalize_pansou_resources=_normalize_pansou_pan115_list,
+            get_hdhive_tv_pan115=hdhive_service.get_tv_pan115,
+            get_hdhive_movie_pan115=hdhive_service.get_movie_pan115,
+            get_hdhive_by_keyword=_get_hdhive_by_keyword,
+            normalize_hdhive_items=normalize_hdhive_subscription_items,
+            prefer_hdhive_free=runtime_settings_service.get_subscription_hdhive_prefer_free,
+            sort_hdhive_free_first=hdhive_service.sort_free_first,
+            search_tg_by_keyword=_search_tg_by_keyword,
+            offline_transfer_enabled=(
+                runtime_settings_service.get_subscription_offline_transfer_enabled
+            ),
+            search_seedhub_magnets=_search_seedhub_magnets,
+            search_butailing_magnets=_search_butailing_magnets,
+            log_offline_source_fetch=_log_offline_source_fetch,
+        )
+
     async def _fetch_from_pansou(
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        traces: list[dict[str, Any]] = []
-        media_type = "tv" if sub.media_type == MediaType.TV else "movie"
-
-        if sub.tmdb_id is not None:
-            try:
-                traces.append(
-                    {
-                        "step": "fetch_pansou_tmdb_start",
-                        "status": "info",
-                        "message": "开始通过 tmdb_id 调用 Pansou",
-                        "payload": {"tmdb_id": sub.tmdb_id, "media_type": media_type},
-                    }
-                )
-                pansou_result = await _search_pansou_pan115_resources(
-                    sub.tmdb_id,
-                    media_type,
-                    sub.tv_season_number if media_type == "tv" else None,
-                )
-                pansou_list = list(pansou_result.get("list") or [])
-                if pansou_list:
-                    traces.append(
-                        {
-                            "step": "fetch_pansou_tmdb_done",
-                            "status": "success",
-                            "message": f"Pansou(TMDB) 返回 {len(pansou_list)} 条候选资源",
-                            "payload": {"count": len(pansou_list)},
-                        }
-                    )
-                    return pansou_list, traces
-                traces.append(
-                    {
-                        "step": "fetch_pansou_tmdb_empty",
-                        "status": "warning",
-                        "message": "Pansou(TMDB) 未命中资源，尝试关键词兜底",
-                    }
-                )
-            except Exception as exc:
-                traces.append(
-                    {
-                        "step": "fetch_pansou_tmdb_failed",
-                        "status": "warning",
-                        "message": "Pansou(TMDB) 请求失败，尝试关键词兜底",
-                        "payload": {"error": str(exc)[:300]},
-                    }
-                )
-
-        keyword = build_pansou_keyword(sub.title, sub.year)
-        if not keyword:
-            traces.append(
-                {
-                    "step": "fetch_pansou_keyword_skip",
-                    "status": "warning",
-                    "message": "缺少关键词，无法执行 Pansou 兜底搜索",
-                }
-            )
-            return [], traces
-        traces.append(
-            {
-                "step": "fetch_pansou_keyword_start",
-                "status": "info",
-                "message": "开始通过关键词调用 Pansou",
-                "payload": {"keyword": keyword},
-            }
+        return await fetch_from_pansou_flow(
+            sub,
+            dependencies=self._resource_fetcher_dependencies(),
         )
-        payload = await pansou_service.search_115(keyword, res="results")
-        resources = _normalize_pansou_pan115_list(payload)
-        traces.append(
-            {
-                "step": "fetch_pansou_keyword_done",
-                "status": "success" if resources else "warning",
-                "message": f"Pansou(关键词) 返回 {len(resources)} 条候选资源",
-                "payload": {"count": len(resources)},
-            }
-        )
-        return resources, traces
 
     async def _fetch_from_hdhive(
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        traces: list[dict[str, Any]] = []
-        resources: list[dict[str, Any]] = []
-        if sub.tmdb_id is not None:
-            try:
-                traces.append(
-                    {
-                        "step": "fetch_hdhive_tmdb_start",
-                        "status": "info",
-                        "message": "开始通过 tmdb_id 调用 HDHive",
-                        "payload": {
-                            "tmdb_id": sub.tmdb_id,
-                            "media_type": sub.media_type.value,
-                        },
-                    }
-                )
-                if sub.media_type == MediaType.TV:
-                    resources = await hdhive_service.get_tv_pan115(sub.tmdb_id)
-                else:
-                    resources = await hdhive_service.get_movie_pan115(sub.tmdb_id)
-                resources = normalize_hdhive_subscription_items(resources)
-                if runtime_settings_service.get_subscription_hdhive_prefer_free():
-                    resources = hdhive_service.sort_free_first(resources)
-                traces.append(
-                    {
-                        "step": "fetch_hdhive_tmdb_done",
-                        "status": "success" if resources else "warning",
-                        "message": f"HDHive(TMDB) 返回 {len(resources)} 条候选资源",
-                        "payload": {"count": len(resources)},
-                    }
-                )
-                if resources:
-                    return resources, traces
-            except Exception as exc:
-                traces.append(
-                    {
-                        "step": "fetch_hdhive_tmdb_failed",
-                        "status": "warning",
-                        "message": "HDHive(TMDB) 请求失败，尝试关键词兜底",
-                        "payload": {"error": str(exc)[:300]},
-                    }
-                )
-
-        keyword = build_hdhive_keyword(sub.title, sub.year)
-        if not keyword:
-            traces.append(
-                {
-                    "step": "fetch_hdhive_keyword_skip",
-                    "status": "warning",
-                    "message": "缺少关键词，无法执行 HDHive 兜底搜索",
-                }
-            )
-            return [], traces
-
-        traces.append(
-            {
-                "step": "fetch_hdhive_keyword_start",
-                "status": "info",
-                "message": "开始通过关键词调用 HDHive",
-                "payload": {"keyword": keyword},
-            }
+        return await fetch_from_hdhive_flow(
+            sub,
+            dependencies=self._resource_fetcher_dependencies(),
         )
-        media_type = "tv" if sub.media_type == MediaType.TV else "movie"
-        keyword_resources = await hdhive_service.get_pan115_by_keyword(
-            keyword, media_type=media_type
-        )
-        keyword_resources = normalize_hdhive_subscription_items(keyword_resources)
-        if runtime_settings_service.get_subscription_hdhive_prefer_free():
-            keyword_resources = hdhive_service.sort_free_first(keyword_resources)
-        traces.append(
-            {
-                "step": "fetch_hdhive_keyword_done",
-                "status": "success" if keyword_resources else "warning",
-                "message": f"HDHive(关键词) 返回 {len(keyword_resources)} 条候选资源",
-                "payload": {"count": len(keyword_resources)},
-            }
-        )
-        return keyword_resources, traces
 
     async def _fetch_from_tg(
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        traces: list[dict[str, Any]] = []
-        keyword = build_tg_keyword(sub.title, sub.year)
-        if not keyword:
-            traces.append(
-                {
-                    "step": "fetch_tg_keyword_skip",
-                    "status": "warning",
-                    "message": "缺少关键词，无法执行 Telegram 搜索",
-                }
-            )
-            return [], traces
-
-        traces.append(
-            {
-                "step": "fetch_tg_keyword_start",
-                "status": "info",
-                "message": "开始通过关键词调用 Telegram 频道搜索",
-                "payload": {"keyword": keyword},
-            }
+        return await fetch_from_tg_flow(
+            sub,
+            dependencies=self._resource_fetcher_dependencies(),
         )
-        media_type = "tv" if sub.media_type == MediaType.TV else "movie"
-        resources = await tg_service.search_115_by_keyword(
-            keyword, media_type=media_type
-        )
-        traces.append(
-            {
-                "step": "fetch_tg_keyword_done",
-                "status": "success" if resources else "warning",
-                "message": f"Telegram 返回 {len(resources)} 条候选资源",
-                "payload": {"count": len(resources)},
-            }
-        )
-        return resources, traces
 
     async def _fetch_offline_magnets(
         self,
         sub: "SubscriptionSnapshot",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """离线转存启用时，从 SeedHub / 不太灵并发抓取磁力资源。"""
-        if not runtime_settings_service.get_subscription_offline_transfer_enabled():
-            return [], []
-
-        traces: list[dict[str, Any]] = []
-        keyword = build_pansou_keyword(sub.title, sub.year)
-        media_type = "tv" if sub.media_type == MediaType.TV else "movie"
-
-        async def _seedhub() -> list[dict[str, Any]]:
-            if not keyword:
-                return []
-            return await seedhub_service.search_magnets_by_keyword(keyword, limit=20)
-
-        async def _butailing() -> list[dict[str, Any]]:
-            if not keyword:
-                return []
-            return await butailing_service.search_magnets(
-                keyword, media_type=media_type
-            )
-
-        seedhub_result, butailing_result = await asyncio.gather(
-            _seedhub(),
-            _butailing(),
-            return_exceptions=True,
+        return await fetch_offline_magnets_flow(
+            sub,
+            dependencies=self._resource_fetcher_dependencies(),
         )
-
-        merged: list[dict[str, Any]] = []
-        for label, result in [
-            ("SeedHub", seedhub_result),
-            ("不太灵", butailing_result),
-        ]:
-            if isinstance(result, BaseException):
-                traces.append(
-                    {
-                        "step": "fetch_offline_magnet_error",
-                        "status": "warning",
-                        "message": f"{label} 磁力抓取失败: {str(result)[:200]}",
-                    }
-                )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.fetch_offline_source",
-                    status="warning",
-                    message=f"[{sub.title}] 离线来源 {label} 抓取失败：{str(result)[:200]}",
-                    extra={
-                        "subscription_id": sub.id,
-                        "title": sub.title,
-                        "source": label,
-                        "error": str(result)[:300],
-                    },
-                )
-            elif result:
-                merged.extend(result)
-                traces.append(
-                    {
-                        "step": "fetch_offline_magnet_done",
-                        "status": "info",
-                        "message": f"{label} 磁力资源 {len(result)} 条",
-                        "payload": {"source": label, "count": len(result)},
-                    }
-                )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.item.fetch_offline_source",
-                    status="success",
-                    message=f"[{sub.title}] 离线来源 {label} 返回 {len(result)} 条磁力资源",
-                    extra={
-                        "subscription_id": sub.id,
-                        "title": sub.title,
-                        "source": label,
-                        "count": len(result),
-                    },
-                )
-
-        if merged:
-            traces.append(
-                {
-                    "step": "fetch_offline_magnet_summary",
-                    "status": "success",
-                    "message": f"离线磁力资源合计 {len(merged)} 条",
-                    "payload": {"total": len(merged)},
-                }
-            )
-
-        return merged, traces
 
     def _build_hdhive_unlock_context(self) -> dict[str, Any]:
         budget_total = runtime_settings_service.get_subscription_hdhive_unlock_budget_points_per_run()
