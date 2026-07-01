@@ -112,6 +112,10 @@ from app.services.subscriptions.resource_storage_db_adapter import (
     ResourceStorageDbAdapterDependencies,
     store_new_resources_with_db_adapter,
 )
+from app.services.subscriptions.resource_ingest_run_flow import (
+    ResourceIngestRunDependencies,
+    run_resource_ingest_for_subscription,
+)
 from app.services.subscriptions.run_summary import (
     normalize_subscription_channel,
 )
@@ -134,13 +138,6 @@ from app.services.subscriptions.run_state import (
     build_start_progress_payload,
 )
 from app.services.subscriptions.run_loader import load_active_subscription_snapshots
-from app.services.subscriptions.run_item_logs import (
-    build_fetch_done_event_kwargs,
-    build_fetch_resources_summary_step,
-    build_fetch_trace_step_log,
-    build_store_done_event_kwargs,
-    build_store_new_resources_step,
-)
 from app.services.subscriptions.run_lifecycle_logs import (
     build_subscription_auto_cleaned_event_kwargs,
     build_subscription_auto_cleaned_step,
@@ -300,80 +297,35 @@ class SubscriptionService:
                             return
 
                         tv_missing_snapshot = cleanup_before.get("tv_missing_snapshot")
-                        (
-                            resources,
-                            fetch_trace,
-                            source_attempt_info,
-                        ) = await self._fetch_resources(
-                            normalized_channel,
-                            sub,
-                            hdhive_unlock_context,
-                            source_order=source_order,
-                        )
-                        for trace in fetch_trace:
-                            fetch_trace_step_log = build_fetch_trace_step_log(trace)
-                            await self._create_step_log(
-                                inner_db,
+                        async def apply_resource_store_stats_for_run(
+                            store_stats: dict[str, Any],
+                        ) -> None:
+                            async with result_lock:
+                                apply_resource_store_stats(result, store_stats)
+
+                        resource_ingest_result = (
+                            await run_resource_ingest_for_subscription(
+                                db=inner_db,
                                 run_id=run_id,
                                 channel=normalized_channel,
-                                subscription_id=sub_id,
-                                subscription_title=sub_title,
-                                **fetch_trace_step_log,
-                            )
-
-                        # 记录来源尝试链路汇总日志
-                        fetch_summary_step_log = (
-                            build_fetch_resources_summary_step(
-                                resources,
-                                source_attempt_info,
-                            )
-                        )
-                        await self._create_step_log(
-                            inner_db,
-                            run_id=run_id,
-                            channel=normalized_channel,
-                            subscription_id=sub_id,
-                            subscription_title=sub_title,
-                            **fetch_summary_step_log,
-                        )
-
-                        # 为每部影视记录资源抓取汇总
-                        await operation_log_service.log_background_event(
-                            **build_fetch_done_event_kwargs(
-                                subscription_id=sub_id,
-                                subscription_title=sub_title,
-                                channel=normalized_channel,
-                                trace_id=run_id,
-                                resources=resources,
-                                fetch_trace=fetch_trace,
-                                source_attempt_info=source_attempt_info,
+                                sub=sub,
+                                hdhive_unlock_context=hdhive_unlock_context,
+                                source_order=source_order,
+                                dependencies=ResourceIngestRunDependencies(
+                                    fetch_resources=self._fetch_resources,
+                                    store_new_resources=self._store_new_resources,
+                                    create_step_log=self._create_step_log,
+                                    log_background_event=(
+                                        operation_log_service.log_background_event
+                                    ),
+                                    apply_resource_store_stats=(
+                                        apply_resource_store_stats_for_run
+                                    ),
+                                ),
                             )
                         )
-                        store_stats = await self._store_new_resources(inner_db, sub_id, resources)
-                        created_records = store_stats["created_records"]
-                        duplicate_urls = store_stats["duplicate_urls"]
-                        async with result_lock:
-                            apply_resource_store_stats(result, store_stats)
-                        await self._create_step_log(
-                            inner_db,
-                            run_id=run_id,
-                            channel=normalized_channel,
-                            subscription_id=sub_id,
-                            subscription_title=sub_title,
-                            **build_store_new_resources_step(
-                                store_stats,
-                                created_records,
-                            ),
-                        )
-                        await operation_log_service.log_background_event(
-                            **build_store_done_event_kwargs(
-                                subscription_id=sub_id,
-                                subscription_title=sub_title,
-                                trace_id=run_id,
-                                created_records=created_records,
-                                store_stats=store_stats,
-                            )
-                        )
+                        created_records = resource_ingest_result.created_records
+                        duplicate_urls = resource_ingest_result.duplicate_urls
 
                         should_auto_download = force_auto_download or bool(sub.auto_download)
                         async def select_auto_transfer_retry_records_for_run(
