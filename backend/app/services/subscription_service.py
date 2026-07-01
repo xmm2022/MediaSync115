@@ -103,6 +103,11 @@ from app.services.subscriptions.item_outcome_run_flow import (
     complete_subscription_item_success,
     handle_subscription_item_failure,
 )
+from app.services.subscriptions.item_lifecycle_run_flow import (
+    SubscriptionItemLifecycleDependencies,
+    publish_subscription_item_progress,
+    start_subscription_item_processing,
+)
 from app.services.subscriptions.resource_resolver import (
     resolve_subscription_resources,
 )
@@ -134,18 +139,13 @@ from app.services.subscriptions.run_counters import (
     apply_fixed_source_transfer_stats,
     apply_resource_store_stats,
     apply_subscription_failure,
-    increment_processed_count,
     set_checked_count,
 )
 from app.services.subscriptions.run_state import (
     build_initial_run_result,
-    build_processing_progress_payload,
     build_start_progress_payload,
 )
 from app.services.subscriptions.run_loader import load_active_subscription_snapshots
-from app.services.subscriptions.run_lifecycle_logs import (
-    build_subscription_start_step,
-)
 from app.services.subscriptions.transfer_phase_run_flow import (
     SubscriptionTransferPhaseDependencies,
     run_subscription_transfer_phase,
@@ -275,13 +275,15 @@ class SubscriptionService:
                     )
 
                     try:
-                        await self._create_step_log(
-                            inner_db,
+                        await start_subscription_item_processing(
+                            db=inner_db,
                             run_id=run_id,
                             channel=normalized_channel,
                             subscription_id=sub_id,
                             subscription_title=sub_title,
-                            **build_subscription_start_step(sub_title),
+                            dependencies=SubscriptionItemLifecycleDependencies(
+                                create_step_log=self._create_step_log,
+                            ),
                         )
 
                         async def apply_pre_scan_cleanup_stats_for_run(
@@ -457,11 +459,11 @@ class SubscriptionService:
                             dependencies=item_outcome_dependencies,
                         )
                     finally:
-                        async with result_lock:
-                            increment_processed_count(result)
-                            progress_payload = build_processing_progress_payload(result)
-                        if progress_callback:
-                            await progress_callback(progress_payload)
+                        await publish_subscription_item_progress(
+                            result=result,
+                            result_lock=result_lock,
+                            progress_callback=progress_callback,
+                        )
 
 
         async def _bounded_subscription(sub: SubscriptionSnapshot) -> None:
