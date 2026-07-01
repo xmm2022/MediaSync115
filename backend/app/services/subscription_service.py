@@ -149,6 +149,15 @@ from app.services.subscriptions.run_cleanup_logs import (
     build_fixed_source_movie_cleanup_event_kwargs,
     build_fixed_source_movie_cleanup_step,
 )
+from app.services.subscriptions.run_lifecycle_logs import (
+    build_subscription_auto_cleaned_event_kwargs,
+    build_subscription_auto_cleaned_step,
+    build_subscription_done_event_kwargs,
+    build_subscription_done_step,
+    build_subscription_failed_event_kwargs,
+    build_subscription_failed_step,
+    build_subscription_start_step,
+)
 from app.services.subscriptions.auto_transfer_batch import (
     AutoTransferBatchDependencies,
     AutoTransferBatchStatuses,
@@ -253,9 +262,7 @@ class SubscriptionService:
                             channel=normalized_channel,
                             subscription_id=sub_id,
                             subscription_title=sub_title,
-                            step="subscription_start",
-                            status="info",
-                            message=f"正在检查「{sub_title}」的资源和入库状态",
+                            **build_subscription_start_step(sub_title),
                         )
                         cleanup_before = await self._evaluate_pre_scan_cleanup(
                             inner_db,
@@ -276,22 +283,15 @@ class SubscriptionService:
                                 channel=normalized_channel,
                                 subscription_id=sub_id,
                                 subscription_title=sub_title,
-                                step="subscription_done",
-                                status="success",
-                                message="订阅已自动清理",
+                                **build_subscription_auto_cleaned_step(),
                             )
                             await operation_log_service.log_background_event(
-                                source_type="background_task",
-                                module="subscriptions",
-                                action="subscription.item.done",
-                                status="success",
-                                message=f"[{sub_title}] 订阅已自动清理（转存完成或已入库）",
-                                trace_id=run_id,
-                                extra={
-                                    "subscription_id": sub_id,
-                                    "title": sub_title,
-                                    "channel": normalized_channel,
-                                },
+                                **build_subscription_auto_cleaned_event_kwargs(
+                                    subscription_id=sub_id,
+                                    subscription_title=sub_title,
+                                    channel=normalized_channel,
+                                    trace_id=run_id,
+                                )
                             )
                             await inner_db.commit()
                             return
@@ -634,39 +634,21 @@ class SubscriptionService:
                             channel=normalized_channel,
                             subscription_id=sub_id,
                             subscription_title=sub_title,
-                            step="subscription_done",
-                            status="success",
-                            message="订阅处理完成",
+                            **build_subscription_done_step(),
                         )
-                        # 构建每部影视的摘要信息
-                        item_parts = [f"[{sub_title}]"]
-                        item_new = result["new_resource_count"]
-                        if should_auto_download:
-                            item_parts.append(
-                                f"新资源 {len(created_records)} 条，"
-                                f"转存成功 {sub_saved_count} 条，失败 {sub_failed_transfer_count} 条"
-                            )
-                        else:
-                            item_parts.append(
-                                f"新资源 {len(created_records)} 条（未启用自动转存）"
-                            )
                         await operation_log_service.log_background_event(
-                            source_type="background_task",
-                            module="subscriptions",
-                            action="subscription.item.done",
-                            status="success" if sub_failed_transfer_count == 0 else "warning",
-                            message="，".join(item_parts),
-                            trace_id=run_id,
-                            extra={
-                                "subscription_id": sub_id,
-                                "title": sub_title,
-                                "channel": normalized_channel,
-                                "new_resources": len(created_records),
-                                "auto_saved": sub_saved_count if should_auto_download else None,
-                                "auto_failed": sub_failed_transfer_count
-                                if should_auto_download
-                                else None,
-                            },
+                            **build_subscription_done_event_kwargs(
+                                subscription_id=sub_id,
+                                subscription_title=sub_title,
+                                channel=normalized_channel,
+                                trace_id=run_id,
+                                new_record_count=len(created_records),
+                                should_auto_download=should_auto_download,
+                                sub_saved_count=sub_saved_count,
+                                sub_failed_transfer_count=(
+                                    sub_failed_transfer_count
+                                ),
+                            )
                         )
                         await inner_db.commit()
                     except Exception as exc:
@@ -684,23 +666,16 @@ class SubscriptionService:
                             channel=normalized_channel,
                             subscription_id=sub_id,
                             subscription_title=sub_title,
-                            step="subscription_failed",
-                            status="failed",
-                            message=f"处理出错：{str(exc)[:200]}",
+                            **build_subscription_failed_step(exc),
                         )
                         await operation_log_service.log_background_event(
-                            source_type="background_task",
-                            module="subscriptions",
-                            action="subscription.item.failed",
-                            status="failed",
-                            message=f"[{sub_title}] 订阅处理失败: {str(exc)[:200]}",
-                            trace_id=run_id,
-                            extra={
-                                "subscription_id": sub_id,
-                                "title": sub_title,
-                                "channel": normalized_channel,
-                                "error": str(exc)[:500],
-                            },
+                            **build_subscription_failed_event_kwargs(
+                                subscription_id=sub_id,
+                                subscription_title=sub_title,
+                                channel=normalized_channel,
+                                trace_id=run_id,
+                                error=exc,
+                            )
                         )
                         await inner_db.commit()
                     finally:
