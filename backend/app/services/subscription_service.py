@@ -102,8 +102,11 @@ from app.services.subscriptions.resource_resolver_adapter import (
     fetch_subscription_resources_with_adapter,
 )
 from app.services.subscriptions.resource_storage import (
-    ResourceStorageDependencies,
     store_new_resources as store_new_resources_flow,
+)
+from app.services.subscriptions.resource_storage_db_adapter import (
+    ResourceStorageDbAdapterDependencies,
+    store_new_resources_with_db_adapter,
 )
 from app.services.subscriptions.run_summary import (
     build_run_message,
@@ -1168,46 +1171,16 @@ class SubscriptionService:
         subscription_id: int,
         resources: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        async def load_existing_resource_urls(
-            current_subscription_id: int,
-        ) -> set[str]:
-            with db.no_autoflush:
-                existing_result = await db.execute(
-                    select(DownloadRecord.resource_url).where(
-                        DownloadRecord.subscription_id == current_subscription_id
-                    )
-                )
-            return {
-                str(row[0]) for row in existing_result.all() if row and row[0]
-            }
-
-        def add_record(
-            current_subscription_id: int,
-            resource_name: str,
-            resource_url: str,
-            resource_type: str,
-            status: Any,
-        ) -> DownloadRecord:
-            record = DownloadRecord(
-                subscription_id=current_subscription_id,
-                resource_name=resource_name,
-                resource_url=resource_url,
-                resource_type=resource_type,
-                status=status,
-            )
-            db.add(record)
-            return record
-
-        return await store_new_resources_flow(
+        return await store_new_resources_with_db_adapter(
+            db,
             subscription_id,
             resources,
-            dependencies=ResourceStorageDependencies(
-                load_existing_resource_urls=load_existing_resource_urls,
-                add_record=add_record,
+            dependencies=ResourceStorageDbAdapterDependencies(
                 offline_transfer_enabled=(
                     runtime_settings_service.get_subscription_offline_transfer_enabled
                 ),
                 record_status_matched=MediaStatus.MATCHED,
+                run_store_new_resources=store_new_resources_flow,
             ),
         )
 
