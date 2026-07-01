@@ -98,10 +98,6 @@ from app.services.subscriptions.fixed_source_scan import (
     scan_fixed_sources_for_subscription as scan_fixed_sources_flow,
     should_scan_fixed_sources as should_scan_fixed_sources_policy,
 )
-from app.services.subscriptions.fixed_source_run_flow import (
-    FixedSourceRunDependencies,
-    run_fixed_source_for_subscription,
-)
 from app.services.subscriptions.item_outcome_run_flow import (
     SubscriptionItemOutcomeDependencies,
     complete_subscription_item_success,
@@ -150,13 +146,9 @@ from app.services.subscriptions.run_loader import load_active_subscription_snaps
 from app.services.subscriptions.run_lifecycle_logs import (
     build_subscription_start_step,
 )
-from app.services.subscriptions.auto_transfer_retry_records import (
-    AutoTransferRetryRecordDependencies,
-    select_auto_transfer_retry_records,
-)
-from app.services.subscriptions.auto_transfer_run_flow import (
-    AutoTransferRunDependencies,
-    run_auto_transfer_for_subscription,
+from app.services.subscriptions.transfer_phase_run_flow import (
+    SubscriptionTransferPhaseDependencies,
+    run_subscription_transfer_phase,
 )
 from app.services.subscriptions.auto_save_resources_adapter import (
     AutoSaveResourcesAdapterDependencies,
@@ -359,31 +351,6 @@ class SubscriptionService:
                         created_records = resource_ingest_result.created_records
                         duplicate_urls = resource_ingest_result.duplicate_urls
 
-                        should_auto_download = force_auto_download or bool(sub.auto_download)
-                        async def select_auto_transfer_retry_records_for_run(
-                            *,
-                            db: Any,
-                            subscription_id: int,
-                            auto_download: bool,
-                            force_auto_download: bool,
-                            duplicate_urls: list[str],
-                            created_records: list[Any],
-                        ) -> list[Any]:
-                            return await select_auto_transfer_retry_records(
-                                db=db,
-                                subscription_id=subscription_id,
-                                auto_download=auto_download,
-                                force_auto_download=force_auto_download,
-                                duplicate_urls=duplicate_urls,
-                                created_records=created_records,
-                                dependencies=AutoTransferRetryRecordDependencies(
-                                    load_retryable_records=self._load_retryable_records,
-                                    load_force_retry_records=(
-                                        self._load_force_retry_records
-                                    ),
-                                ),
-                            )
-
                         async def apply_auto_transfer_stats_for_run(
                             stats: dict[str, Any],
                             transfer_source: str,
@@ -395,53 +362,15 @@ class SubscriptionService:
                                     transfer_source=transfer_source,
                                 )
 
-                        async def apply_cleanup_stats_for_run(media_type: Any) -> None:
+                        async def apply_transfer_cleanup_stats_for_run(
+                            media_type: Any,
+                        ) -> None:
                             async with result_lock:
                                 apply_cleanup_stats(
                                     result,
                                     media_type,
                                     tv_media_type=MediaType.TV,
                                 )
-
-                        auto_transfer_result = (
-                            await run_auto_transfer_for_subscription(
-                                db=inner_db,
-                                run_id=run_id,
-                                channel=normalized_channel,
-                                sub=sub,
-                                should_auto_download=should_auto_download,
-                                force_auto_download=force_auto_download,
-                                duplicate_urls=duplicate_urls,
-                                created_records=created_records,
-                                tv_missing_snapshot=tv_missing_snapshot,
-                                hdhive_unlock_context=hdhive_unlock_context,
-                                source_order=source_order,
-                                dependencies=AutoTransferRunDependencies(
-                                    select_retry_records=(
-                                        select_auto_transfer_retry_records_for_run
-                                    ),
-                                    auto_save_records_with_link_fallback=(
-                                        self._auto_save_records_with_link_fallback
-                                    ),
-                                    create_step_log=self._create_step_log,
-                                    log_background_event=(
-                                        operation_log_service.log_background_event
-                                    ),
-                                    delete_subscription_with_records=(
-                                        self._delete_subscription_with_records
-                                    ),
-                                    apply_auto_transfer_stats=(
-                                        apply_auto_transfer_stats_for_run
-                                    ),
-                                    apply_cleanup_stats=apply_cleanup_stats_for_run,
-                                ),
-                            )
-                        )
-                        sub_saved_count = auto_transfer_result.sub_saved_count
-                        sub_failed_transfer_count = (
-                            auto_transfer_result.sub_failed_transfer_count
-                        )
-                        cleanup_after_auto = auto_transfer_result.cleanup_after_auto
 
                         async def apply_fixed_source_stats_for_run(
                             saved: int,
@@ -454,25 +383,25 @@ class SubscriptionService:
                                     failed=failed,
                                 )
 
-                        async def apply_fixed_source_cleanup_stats_for_run(
-                            media_type: Any,
-                        ) -> None:
-                            async with result_lock:
-                                apply_cleanup_stats(
-                                    result,
-                                    media_type,
-                                    tv_media_type=MediaType.TV,
-                                )
-
-                        fixed_source_result = await run_fixed_source_for_subscription(
+                        transfer_phase_result = await run_subscription_transfer_phase(
                             db=inner_db,
                             run_id=run_id,
                             channel=normalized_channel,
                             sub=sub,
-                            cleanup_after_auto=cleanup_after_auto,
                             force_auto_download=force_auto_download,
+                            duplicate_urls=duplicate_urls,
+                            created_records=created_records,
                             tv_missing_snapshot=tv_missing_snapshot,
-                            dependencies=FixedSourceRunDependencies(
+                            hdhive_unlock_context=hdhive_unlock_context,
+                            source_order=source_order,
+                            dependencies=SubscriptionTransferPhaseDependencies(
+                                load_retryable_records=self._load_retryable_records,
+                                load_force_retry_records=(
+                                    self._load_force_retry_records
+                                ),
+                                auto_save_records_with_link_fallback=(
+                                    self._auto_save_records_with_link_fallback
+                                ),
                                 should_scan_fixed_sources=self._should_scan_fixed_sources,
                                 scan_fixed_sources_for_subscription=(
                                     self._scan_fixed_sources_for_subscription
@@ -484,19 +413,23 @@ class SubscriptionService:
                                 delete_subscription_with_records=(
                                     self._delete_subscription_with_records
                                 ),
+                                apply_auto_transfer_stats=(
+                                    apply_auto_transfer_stats_for_run
+                                ),
                                 apply_fixed_source_transfer_stats=(
                                     apply_fixed_source_stats_for_run
                                 ),
                                 apply_cleanup_stats=(
-                                    apply_fixed_source_cleanup_stats_for_run
+                                    apply_transfer_cleanup_stats_for_run
                                 ),
                             ),
                         )
-                        sub_saved_count += (
-                            fixed_source_result.sub_saved_count_delta
+                        should_auto_download = (
+                            transfer_phase_result.should_auto_download
                         )
-                        sub_failed_transfer_count += (
-                            fixed_source_result.sub_failed_transfer_count_delta
+                        sub_saved_count = transfer_phase_result.sub_saved_count
+                        sub_failed_transfer_count = (
+                            transfer_phase_result.sub_failed_transfer_count
                         )
 
                         await complete_subscription_item_success(
