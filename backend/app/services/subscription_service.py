@@ -49,7 +49,6 @@ from app.services.subscriptions.record_selection import (
     select_retryable_records,
 )
 from app.services.subscriptions.resource_metadata import (
-    is_video_filename,
     normalize_hdhive_subscription_items,
 )
 from app.services.subscriptions.resource_fetchers import (
@@ -131,13 +130,9 @@ from app.services.subscriptions.run_dispatch_flow import (
     SubscriptionRunDispatchDependencies,
     dispatch_subscription_checks,
 )
-from app.services.subscriptions.auto_save_resources_adapter import (
-    AutoSaveResourcesAdapterDependencies,
-    auto_save_resources_with_adapter,
-)
-from app.services.subscriptions.auto_transfer_batch import (
-    AutoTransferBatchStatuses,
-    auto_save_resources_batch,
+from app.services.subscriptions.auto_save_resources_runtime_adapter import (
+    auto_save_resources_with_runtime_adapter,
+    build_default_auto_save_resources_runtime_dependencies,
 )
 from app.services.subscriptions.hdhive_unlock import (
     allow_unlock_by_threshold,
@@ -145,9 +140,6 @@ from app.services.subscriptions.hdhive_unlock import (
     prepare_hdhive_locked_resources,
     safe_int,
     should_stop_unlocking_on_message,
-)
-from app.services.subscriptions.tv_episode_selection import (
-    select_missing_episode_files as select_tv_missing_episode_files,
 )
 from app.services.subscriptions.transfer_notifications import (
     TransferNotificationDependencies,
@@ -863,60 +855,20 @@ class SubscriptionService:
         source: str,
         tv_missing_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        def emit_transfer_success(
-            subscription_id: int,
-            data: dict[str, Any],
-        ) -> None:
-            from app.analytics import kafka_producer
-
-            if kafka_producer._enabled:
-                kafka_producer.send(
-                    event_type="transfer_success",
-                    data=data,
-                    key=str(subscription_id),
-                )
-
-        statuses = AutoTransferBatchStatuses(
-            transferring=MediaStatus.TRANSFERRING,
-            downloading=MediaStatus.DOWNLOADING,
-            offline_submitted=MediaStatus.OFFLINE_SUBMITTED,
-            matched=MediaStatus.MATCHED,
-            completed=MediaStatus.COMPLETED,
-            failed=MediaStatus.FAILED,
-        )
-        return await auto_save_resources_with_adapter(
+        return await auto_save_resources_with_runtime_adapter(
             db=db,
             run_id=run_id,
             channel=channel,
             sub=sub,
             records=records,
             source=source,
-            statuses=statuses,
-            dependencies=AutoSaveResourcesAdapterDependencies(
-                get_pan115_cookie=runtime_settings_service.get_pan115_cookie,
-                create_pan_service=Pan115Service,
-                get_pan115_default_folder=(
-                    runtime_settings_service.get_pan115_default_folder
-                ),
-                get_pan115_offline_folder=(
-                    runtime_settings_service.get_pan115_offline_folder
-                ),
+            dependencies=build_default_auto_save_resources_runtime_dependencies(
                 resolve_quality_filter=self._resolve_subscription_quality_filter,
-                get_tv_missing_status=tv_missing_service.get_tv_missing_status,
                 create_step_log=self._create_step_log,
-                emit_transfer_success=emit_transfer_success,
-                select_tv_missing_episode_files=select_tv_missing_episode_files,
                 apply_precise_postprocess_status=(
                     self._apply_precise_transfer_postprocess_status
                 ),
                 notify_transfer_success=self._notify_transfer_success,
-                trigger_archive_after_transfer=(
-                    media_postprocess_service.trigger_archive_after_transfer
-                ),
-                log_operation=operation_log_service.log_background_event,
-                now=beijing_now,
-                is_video_file=is_video_filename,
-                run_batch=auto_save_resources_batch,
             ),
             tv_missing_snapshot=tv_missing_snapshot,
         )
