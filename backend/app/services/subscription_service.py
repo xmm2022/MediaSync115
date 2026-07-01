@@ -89,8 +89,11 @@ from app.services.subscriptions.fixed_source_scan import (
     should_scan_fixed_sources as should_scan_fixed_sources_policy,
 )
 from app.services.subscriptions.resource_resolver import (
-    ResourceResolverDependencies,
     resolve_subscription_resources,
+)
+from app.services.subscriptions.resource_resolver_adapter import (
+    ResourceResolverAdapterDependencies,
+    fetch_subscription_resources_with_adapter,
 )
 from app.services.subscriptions.resource_storage import (
     ResourceStorageDependencies,
@@ -996,59 +999,43 @@ class SubscriptionService:
         source_order: list[str] | None = None,
         exclude_urls: set[str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-        async def log_source_fetch(
-            current_sub: "SubscriptionSnapshot", source: str, count: int
-        ) -> None:
-            await operation_log_service.log_background_event(
-                source_type="background_task",
-                module="subscriptions",
-                action="subscription.item.fetch_source",
-                status="success" if count else "info",
-                message=f"[{current_sub.title}] 来源 {source} 返回 {count} 条资源",
-                extra={
-                    "subscription_id": current_sub.id,
-                    "title": current_sub.title,
-                    "source": source,
-                    "count": count,
-                },
-            )
-
-        def emit_source_attempt(
-            current_sub: "SubscriptionSnapshot", attempt_info: dict[str, Any]
+        def emit_source_attempt_event(
+            subscription_id: int,
+            data: dict[str, Any],
         ) -> None:
             from app.analytics import kafka_producer
 
             if kafka_producer._enabled:
                 kafka_producer.send(
                     event_type="source_attempt",
-                    data={
-                        "subscription_id": current_sub.id,
-                        "title": current_sub.title,
-                        "source": attempt_info.get("source"),
-                        "status": attempt_info.get("status", "empty"),
-                        "resource_count": attempt_info.get("count", 0),
-                    },
-                    key=str(current_sub.id),
+                    data=data,
+                    key=str(subscription_id),
                 )
 
-        dependencies = ResourceResolverDependencies(
-            fetch_from_hdhive=self._fetch_from_hdhive,
-            fetch_from_tg=self._fetch_from_tg,
-            fetch_from_pansou=self._fetch_from_pansou,
-            fetch_offline_magnets=self._fetch_offline_magnets,
-            resolve_source_order=self._resolve_source_order,
-            resolve_subscription_resolutions=self._resolve_subscription_resolutions,
-            resolve_subscription_quality_filter=self._resolve_subscription_quality_filter,
-            prepare_hdhive_locked_resources=self._prepare_hdhive_locked_resources,
-            build_hdhive_unlock_context=self._build_hdhive_unlock_context,
-            filter_resources_excluding_urls=filter_resources_excluding_urls,
-            log_source_fetch=log_source_fetch,
-            emit_source_attempt=emit_source_attempt,
-        )
-        return await resolve_subscription_resources(
+        return await fetch_subscription_resources_with_adapter(
             channel=channel,
             sub=sub,
-            dependencies=dependencies,
+            dependencies=ResourceResolverAdapterDependencies(
+                fetch_from_hdhive=self._fetch_from_hdhive,
+                fetch_from_tg=self._fetch_from_tg,
+                fetch_from_pansou=self._fetch_from_pansou,
+                fetch_offline_magnets=self._fetch_offline_magnets,
+                resolve_source_order=self._resolve_source_order,
+                resolve_subscription_resolutions=(
+                    self._resolve_subscription_resolutions
+                ),
+                resolve_subscription_quality_filter=(
+                    self._resolve_subscription_quality_filter
+                ),
+                prepare_hdhive_locked_resources=(
+                    self._prepare_hdhive_locked_resources
+                ),
+                build_hdhive_unlock_context=self._build_hdhive_unlock_context,
+                filter_resources_excluding_urls=filter_resources_excluding_urls,
+                log_background_event=operation_log_service.log_background_event,
+                emit_source_attempt_event=emit_source_attempt_event,
+                run_resolver=resolve_subscription_resources,
+            ),
             hdhive_unlock_context=hdhive_unlock_context,
             source_order=source_order,
             exclude_urls=exclude_urls,
