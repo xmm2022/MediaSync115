@@ -54,6 +54,9 @@ from app.services.subscriptions.resource_resolver import (
     ResourceResolverDependencies,
     resolve_subscription_resources,
 )
+from app.services.subscriptions.auto_transfer_context import (
+    build_auto_transfer_tv_missing_context,
+)
 from app.services.subscriptions.hdhive_unlock import (
     allow_unlock_by_threshold,
     build_hdhive_unlock_context,
@@ -2612,91 +2615,37 @@ class SubscriptionService:
         saved = 0
         failed = 0
         errors: list[dict[str, Any]] = []
-        tv_missing_enabled = False
-        missing_episodes: set[tuple[int, int]] = set()
-        is_tv_subscription = sub.media_type == MediaType.TV and sub.tmdb_id is not None
         subscription_completed = False
         cleanup_step = ""
         cleanup_message = ""
         cleanup_payload: dict[str, Any] = {}
 
-        if is_tv_subscription:
-            tv_missing_result = tv_missing_snapshot
-            if tv_missing_result is None:
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="tv_missing_fetch_start",
-                    status="info",
-                    message="正在检查剧集的缺集状态",
-                    payload={"tmdb_id": sub.tmdb_id},
-                )
-                tv_missing_result = await tv_missing_service.get_tv_missing_status(
-                    sub.tmdb_id,
-                    include_specials=bool(sub.tv_include_specials),
-                    season_number=sub.tv_season_number
-                    if sub.tv_scope in {"season", "episode_range"}
-                    else None,
-                    episode_start=sub.tv_episode_start
-                    if sub.tv_scope == "episode_range"
-                    else None,
-                    episode_end=sub.tv_episode_end
-                    if sub.tv_scope == "episode_range"
-                    else None,
-                    aired_only=sub.tv_follow_mode == "new",
-                )
-            if str(tv_missing_result.get("status") or "") == "ok":
-                tv_missing_enabled = True
-                counts = (
-                    tv_missing_result.get("counts")
-                    if isinstance(tv_missing_result.get("counts"), dict)
-                    else {}
-                )
-                missing_episodes = {
-                    (int(pair[0]), int(pair[1]))
-                    for pair in (tv_missing_result.get("missing_episodes") or [])
-                    if isinstance(pair, (list, tuple)) and len(pair) == 2
-                }
-                if tv_missing_snapshot is None:
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=channel,
-                        subscription_id=sub.id,
-                        subscription_title=sub.title,
-                        step="tv_missing_fetch_done",
-                        status="success",
-                        message=f"缺集检查完成：共 {int(counts.get('aired') or 0)} 集，已有 {int(counts.get('existing') or 0)} 集，缺失 {len(missing_episodes)} 集",
-                        payload={
-                            "aired_count": int(
-                                (tv_missing_result.get("counts") or {}).get("aired")
-                                or 0
-                            ),
-                            "existing_count": int(
-                                (tv_missing_result.get("counts") or {}).get("existing")
-                                or 0
-                            ),
-                            "missing_count": len(missing_episodes),
-                        },
-                    )
-            elif tv_missing_snapshot is None:
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                        step="tv_missing_fetch_failed",
-                        status="warning",
-                        message=f"缺集检查失败，将按全量转存处理：{tv_missing_result.get('message') or '未知错误'}",
-                    payload={
-                        "status": tv_missing_result.get("status"),
-                        "message": tv_missing_result.get("message"),
-                    },
-                )
+        async def create_tv_missing_step_log(**kwargs: Any) -> None:
+            await self._create_step_log(
+                db,
+                run_id=run_id,
+                channel=channel,
+                subscription_id=sub.id,
+                subscription_title=sub.title,
+                **kwargs,
+            )
+
+        async def fetch_tv_missing_status(**kwargs: Any) -> dict[str, Any]:
+            _ = kwargs.pop("tmdb_id", None)
+            return await tv_missing_service.get_tv_missing_status(
+                sub.tmdb_id,
+                **kwargs,
+            )
+
+        tv_missing_context = await build_auto_transfer_tv_missing_context(
+            sub=sub,
+            tv_missing_snapshot=tv_missing_snapshot,
+            fetch_tv_missing_status=fetch_tv_missing_status,
+            create_step_log=create_tv_missing_step_log,
+        )
+        tv_missing_enabled = tv_missing_context.tv_missing_enabled
+        missing_episodes = tv_missing_context.missing_episodes
+        is_tv_subscription = tv_missing_context.is_tv_subscription
 
         for record in records:
             await self._create_step_log(
@@ -2705,9 +2654,9 @@ class SubscriptionService:
                 channel=channel,
                 subscription_id=sub.id,
                 subscription_title=sub.title,
-                    step="auto_transfer_item_start",
-                    status="info",
-                    message=f"正在处理资源：{record.resource_name}",
+                step="auto_transfer_item_start",
+                status="info",
+                message=f"正在处理资源：{record.resource_name}",
                 payload={
                     "source": source,
                     "record_id": record.id,
