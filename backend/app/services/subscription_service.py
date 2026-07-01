@@ -33,7 +33,6 @@ from app.services.resource_search import (
     search_pansou_pan115_resources as _search_pansou_pan115_resources,
 )
 from app.services.subscriptions.resource_candidates import (
-    extract_offline_url,
     extract_resource_url,
     filter_resources_excluding_urls,
     normalize_share_url,
@@ -49,8 +48,6 @@ from app.services.subscriptions.record_selection import (
     select_retryable_records,
 )
 from app.services.subscriptions.resource_metadata import (
-    determine_resource_type,
-    extract_resource_name,
     is_video_filename,
     normalize_hdhive_subscription_items,
 )
@@ -88,6 +85,10 @@ from app.services.subscriptions.fixed_source_scan import (
 from app.services.subscriptions.resource_resolver import (
     ResourceResolverDependencies,
     resolve_subscription_resources,
+)
+from app.services.subscriptions.resource_storage import (
+    ResourceStorageDependencies,
+    store_new_resources as store_new_resources_flow,
 )
 from app.services.subscriptions.run_summary import (
     build_run_message,
@@ -1457,65 +1458,48 @@ class SubscriptionService:
         subscription_id: int,
         resources: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        from app.models.models import MediaStatus
-
-        if not resources:
+        async def load_existing_resource_urls(
+            current_subscription_id: int,
+        ) -> set[str]:
+            with db.no_autoflush:
+                existing_result = await db.execute(
+                    select(DownloadRecord.resource_url).where(
+                        DownloadRecord.subscription_id == current_subscription_id
+                    )
+                )
             return {
-                "created_records": [],
-                "checked_count": 0,
-                "duplicate_count": 0,
-                "duplicate_urls": [],
-                "invalid_count": 0,
+                str(row[0]) for row in existing_result.all() if row and row[0]
             }
 
-        with db.no_autoflush:
-            existing_result = await db.execute(
-                select(DownloadRecord.resource_url).where(
-                    DownloadRecord.subscription_id == subscription_id
-                )
-            )
-        existing_urls = {str(row[0]) for row in existing_result.all() if row and row[0]}
-
-        offline_enabled = (
-            runtime_settings_service.get_subscription_offline_transfer_enabled()
-        )
-        created_records: list[DownloadRecord] = []
-        duplicate_urls: set[str] = set()
-        duplicate_count = 0
-        invalid_count = 0
-        for item in resources:
-            resource_url = extract_resource_url(item)
-            resource_type = "pan115"
-            if not resource_url and offline_enabled:
-                resource_url = extract_offline_url(item)
-                if resource_url:
-                    resource_type = determine_resource_type(resource_url)
-            if not resource_url:
-                invalid_count += 1
-                continue
-            if resource_url in existing_urls:
-                duplicate_count += 1
-                duplicate_urls.add(resource_url)
-                continue
-
+        def add_record(
+            current_subscription_id: int,
+            resource_name: str,
+            resource_url: str,
+            resource_type: str,
+            status: Any,
+        ) -> DownloadRecord:
             record = DownloadRecord(
-                subscription_id=subscription_id,
-                resource_name=extract_resource_name(item),
+                subscription_id=current_subscription_id,
+                resource_name=resource_name,
                 resource_url=resource_url,
                 resource_type=resource_type,
-                status=MediaStatus.MATCHED,
+                status=status,
             )
             db.add(record)
-            existing_urls.add(resource_url)
-            created_records.append(record)
+            return record
 
-        return {
-            "created_records": created_records,
-            "checked_count": len(resources),
-            "duplicate_count": duplicate_count,
-            "duplicate_urls": list(duplicate_urls),
-            "invalid_count": invalid_count,
-        }
+        return await store_new_resources_flow(
+            subscription_id,
+            resources,
+            dependencies=ResourceStorageDependencies(
+                load_existing_resource_urls=load_existing_resource_urls,
+                add_record=add_record,
+                offline_transfer_enabled=(
+                    runtime_settings_service.get_subscription_offline_transfer_enabled
+                ),
+                record_status_matched=MediaStatus.MATCHED,
+            ),
+        )
 
     async def _load_retryable_records(
         self, db: AsyncSession, subscription_id: int
