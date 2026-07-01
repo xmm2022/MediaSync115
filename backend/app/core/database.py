@@ -8,6 +8,19 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
+
+def _validate_database_url(database_url: str | None) -> None:
+    if not str(database_url or "").strip().lower().startswith("postgresql+asyncpg://"):
+        raise RuntimeError(
+            "MediaSync115 application database requires PostgreSQL. "
+            "Set DATABASE_URL to a postgresql+asyncpg:// URL."
+        )
+
+
+def validate_database_backend() -> None:
+    _validate_database_url(settings.DATABASE_URL)
+
+
 _engine_kwargs = {
     "echo": settings.SQL_ECHO,
     "connect_args": {
@@ -17,23 +30,13 @@ _engine_kwargs = {
 if str(settings.APP_NAME or "").endswith("-Test"):
     _engine_kwargs["poolclass"] = NullPool
 
+validate_database_backend()
 engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
 
 
 async_session_maker = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False
 )
-
-
-def validate_database_backend() -> None:
-    if not str(settings.DATABASE_URL or "").strip().lower().startswith(
-        "postgresql+asyncpg://"
-    ):
-        raise RuntimeError(
-            "MediaSync115 application database requires PostgreSQL. "
-            "Set DATABASE_URL to a postgresql+asyncpg:// URL."
-        )
-
 
 class Base(DeclarativeBase):
     pass

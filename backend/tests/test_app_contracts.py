@@ -1,5 +1,10 @@
 """应用级配置与模型契约测试"""
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from app.api.archive import ArchiveConfigRequest
@@ -31,3 +36,29 @@ def test_application_database_requires_postgres(monkeypatch: pytest.MonkeyPatch)
         "postgresql+asyncpg://mediasync:mediasync@127.0.0.1:5432/mediasync115",
     )
     validate_database_backend()
+
+
+def test_database_import_validates_backend_before_engine_creation() -> None:
+    """首次导入数据库模块时也应先给出 PostgreSQL 配置错误。"""
+    backend_root = Path(__file__).resolve().parents[1]
+    env = {
+        **os.environ,
+        "APP_NAME": "MediaSync115",
+        "DATABASE_URL": "sqlite+aiosqlite:///tmp/legacy.db",
+        "PYTHONPATH": str(backend_root),
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.core.database"],
+        cwd=backend_root,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    combined_output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "requires PostgreSQL" in combined_output
+    assert "ModuleNotFoundError" not in combined_output
+    assert "No module named 'aiosqlite'" not in combined_output
