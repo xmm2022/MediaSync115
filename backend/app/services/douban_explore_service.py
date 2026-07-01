@@ -280,6 +280,24 @@ def _build_subject_tmdb_cache_key(douban_id: str, media_type: str) -> str:
     return f"{media_type}|{str(douban_id or '').strip()}"
 
 
+def _build_candidate_cache_keys(
+    *,
+    douban_id: str,
+    title: str,
+    year: Optional[str],
+    media_type: str,
+) -> tuple[str, str, str]:
+    title_cache_key = _build_tmdb_cache_key(
+        title=title,
+        year=year,
+        media_type=media_type,
+    )
+    subject_cache_key = (
+        _build_subject_tmdb_cache_key(douban_id, media_type) if douban_id else ""
+    )
+    return subject_cache_key or title_cache_key, title_cache_key, subject_cache_key
+
+
 def _build_external_lookup_cache_key(
     external_source: str, external_id: str, media_type: str
 ) -> str:
@@ -1404,13 +1422,15 @@ def _normalize_douban_items(
         subject_cache_hit, subject_cached_tmdb_id = _get_cached_subject_tmdb_id(
             subject_cache_key
         )
-        cache_key = _build_tmdb_cache_key(title=title, year=year, media_type=media_type)
-        cache_hit, cached_tmdb_id = _get_cached_tmdb_id(cache_key)
-        tmdb_id = (
-            subject_cached_tmdb_id
-            if subject_cache_hit
-            else (cached_tmdb_id if cache_hit else None)
+        cache_key, title_cache_key, candidate_subject_cache_key = (
+            _build_candidate_cache_keys(
+                douban_id=subject_id,
+                title=title,
+                year=year,
+                media_type=media_type,
+            )
         )
+        tmdb_id = subject_cached_tmdb_id if subject_cache_hit else None
 
         # 尝试从 Wikidata 缓存获取 IMDB ID
         imdb_id = None
@@ -1421,11 +1441,13 @@ def _normalize_douban_items(
         if wikidata_cache_hit and wikidata_bridge:
             imdb_id = _normalize_external_id(wikidata_bridge.get("imdb_id"))
 
-        if enqueue_tmdb_backfill and not subject_cache_hit and not cache_hit:
+        if enqueue_tmdb_backfill and not subject_cache_hit:
             backfill_candidates.append(
                 {
                     "douban_id": subject_id,
                     "cache_key": cache_key,
+                    "title_cache_key": title_cache_key,
+                    "subject_cache_key": candidate_subject_cache_key,
                     "title": title,
                     "media_type": media_type,
                     "year": year,
@@ -1485,8 +1507,11 @@ def _build_backfill_candidates_from_items(
             continue
         douban_id = str(item.get("douban_id") or item.get("id") or "").strip()
         year = item.get("year") if isinstance(item.get("year"), str) else None
-        cache_key = _build_tmdb_cache_key(
-            title=title.strip(), year=year, media_type=media_type
+        cache_key, title_cache_key, subject_cache_key = _build_candidate_cache_keys(
+            douban_id=douban_id,
+            title=title.strip(),
+            year=year,
+            media_type=media_type,
         )
         if cache_key in seen:
             continue
@@ -1495,6 +1520,8 @@ def _build_backfill_candidates_from_items(
             {
                 "douban_id": douban_id,
                 "cache_key": cache_key,
+                "title_cache_key": title_cache_key,
+                "subject_cache_key": subject_cache_key,
                 "title": title.strip(),
                 "media_type": media_type,
                 "year": year,
@@ -1547,6 +1574,7 @@ def _hydrate_tmdb_ids_from_cache(items: list[dict[str, Any]]) -> None:
                     "resolved" if subject_cached_tmdb_id else "unresolved"
                 )
                 continue
+            continue
         year = item.get("year")
         cache_key = _build_tmdb_cache_key(title=title, year=year, media_type=media_type)
         cache_hit, cached_tmdb_id = _get_cached_tmdb_id(cache_key)
@@ -1592,6 +1620,7 @@ async def _hydrate_tmdb_ids_from_db(items: list[dict[str, Any]]) -> int:
             )
             if hit:
                 return True, tmdb
+            return False, None
         if title:
             hit, tmdb = await douban_tmdb_mapping_service.get_title_mapping(
                 title.strip().lower(), year or "", media_type
@@ -1620,7 +1649,7 @@ async def _hydrate_tmdb_ids_from_db(items: list[dict[str, Any]]) -> int:
         if douban_id:
             subject_key = _build_subject_tmdb_cache_key(douban_id, media_type)
             _set_subject_tmdb_cache(subject_key, tmdb_id, persist=False)
-        if title:
+        elif title:
             title_key = _build_tmdb_cache_key(
                 title=title, year=year, media_type=media_type
             )
@@ -1636,6 +1665,8 @@ async def _backfill_tmdb_ids(candidates: list[dict[str, Any]]) -> None:
         cache_key = candidate["cache_key"]
         douban_id = str(candidate.get("douban_id") or "").strip()
         media_type = "tv" if candidate.get("media_type") == "tv" else "movie"
+        title_cache_key = str(candidate.get("title_cache_key") or cache_key)
+        subject_cache_key = str(candidate.get("subject_cache_key") or "").strip()
         candidate_title = str(candidate.get("title") or "")
         candidate_year = (
             candidate.get("year") if isinstance(candidate.get("year"), str) else None
@@ -1647,17 +1678,15 @@ async def _backfill_tmdb_ids(candidates: list[dict[str, Any]]) -> None:
                     media_type=media_type,
                     year=candidate_year,
                 )
-                _set_tmdb_id_cache(cache_key, resolved_id)
-                if douban_id:
-                    subject_cache_key = _build_subject_tmdb_cache_key(
-                        douban_id, media_type
-                    )
+                if subject_cache_key:
                     _set_subject_tmdb_cache(subject_cache_key, resolved_id)
+                else:
+                    _set_tmdb_id_cache(title_cache_key, resolved_id)
         except Exception:
-            _set_tmdb_id_cache(cache_key, None)
-            if douban_id:
-                subject_cache_key = _build_subject_tmdb_cache_key(douban_id, media_type)
+            if subject_cache_key:
                 _set_subject_tmdb_cache(subject_cache_key, None)
+            else:
+                _set_tmdb_id_cache(title_cache_key, None)
         finally:
             _tmdb_backfill_inflight.discard(cache_key)
 
