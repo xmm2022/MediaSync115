@@ -44,7 +44,6 @@ from app.services.subscriptions.resource_fetcher_runtime_adapter import (
 )
 from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
-    resolve_source_order,
 )
 from app.services.subscriptions.snapshot import SubscriptionSnapshot
 from app.services.subscriptions.execution_logs import (
@@ -65,14 +64,14 @@ from app.services.subscriptions.postprocess_status import (
     PostprocessStatusDependencies,
     apply_precise_transfer_postprocess_status as apply_postprocess_status_flow,
 )
-from app.services.subscriptions.quality_filter import (
-    SubscriptionQualityPreferences,
-    build_subscription_quality_filter,
-)
 from app.services.subscriptions.fixed_source_scan import (
     FixedSourceScanDependencies,
     scan_fixed_sources_for_subscription as scan_fixed_sources_flow,
     should_scan_fixed_sources as should_scan_fixed_sources_policy,
+)
+from app.services.subscriptions.runtime_preferences_adapter import (
+    resolve_source_order_with_runtime_adapter,
+    resolve_subscription_quality_filter_with_runtime_adapter,
 )
 from app.services.subscriptions.item_processing_run_flow import (
     SubscriptionItemProcessingDependencies,
@@ -485,15 +484,7 @@ class SubscriptionService:
         return build_source_attempt_summary(attempts, source_order)
 
     def _resolve_source_order(self, channel: str) -> list[str]:
-        _ = channel
-        priority = runtime_settings_service.get_subscription_resource_priority()
-        tg_ready = bool(
-            runtime_settings_service.get_tg_api_id().strip()
-            and runtime_settings_service.get_tg_api_hash().strip()
-            and runtime_settings_service.get_tg_session().strip()
-            and runtime_settings_service.get_tg_channel_usernames()
-        )
-        return resolve_source_order(priority, tg_ready=tg_ready)
+        return resolve_source_order_with_runtime_adapter(channel)
 
     async def _fetch_from_pansou(
         self, sub: "SubscriptionSnapshot"
@@ -813,23 +804,7 @@ class SubscriptionService:
         return runtime_settings_service.get_resource_preferred_resolutions()
 
     def _resolve_subscription_quality_filter(self, sub: "SubscriptionSnapshot") -> dict[str, Any]:
-        _ = sub
-        return build_subscription_quality_filter(
-            SubscriptionQualityPreferences(
-                preferred_resolutions=(
-                    runtime_settings_service.get_resource_preferred_resolutions()
-                ),
-                preferred_hdr=runtime_settings_service.get_resource_preferred_hdr(),
-                preferred_codec=runtime_settings_service.get_resource_preferred_codec(),
-                exclude_labels=runtime_settings_service.get_resource_exclude_tags(),
-                preferred_audio=runtime_settings_service.get_resource_preferred_audio(),
-                preferred_subtitles=(
-                    runtime_settings_service.get_resource_preferred_subtitles()
-                ),
-                min_size_gb=runtime_settings_service.get_resource_min_size_gb(),
-                max_size_gb=runtime_settings_service.get_resource_max_size_gb(),
-            )
-        )
+        return resolve_subscription_quality_filter_with_runtime_adapter(sub)
 
     @staticmethod
     async def _notify_transfer_success(
