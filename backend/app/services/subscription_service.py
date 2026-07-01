@@ -117,9 +117,8 @@ from app.services.subscriptions.hdhive_unlock_runtime_adapter import (
     build_hdhive_unlock_context_with_runtime_adapter,
     prepare_hdhive_locked_resources_with_runtime_adapter,
 )
-from app.services.subscriptions.transfer_notifications import (
-    TransferNotificationDependencies,
-    notify_transfer_success as notify_transfer_success_flow,
+from app.services.subscriptions.transfer_notification_runtime_adapter import (
+    notify_transfer_success_with_runtime_adapter,
 )
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.subscription_source_service import (
@@ -814,21 +813,12 @@ class SubscriptionService:
         method: str,
         poster_path: str | None = None,
     ) -> None:
-        async def notify(message: str, *, poster_path: str | None = None) -> None:
-            from app.services.tg_bot.notifications import tg_bot_notify
-
-            await tg_bot_notify(message, poster_path=poster_path)
-
-        await notify_transfer_success_flow(
+        await notify_transfer_success_with_runtime_adapter(
             sub_title,
             resource_name,
             source,
             method,
             poster_path=poster_path,
-            dependencies=TransferNotificationDependencies(
-                notify=notify,
-                log_warning=logger.warning,
-            ),
         )
 
     async def fetch_resources_for_media(
