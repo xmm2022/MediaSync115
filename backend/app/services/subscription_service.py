@@ -47,6 +47,10 @@ from app.services.subscriptions.resource_candidates import (
     resource_candidate_url,
     should_continue_link_fallback,
 )
+from app.services.subscriptions.source_attempts import (
+    build_source_attempt_summary,
+    resolve_source_order,
+)
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.seedhub_service import seedhub_service
 from app.services.subscription_source_service import (
@@ -1847,59 +1851,18 @@ class SubscriptionService:
         self, attempts: list[dict[str, Any]], source_order: list[str]
     ) -> str:
         """构建来源尝试链路的中文摘要"""
-        if not attempts:
-            return "未尝试任何来源"
-
-        # 来源名称映射
-        source_names = {
-            "hdhive": "HDHive",
-            "pansou": "Pansou",
-            "tg": "TG",
-            "offline": "离线磁力",
-        }
-
-        # 构建尝试链路
-        chain_parts: list[str] = []
-        success_sources: list[str] = []
-
-        for attempt in attempts:
-            source = attempt.get("source", "")
-            status = attempt.get("status", "")
-            count = attempt.get("count", 0)
-            source_name = source_names.get(source, source)
-
-            if status == "success":
-                chain_parts.append(f"{source_name}({count}条)")
-                success_sources.append(source_name)
-            elif status == "failed":
-                error = attempt.get("error", "")
-                chain_parts.append(f"{source_name}(失败)")
-            else:  # empty
-                chain_parts.append(f"{source_name}(无资源)")
-
-        if not chain_parts:
-            return "未尝试任何来源"
-
-        chain_str = " → ".join(chain_parts)
-
-        if success_sources:
-            return f"尝试来源 [{chain_str}]，最终命中 {', '.join(success_sources)}"
-        else:
-            return f"尝试来源 [{chain_str}]，均未命中可用资源"
+        return build_source_attempt_summary(attempts, source_order)
 
     def _resolve_source_order(self, channel: str) -> list[str]:
         _ = channel
         priority = runtime_settings_service.get_subscription_resource_priority()
-        source_order = [item for item in priority if item in {"hdhive", "pansou", "tg"}]
         tg_ready = bool(
             runtime_settings_service.get_tg_api_id().strip()
             and runtime_settings_service.get_tg_api_hash().strip()
             and runtime_settings_service.get_tg_session().strip()
             and runtime_settings_service.get_tg_channel_usernames()
         )
-        if not tg_ready:
-            source_order = [item for item in source_order if item != "tg"]
-        return source_order
+        return resolve_source_order(priority, tg_ready=tg_ready)
 
     async def _fetch_from_pansou(
         self, sub: "SubscriptionSnapshot"
