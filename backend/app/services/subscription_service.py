@@ -38,8 +38,11 @@ from app.services.subscriptions.resource_candidates import (
     normalize_share_url,
 )
 from app.services.subscriptions.link_fallback_flow import (
-    LinkFallbackDependencies,
     auto_save_records_with_link_fallback as auto_save_records_with_link_fallback_flow,
+)
+from app.services.subscriptions.link_fallback_adapter import (
+    LinkFallbackAdapterDependencies,
+    auto_save_records_with_link_fallback_with_adapter,
 )
 from app.services.subscriptions.record_selection import (
     dedupe_records_by_resource_url,
@@ -747,60 +750,21 @@ class SubscriptionService:
         enable_link_refetch: bool = True,
     ) -> dict[str, Any]:
         """转存资源；当前批链接均失败或剧集仍缺集时，自动补充搜索下一条链接直至成功。"""
-        async def create_step_log(
-            current_db: AsyncSession,
-            **kwargs: Any,
-        ) -> None:
-            await self._create_step_log(current_db, **kwargs)
-
-        async def auto_save_resources(
-            current_db: AsyncSession,
-            *args: Any,
-            **kwargs: Any,
-        ) -> dict[str, Any]:
-            return await self._auto_save_resources(current_db, *args, **kwargs)
-
-        async def load_subscription_resource_urls(
-            current_db: AsyncSession,
-            subscription_id: int,
-        ) -> set[str]:
-            return await self._load_subscription_resource_urls(
-                current_db,
-                subscription_id,
-            )
-
-        async def fetch_resources(
-            *args: Any,
-            **kwargs: Any,
-        ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-            return await self._fetch_resources(*args, **kwargs)
-
-        async def store_new_resources(
-            current_db: AsyncSession,
-            subscription_id: int,
-            resources: list[dict[str, Any]],
-        ) -> dict[str, Any]:
-            return await self._store_new_resources(
-                current_db,
-                subscription_id,
-                resources,
-            )
-
-        dependencies = LinkFallbackDependencies(
-            create_step_log=create_step_log,
-            auto_save_resources=auto_save_resources,
-            load_subscription_resource_urls=load_subscription_resource_urls,
-            fetch_resources=fetch_resources,
-            store_new_resources=store_new_resources,
-        )
-        return await auto_save_records_with_link_fallback_flow(
-            db,
+        return await auto_save_records_with_link_fallback_with_adapter(
+            db=db,
             run_id=run_id,
             channel=channel,
             sub=sub,
             records=records,
             transfer_source=transfer_source,
-            dependencies=dependencies,
+            dependencies=LinkFallbackAdapterDependencies(
+                create_step_log=self._create_step_log,
+                auto_save_resources=self._auto_save_resources,
+                load_subscription_resource_urls=self._load_subscription_resource_urls,
+                fetch_resources=self._fetch_resources,
+                store_new_resources=self._store_new_resources,
+                run_link_fallback=auto_save_records_with_link_fallback_flow,
+            ),
             tv_missing_snapshot=tv_missing_snapshot,
             hdhive_unlock_context=hdhive_unlock_context,
             source_order=source_order,
