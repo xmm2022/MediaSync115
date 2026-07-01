@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from datetime import datetime
 from typing import Any, Awaitable, Callable
@@ -18,9 +17,7 @@ from app.models.models import (
     MediaStatus,
     MediaType,
     Subscription,
-    SubscriptionExecutionLog,
     SubscriptionSource,
-    SubscriptionStepLog,
 )
 from app.core.database import async_session_maker
 from app.services.butailing_service import butailing_service
@@ -66,6 +63,11 @@ from app.services.subscriptions.source_attempts import (
     resolve_source_order,
 )
 from app.services.subscriptions.snapshot import SubscriptionSnapshot
+from app.services.subscriptions.execution_logs import (
+    create_execution_log as create_subscription_execution_log,
+    create_step_log as create_subscription_step_log,
+    prune_step_logs as prune_subscription_step_logs,
+)
 from app.services.subscriptions.fixed_source_scan import (
     FixedSourceScanDependencies,
     scan_fixed_sources_for_subscription as scan_fixed_sources_flow,
@@ -1013,32 +1015,20 @@ class SubscriptionService:
         subscription_title: str | None = None,
         payload: dict[str, Any] | None = None,
     ) -> None:
-        row = SubscriptionStepLog(
+        await create_subscription_step_log(
+            db,
             run_id=run_id,
             channel=channel,
             subscription_id=subscription_id,
             subscription_title=subscription_title,
             step=step,
             status=status,
-            message=message[:500],
-            payload=json.dumps(payload, ensure_ascii=False) if payload else None,
+            message=message,
+            payload=payload,
         )
-        db.add(row)
 
     async def _prune_step_logs(self, db: AsyncSession) -> None:
-        keep_ids_subquery = (
-            select(SubscriptionStepLog.id)
-            .order_by(
-                SubscriptionStepLog.created_at.desc(), SubscriptionStepLog.id.desc()
-            )
-            .limit(1000)
-            .subquery()
-        )
-        await db.execute(
-            delete(SubscriptionStepLog).where(
-                ~SubscriptionStepLog.id.in_(select(keep_ids_subquery.c.id))
-            )
-        )
+        await prune_subscription_step_logs(db)
 
     async def _evaluate_pre_scan_cleanup(
         self,
@@ -2754,35 +2744,18 @@ class SubscriptionService:
         started_at: datetime,
         finished_at: datetime,
     ) -> None:
-        log = SubscriptionExecutionLog(
+        await create_subscription_execution_log(
+            db,
             channel=channel,
             status=status,
             message=message,
             checked_count=checked_count,
             new_resource_count=new_resource_count,
             failed_count=failed_count,
-            details=json.dumps(details, ensure_ascii=False) if details else None,
+            details=details,
             started_at=started_at,
             finished_at=finished_at,
         )
-        db.add(log)
-        await db.flush()
-
-        keep_ids_result = await db.execute(
-            select(SubscriptionExecutionLog.id)
-            .order_by(
-                SubscriptionExecutionLog.started_at.desc(),
-                SubscriptionExecutionLog.id.desc(),
-            )
-            .limit(5)
-        )
-        keep_ids = [row[0] for row in keep_ids_result.all() if row and row[0]]
-        if keep_ids:
-            await db.execute(
-                delete(SubscriptionExecutionLog).where(
-                    SubscriptionExecutionLog.id.notin_(keep_ids)
-                )
-            )
 
     def _resolve_subscription_resolutions(self, sub: "SubscriptionSnapshot") -> list[str]:
         return runtime_settings_service.get_resource_preferred_resolutions()
