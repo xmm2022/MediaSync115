@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -130,20 +130,26 @@ function getAniStatus(item: AniRssListItem) {
   return getAniEnabled(item) ? "tracking" : "paused";
 }
 
+function getAniDisplayStatus(item: AniRssListItem) {
+  const status = getAniStatus(item);
+  if (status !== "missing" && item.recent_error) return "error";
+  return status;
+}
+
 function getAniStatusLabel(item: AniRssListItem) {
   return String(item.status_text || (
-    getAniStatus(item) === "error"
+    getAniDisplayStatus(item) === "error"
       ? "错误"
-      : getAniStatus(item) === "tracking"
+      : getAniDisplayStatus(item) === "tracking"
         ? "追新中"
-        : getAniStatus(item) === "missing"
+        : getAniDisplayStatus(item) === "missing"
           ? "外部不存在"
           : "暂停"
   ));
 }
 
 function getAniStatusStyle(item: AniRssListItem) {
-  const status = getAniStatus(item);
+  const status = getAniDisplayStatus(item);
   if (status === "error") {
     return { color: "var(--accent-danger)", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.26)" };
   }
@@ -225,7 +231,7 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
   const [rssType, setRssType] = useState("mikan");
   const [subgroup, setSubgroup] = useState("");
   const [downloadPath, setDownloadPath] = useState("");
-  const [busyKey, setBusyKey] = useState("");
+  const [busyCounts, setBusyCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [subscriptions, setSubscriptions] = useState<AniRssListItem[]>([]);
@@ -237,6 +243,29 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
   const [downloadClientStatus, setDownloadClientStatus] = useState<AniRssDownloadClientStatus | null>(null);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [listSyncedLocal, setListSyncedLocal] = useState(false);
+  const subscriptionRequestSeq = useRef(0);
+  const searchRequestSeq = useRef(0);
+  const rssCandidateRequestSeq = useRef(0);
+  const previewRequestSeq = useRef(0);
+  const addPanelGeneration = useRef(0);
+
+  const startBusy = useCallback((key: string) => {
+    setBusyCounts((current) => ({ ...current, [key]: (current[key] || 0) + 1 }));
+  }, []);
+
+  const stopBusy = useCallback((key: string) => {
+    setBusyCounts((current) => {
+      const nextCount = (current[key] || 0) - 1;
+      if (nextCount <= 0) {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      }
+      return { ...current, [key]: nextCount };
+    });
+  }, []);
+
+  const isBusy = useCallback((key: string) => Boolean(busyCounts[key]), [busyCounts]);
 
   const selectedTitle = pickBangumiTitle(selected);
   const selectedPoster = pickBangumiPoster(selected);
@@ -275,11 +304,11 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
   const subscriptionStats = useMemo<SubscriptionStats>(() => {
     return subscriptions.reduce<SubscriptionStats>(
       (acc, item) => {
-        const status = getAniStatus(item);
+        const status = getAniDisplayStatus(item);
         acc.total += 1;
         if (status === "tracking") acc.tracking += 1;
         else if (status === "missing") acc.missing += 1;
-        else if (status === "error" || item.recent_error) acc.error += 1;
+        else if (status === "error") acc.error += 1;
         else acc.paused += 1;
         return acc;
       },
@@ -289,9 +318,8 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
 
   const filteredSubscriptions = useMemo(() => {
     const filtered = subscriptions.filter((item) => {
-      const status = getAniStatus(item);
+      const status = getAniDisplayStatus(item);
       if (statusFilter === "all") return true;
-      if (statusFilter === "error") return status === "error" || Boolean(item.recent_error);
       return status === statusFilter;
     });
     return [...filtered].sort((a, b) => {
@@ -302,7 +330,7 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
         return getAniProgressScore(b) - getAniProgressScore(a);
       }
       if (sortMode === "status") {
-        return getAniStatus(a).localeCompare(getAniStatus(b));
+        return getAniDisplayStatus(a).localeCompare(getAniDisplayStatus(b));
       }
       const aHit = getAniRecentHitTitle(a) ? 1 : 0;
       const bHit = getAniRecentHitTitle(b) ? 1 : 0;
@@ -333,6 +361,7 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     if (downloadClientStatus.ready) return "配置正常";
     return "需要处理";
   }, [downloadClientStatus]);
+  const addSubmitBusy = isBusy("preview") || isBusy("create");
 
   const loadConfig = async () => {
     try {
@@ -343,20 +372,59 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     }
   };
 
+  const resetAddForm = useCallback(() => {
+    addPanelGeneration.current += 1;
+    searchRequestSeq.current += 1;
+    rssCandidateRequestSeq.current += 1;
+    previewRequestSeq.current += 1;
+    setQuery("");
+    setResults([]);
+    setSelected(null);
+    setRssUrl("");
+    setRssType("mikan");
+    setSubgroup("");
+    setDownloadPath("");
+    setPreview(null);
+    setRssCandidates([]);
+    setRssCandidateMatched(null);
+  }, []);
+
+  const openAddPanel = useCallback(() => {
+    setShowAddPanel(true);
+  }, []);
+
+  const closeAddPanel = useCallback(() => {
+    setShowAddPanel(false);
+    resetAddForm();
+  }, [resetAddForm]);
+
+  const toggleAddPanel = useCallback(() => {
+    if (showAddPanel) {
+      closeAddPanel();
+      return;
+    }
+    openAddPanel();
+  }, [closeAddPanel, openAddPanel, showAddPanel]);
+
   const loadSubscriptions = async (includePreview = false, syncLocal = true) => {
     const key = includePreview ? "sync-preview" : syncLocal ? "sync" : "read";
-    setBusyKey(key);
+    const requestId = subscriptionRequestSeq.current + 1;
+    subscriptionRequestSeq.current = requestId;
+    startBusy(key);
     try {
       const response = syncLocal
         ? await animeApi.syncAniRssSubscriptions({ includePreview, previewLimit: 5, syncLocal: true })
         : await animeApi.listAniRssSubscriptions({ includePreview, previewLimit: 5, syncLocal: false });
+      if (requestId !== subscriptionRequestSeq.current) return;
       setSubscriptions(flattenAniRssList(response.data));
       setPreviewLoaded(includePreview);
       setListSyncedLocal(Boolean(response.data.sync?.sync_local));
     } catch (err) {
-      setError(getApiErrorMessage(err, "读取 ANI-RSS 外部状态失败"));
+      if (requestId === subscriptionRequestSeq.current) {
+        setError(getApiErrorMessage(err, "读取 ANI-RSS 外部状态失败"));
+      }
     } finally {
-      setBusyKey("");
+      stopBusy(key);
     }
   };
 
@@ -374,18 +442,24 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     event?.preventDefault();
     const keyword = query.trim();
     if (!keyword) return;
-    setBusyKey("search");
+    const requestId = searchRequestSeq.current + 1;
+    const generation = addPanelGeneration.current;
+    searchRequestSeq.current = requestId;
+    startBusy("search");
     setError("");
     try {
       const response = await animeApi.searchBangumi(keyword, 12);
+      if (requestId !== searchRequestSeq.current || generation !== addPanelGeneration.current) return;
       setResults(Array.isArray(response.data.data) ? response.data.data : []);
       if (!response.data.data?.length) {
         setError(`Bangumi 未找到「${keyword}」，可以换中文名或日文名再试。`);
       }
     } catch (err) {
-      setError(getApiErrorMessage(err, "Bangumi 搜索失败"));
+      if (requestId === searchRequestSeq.current && generation === addPanelGeneration.current) {
+        setError(getApiErrorMessage(err, "Bangumi 搜索失败"));
+      }
     } finally {
-      setBusyKey("");
+      stopBusy("search");
     }
   };
 
@@ -414,7 +488,10 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
       setError("请先启用 ANI-RSS 并配置 API Key，再获取 RSS 候选。");
       return;
     }
-    setBusyKey("rss-candidates");
+    const requestId = rssCandidateRequestSeq.current + 1;
+    const generation = addPanelGeneration.current;
+    rssCandidateRequestSeq.current = requestId;
+    startBusy("rss-candidates");
     setError("");
     setRssCandidateMatched(null);
     try {
@@ -425,6 +502,7 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
         subject?.date ? String(subject.date) : undefined,
       );
       const candidates = Array.isArray(response.data.candidates) ? response.data.candidates : [];
+      if (requestId !== rssCandidateRequestSeq.current || generation !== addPanelGeneration.current) return;
       setRssCandidates(candidates);
       setRssCandidateMatched(Boolean(response.data.matched));
       if (candidates.length > 0) {
@@ -438,13 +516,18 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
         setError(`ANI-RSS 未找到「${keyword}」对应当前 Bangumi 条目的 RSS。可以换 TV 主条目或手动填写 RSS。${details}`);
       }
     } catch (err) {
-      setError(getApiErrorMessage(err, "通过 ANI-RSS 获取 RSS 失败"));
+      if (requestId === rssCandidateRequestSeq.current && generation === addPanelGeneration.current) {
+        setError(getApiErrorMessage(err, "通过 ANI-RSS 获取 RSS 失败"));
+      }
     } finally {
-      setBusyKey("");
+      stopBusy("rss-candidates");
     }
   };
 
   const selectSubject = (subject: BangumiSubject) => {
+    addPanelGeneration.current += 1;
+    rssCandidateRequestSeq.current += 1;
+    previewRequestSeq.current += 1;
     setSelected(subject);
     setPreview(null);
     setRssCandidates([]);
@@ -477,33 +560,39 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
 
   const previewAniRss = async () => {
     if (!canSubmitAniRss) return;
-    setBusyKey("preview");
+    const requestId = previewRequestSeq.current + 1;
+    const generation = addPanelGeneration.current;
+    previewRequestSeq.current = requestId;
+    startBusy("preview");
     setError("");
     try {
       const response = await animeApi.previewAniRssSubscription(buildPayload());
+      if (requestId !== previewRequestSeq.current || generation !== addPanelGeneration.current) return;
       setPreview(response.data as Record<string, unknown>);
       await addLog("SUCCESS", `ANI-RSS 预览完成: ${selectedTitle}`);
     } catch (err) {
-      setError(getApiErrorMessage(err, "ANI-RSS 预览失败"));
+      if (requestId === previewRequestSeq.current && generation === addPanelGeneration.current) {
+        setError(getApiErrorMessage(err, "ANI-RSS 预览失败"));
+      }
     } finally {
-      setBusyKey("");
+      stopBusy("preview");
     }
   };
 
   const createAniRss = async () => {
     if (!canSubmitAniRss) return;
-    setBusyKey("create");
+    startBusy("create");
     setError("");
     try {
       await animeApi.createAniRssSubscription(buildPayload());
       await addLog("SUCCESS", `已创建停用的 ANI-RSS 追番订阅: ${selectedTitle}`);
-      setPreview(null);
       setShowAddPanel(false);
+      resetAddForm();
       await loadSubscriptions(false, true);
     } catch (err) {
       setError(getApiErrorMessage(err, "创建 ANI-RSS 订阅失败"));
     } finally {
-      setBusyKey("");
+      stopBusy("create");
     }
   };
 
@@ -511,7 +600,8 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     const externalId = String(item.external_subscription_id || item.id || "").trim();
     if (!externalId) return;
     const nextEnable = !getAniEnabled(item);
-    setBusyKey(`toggle-${externalId}`);
+    const key = `toggle-${externalId}`;
+    startBusy(key);
     setError("");
     try {
       await animeApi.setAniRssSubscriptionEnabled(externalId, nextEnable);
@@ -520,14 +610,15 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     } catch (err) {
       setError(getApiErrorMessage(err, "切换 ANI-RSS 订阅状态失败"));
     } finally {
-      setBusyKey("");
+      stopBusy(key);
     }
   };
 
   const refreshAniRssSubscription = async (item: AniRssListItem) => {
     const externalId = String(item.external_subscription_id || item.id || "").trim();
     if (!externalId) return;
-    setBusyKey(`refresh-${externalId}`);
+    const key = `refresh-${externalId}`;
+    startBusy(key);
     setError("");
     try {
       await animeApi.refreshAniRssSubscription(externalId);
@@ -536,14 +627,15 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     } catch (err) {
       setError(getApiErrorMessage(err, "刷新 ANI-RSS 订阅失败"));
     } finally {
-      setBusyKey("");
+      stopBusy(key);
     }
   };
 
   const previewExistingAniRssSubscription = async (item: AniRssListItem) => {
     const externalId = String(item.external_subscription_id || item.id || "").trim();
     if (!externalId) return;
-    setBusyKey(`preview-existing-${externalId}`);
+    const key = `preview-existing-${externalId}`;
+    startBusy(key);
     setError("");
     try {
       const response = await animeApi.previewExistingAniRssSubscription(externalId, 5);
@@ -558,7 +650,7 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     } catch (err) {
       setError(getApiErrorMessage(err, "预览 ANI-RSS 订阅命中失败"));
     } finally {
-      setBusyKey("");
+      stopBusy(key);
     }
   };
 
@@ -568,7 +660,8 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     const title = String(item.title || externalId).trim();
     const confirmed = window.confirm(`确认删除 ANI-RSS 追番「${title}」？\n\n此操作只删除 ANI-RSS 订阅和本地镜像，不删除已下载文件。`);
     if (!confirmed) return;
-    setBusyKey(`delete-${externalId}`);
+    const key = `delete-${externalId}`;
+    startBusy(key);
     setError("");
     try {
       await animeApi.deleteAniRssSubscription(externalId);
@@ -580,12 +673,12 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     } catch (err) {
       setError(getApiErrorMessage(err, "删除 ANI-RSS 订阅失败"));
     } finally {
-      setBusyKey("");
+      stopBusy(key);
     }
   };
 
   const checkAniRss = async () => {
-    setBusyKey("health");
+    startBusy("health");
     setError("");
     try {
       await animeApi.checkAniRssHealth();
@@ -594,12 +687,12 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     } catch (err) {
       setError(getApiErrorMessage(err, "ANI-RSS 连通性检测失败"));
     } finally {
-      setBusyKey("");
+      stopBusy("health");
     }
   };
 
   const checkDownloadClient = async () => {
-    setBusyKey("download-client-check");
+    startBusy("download-client-check");
     setError("");
     try {
       const response = await animeApi.getAniRssDownloadClientStatus();
@@ -608,12 +701,12 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     } catch (err) {
       setError(getApiErrorMessage(err, "检测 ANI-RSS 下载器配置失败"));
     } finally {
-      setBusyKey("");
+      stopBusy("download-client-check");
     }
   };
 
   const applyDownloadClientDefaults = async () => {
-    setBusyKey("download-client-apply");
+    startBusy("download-client-apply");
     setError("");
     try {
       const response = await animeApi.applyAniRssDownloadClientDefaults();
@@ -622,7 +715,7 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
     } catch (err) {
       setError(getApiErrorMessage(err, "同步 ANI-RSS 下载器安全配置失败"));
     } finally {
-      setBusyKey("");
+      stopBusy("download-client-apply");
     }
   };
 
@@ -656,7 +749,7 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
             </span>
             <button
               type="button"
-              onClick={() => setShowAddPanel((value) => !value)}
+              onClick={toggleAddPanel}
               className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-black text-white cursor-pointer disabled:opacity-60"
               style={{ background: "var(--brand-primary)" }}
             >
@@ -666,11 +759,11 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
             <button
               type="button"
               onClick={checkAniRss}
-              disabled={busyKey === "health"}
+              disabled={isBusy("health")}
               className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-black glass-hover disabled:opacity-60 cursor-pointer"
               style={{ color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)", background: "var(--brand-primary-bg-alpha)" }}
             >
-              {busyKey === "health" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {isBusy("health") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
               检测连接
             </button>
             {onNavigateToSettings && (
@@ -759,21 +852,21 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
             <button
               type="button"
               onClick={() => void loadSubscriptions(false, true)}
-              disabled={busyKey === "sync"}
+              disabled={isBusy("sync")}
               className="px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
               style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)", background: "var(--surface)" }}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${busyKey === "sync" ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isBusy("sync") ? "animate-spin" : ""}`} />
               同步外部状态
             </button>
             <button
               type="button"
               onClick={() => void loadSubscriptions(true, true)}
-              disabled={busyKey === "sync-preview"}
+              disabled={isBusy("sync-preview")}
               className="px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
               style={{ color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)", background: "var(--brand-primary-bg-alpha)" }}
             >
-              <Search className={`w-3.5 h-3.5 ${busyKey === "sync-preview" ? "animate-spin" : ""}`} />
+              <Search className={`w-3.5 h-3.5 ${isBusy("sync-preview") ? "animate-spin" : ""}`} />
               同步并预览命中
             </button>
           </div>
@@ -784,7 +877,7 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
             <p className="text-xs font-bold" style={{ color: "var(--txt-muted)" }}>暂无 ANI-RSS 订阅，或尚未配置连通。</p>
             <button
               type="button"
-              onClick={() => setShowAddPanel(true)}
+              onClick={openAddPanel}
               className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-black text-white cursor-pointer"
               style={{ background: "var(--brand-primary)" }}
             >
@@ -800,10 +893,10 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {filteredSubscriptions.map((item) => {
               const itemId = String(item.external_subscription_id || item.id || "");
-              const toggleBusy = busyKey === `toggle-${itemId}`;
-              const refreshBusy = busyKey === `refresh-${itemId}`;
-              const previewBusy = busyKey === `preview-existing-${itemId}`;
-              const deleteBusy = busyKey === `delete-${itemId}`;
+                const toggleBusy = isBusy(`toggle-${itemId}`);
+                const refreshBusy = isBusy(`refresh-${itemId}`);
+                const previewBusy = isBusy(`preview-existing-${itemId}`);
+                const deleteBusy = isBusy(`delete-${itemId}`);
               const enabled = getAniEnabled(item);
               const statusStyle = getAniStatusStyle(item);
               const rss = getAniRssUrl(item);
@@ -943,26 +1036,26 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
               下载器安全
             </h3>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={checkDownloadClient}
-                disabled={busyKey === "download-client-check"}
-                className="px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
-                style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)", background: "var(--surface)" }}
-              >
-                {busyKey === "download-client-check" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                检测下载器
-              </button>
-              <button
-                type="button"
-                onClick={applyDownloadClientDefaults}
-                disabled={busyKey === "download-client-apply"}
-                className="px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
-                style={{ color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.28)", background: "rgba(245,158,11,0.10)" }}
-              >
-                {busyKey === "download-client-apply" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
-                同步安全配置
-              </button>
+                <button
+                  type="button"
+                  onClick={checkDownloadClient}
+                  disabled={isBusy("download-client-check")}
+                  className="px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
+                  style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)", background: "var(--surface)" }}
+                >
+                  {isBusy("download-client-check") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  检测下载器
+                </button>
+                <button
+                  type="button"
+                  onClick={applyDownloadClientDefaults}
+                  disabled={isBusy("download-client-apply")}
+                  className="px-3 py-1.5 rounded-lg text-[10px] font-black glass-hover disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
+                  style={{ color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.28)", background: "rgba(245,158,11,0.10)" }}
+                >
+                  {isBusy("download-client-apply") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                  同步安全配置
+                </button>
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[10px] font-bold">
@@ -1003,11 +1096,11 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
               <Plus className="w-4 h-4" style={{ color: "var(--brand-primary)" }} />
               添加追番
             </h3>
-            <button
-              type="button"
-              onClick={() => setShowAddPanel(false)}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-black glass-hover cursor-pointer"
-              style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)", background: "var(--surface)" }}
+              <button
+                type="button"
+                onClick={closeAddPanel}
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-black glass-hover cursor-pointer"
+                style={{ color: "var(--txt-secondary)", border: "1px solid var(--border)", background: "var(--surface)" }}
             >
               <X className="w-3.5 h-3.5" />
               关闭
@@ -1033,15 +1126,15 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
                       className="flex-1 px-4 py-3 rounded-2xl text-xs font-semibold outline-none"
                       style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)", color: "var(--txt)" }}
                     />
-                    <button
-                      type="submit"
-                      disabled={busyKey === "search" || !query.trim()}
-                      className="px-4 py-3 rounded-2xl text-xs font-black text-white disabled:opacity-60 inline-flex items-center gap-1.5 cursor-pointer"
-                      style={{ background: "var(--brand-primary)" }}
-                    >
-                      {busyKey === "search" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                      搜索
-                    </button>
+                      <button
+                        type="submit"
+                        disabled={isBusy("search") || !query.trim()}
+                        className="px-4 py-3 rounded-2xl text-xs font-black text-white disabled:opacity-60 inline-flex items-center gap-1.5 cursor-pointer"
+                        style={{ background: "var(--brand-primary)" }}
+                      >
+                        {isBusy("search") ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                        搜索
+                      </button>
                   </div>
                 </label>
               </form>
@@ -1121,16 +1214,16 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: "var(--txt-muted)" }}>RSS 地址</span>
                     <button
-                      type="button"
-                      onClick={() => void loadAniRssRssCandidates(selected)}
-                      disabled={!selected || !aniRssReady || busyKey === "rss-candidates"}
-                      title={!selected ? "请先选择 Bangumi 条目" : !aniRssReady ? "请先启用 ANI-RSS 并配置 API Key" : ""}
-                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black glass-hover disabled:opacity-50 cursor-pointer"
-                      style={{ color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)", background: "var(--brand-primary-bg-alpha)" }}
-                    >
-                      {busyKey === "rss-candidates" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Rss className="w-3 h-3" />}
-                      ANI-RSS 获取
-                    </button>
+                        type="button"
+                        onClick={() => void loadAniRssRssCandidates(selected)}
+                        disabled={!selected || !aniRssReady || isBusy("rss-candidates")}
+                        title={!selected ? "请先选择 Bangumi 条目" : !aniRssReady ? "请先启用 ANI-RSS 并配置 API Key" : ""}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black glass-hover disabled:opacity-50 cursor-pointer"
+                        style={{ color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)", background: "var(--brand-primary-bg-alpha)" }}
+                      >
+                        {isBusy("rss-candidates") ? <Loader2 className="w-3 h-3 animate-spin" /> : <Rss className="w-3 h-3" />}
+                        ANI-RSS 获取
+                      </button>
                   </div>
                   <input
                     value={rssUrl}
@@ -1240,28 +1333,28 @@ export default function AnimeTab({ addLog, onNavigateToSettings }: AnimeTabProps
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={previewAniRss}
-                  disabled={!canSubmitAniRss || busyKey === "preview"}
-                  title={!canSubmitAniRss ? createDisabledReason : ""}
-                  className="px-3 py-2 rounded-xl text-[10px] font-black glass-hover disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
-                  style={{ color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)", background: "var(--brand-primary-bg-alpha)" }}
-                >
-                  {busyKey === "preview" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                  预览命中
-                </button>
-                <button
-                  type="button"
-                  onClick={createAniRss}
-                  disabled={!canSubmitAniRss || busyKey === "create"}
-                  title={!canSubmitAniRss ? createDisabledReason : ""}
-                  className="px-3 py-2 rounded-xl text-[10px] font-black text-white disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
-                  style={{ background: "var(--brand-primary)" }}
-                >
-                  {busyKey === "create" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                  创建停用订阅
-                </button>
+                  <button
+                    type="button"
+                    onClick={previewAniRss}
+                    disabled={!canSubmitAniRss || addSubmitBusy}
+                    title={!canSubmitAniRss ? createDisabledReason : ""}
+                    className="px-3 py-2 rounded-xl text-[10px] font-black glass-hover disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
+                    style={{ color: "var(--brand-primary)", border: "1px solid var(--brand-primary-border-alpha)", background: "var(--brand-primary-bg-alpha)" }}
+                  >
+                    {isBusy("preview") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                    预览命中
+                  </button>
+                  <button
+                    type="button"
+                    onClick={createAniRss}
+                    disabled={!canSubmitAniRss || addSubmitBusy}
+                    title={!canSubmitAniRss ? createDisabledReason : ""}
+                    className="px-3 py-2 rounded-xl text-[10px] font-black text-white disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
+                    style={{ background: "var(--brand-primary)" }}
+                  >
+                    {isBusy("create") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    创建停用订阅
+                  </button>
                 {!canSubmitAniRss && createDisabledReason && (
                   <span className="self-center text-[10px] font-bold" style={{ color: "var(--txt-muted)" }}>{createDisabledReason}</span>
                 )}
