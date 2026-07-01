@@ -4,7 +4,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete as sa_delete, select, or_, and_
+from sqlalchemy import select, or_, and_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from app.core.database import get_db
 from app.core.timezone_utils import beijing_now
@@ -19,6 +19,7 @@ from app.models.models import (
 )
 from app.services.operation_log_service import operation_log_service
 from app.services.subscription_service import subscription_service
+from app.services.subscription_delete_service import subscription_delete_service
 from app.services.subscription_source_service import (
     decode_selected_file_ids,
     encode_selected_file_ids,
@@ -39,6 +40,7 @@ _tmdb_poster_path_pattern = re.compile(
 
 MEDIA_PROVIDER = "mediasync115"
 ANIME_PROVIDER = "anirss"
+MOVIEPILOT_PROVIDER = "moviepilot"
 
 
 def _exclude_anirss_clause():
@@ -47,6 +49,17 @@ def _exclude_anirss_clause():
         or_(
             Subscription.external_system.is_(None),
             Subscription.external_system != ANIME_PROVIDER,
+        ),
+    )
+
+
+def _exclude_external_mirrors_clause():
+    excluded = (ANIME_PROVIDER, MOVIEPILOT_PROVIDER)
+    return and_(
+        or_(Subscription.provider.is_(None), Subscription.provider.notin_(excluded)),
+        or_(
+            Subscription.external_system.is_(None),
+            Subscription.external_system.notin_(excluded),
         ),
     )
 
@@ -77,6 +90,14 @@ def _is_mediasync115_subscription(subscription: Subscription) -> bool:
     provider = str(getattr(subscription, "provider", "") or MEDIA_PROVIDER).strip()
     external_system = str(getattr(subscription, "external_system", "") or "").strip()
     return provider in {"", MEDIA_PROVIDER} and external_system in {"", MEDIA_PROVIDER}
+
+
+def _is_moviepilot_subscription(subscription: Subscription) -> bool:
+    return (
+        str(getattr(subscription, "provider", "") or "").strip() == MOVIEPILOT_PROVIDER
+        or str(getattr(subscription, "external_system", "") or "").strip()
+        == MOVIEPILOT_PROVIDER
+    )
 
 
 def _apply_subscription_scope(query, scope: str):
@@ -1264,17 +1285,14 @@ async def delete_subscriptions_by_type(
     subs_result = await db.execute(
         select(Subscription.id).where(
             Subscription.media_type == media_type,
-            _exclude_anirss_clause(),
+            _exclude_external_mirrors_clause(),
         )
     )
     sub_ids = [row[0] for row in subs_result.all()]
     if not sub_ids:
         return {"deleted_count": 0}
 
-    await db.execute(
-        sa_delete(DownloadRecord).where(DownloadRecord.subscription_id.in_(sub_ids))
-    )
-    await db.execute(sa_delete(Subscription).where(Subscription.id.in_(sub_ids)))
+    await subscription_delete_service.delete_local_subscriptions(db, sub_ids)
     await db.commit()
     label = "电影" if media_type == "movie" else "电视剧"
     await operation_log_service.log_background_event(
@@ -1330,13 +1348,7 @@ async def toggle_subscription(
         media_label = "电影" if existing.media_type == MediaType.MOVIE else "电视剧"
         sub_id = existing.id
 
-        downloads = await db.execute(
-            select(DownloadRecord).where(DownloadRecord.subscription_id == sub_id)
-        )
-        for record in downloads.scalars().all():
-            await db.delete(record)
-
-        await db.delete(existing)
+        await subscription_delete_service.delete_local_subscriptions(db, [sub_id])
         await db.commit()
 
         try:
@@ -1413,22 +1425,20 @@ async def delete_subscription(subscription_id: int, db: AsyncSession = Depends(g
 
     sub_title = subscription.title
     media_label = "电影" if subscription.media_type == MediaType.MOVIE else "电视剧"
+    is_moviepilot = _is_moviepilot_subscription(subscription)
 
-    # 先删除关联下载记录，避免外键约束导致 500。
-    downloads = await db.execute(
-        select(DownloadRecord).where(DownloadRecord.subscription_id == subscription_id)
-    )
-    for record in downloads.scalars().all():
-        await db.delete(record)
-
-    await db.delete(subscription)
+    await subscription_delete_service.delete_local_subscriptions(db, [subscription_id])
     await db.commit()
     await operation_log_service.log_background_event(
         source_type="api",
         module="subscriptions",
         action="subscription.delete",
         status="success",
-        message=f"删除{media_label}订阅：{sub_title}",
+        message=(
+            f"删除{media_label}MoviePilot 本地镜像：{sub_title}"
+            if is_moviepilot
+            else f"删除{media_label}订阅：{sub_title}"
+        ),
         extra={
             "subscription_id": subscription_id,
             "title": sub_title,
@@ -1453,7 +1463,13 @@ async def delete_subscription(subscription_id: int, db: AsyncSession = Depends(g
     except Exception:
         pass
 
-    return {"message": "Subscription deleted"}
+    if is_moviepilot:
+        return {
+            "message": "Local MoviePilot subscription mirror deleted",
+            "local_only": True,
+            "external_system": MOVIEPILOT_PROVIDER,
+        }
+    return {"message": "Subscription deleted", "local_only": False}
 
 
 # ==================== 订阅清理 ====================

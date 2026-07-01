@@ -965,7 +965,12 @@ export default function SubscriptionDialog({
     setError(null);
     try {
       await subscriptionApi.delete(id);
-      await addLog("INFO", `已取消${channelType === "pan115" ? " 115" : " PT"}订阅: ${title}`);
+      await addLog(
+        "INFO",
+        channelType === "pt"
+          ? `已删除 MoviePilot 本地镜像，外部 PT 订阅仍需在 MoviePilot 管理: ${title}`
+          : `已取消 115 订阅: ${title}`,
+      );
       await onChanged();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
@@ -991,6 +996,11 @@ export default function SubscriptionDialog({
   };
 
   const createPan115Subscription = async () => {
+    const manualSelected = selectedSources.includes("manual") && selectedPan115Key === "manual";
+    if (manualSelected && !manualShareUrl.trim()) {
+      throw new Error("请填写固定 115 分享链接");
+    }
+
     const posterPath = detail?.poster_path || defaultPoster;
     const createResp = await subscriptionApi.create({
       tmdb_id: tmdbId,
@@ -1005,15 +1015,34 @@ export default function SubscriptionDialog({
     });
     const subId = String((createResp.data as { id?: string | number })?.id || "");
 
-    const manualSelected = selectedSources.includes("manual") && selectedPan115Key === "manual";
+    const rollbackCreatedSubscription = async (reason: string): Promise<boolean> => {
+      if (!subId) return false;
+      try {
+        await subscriptionApi.delete(subId);
+        await onChanged();
+        await addLog("WARN", `固定 115 来源绑定失败，已回滚订阅: ${title}（${reason}）`);
+        return true;
+      } catch (rollbackErr: unknown) {
+        const rollbackMsg = (rollbackErr as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(rollbackErr);
+        await addLog("ERROR", `固定 115 来源绑定失败，且回滚订阅失败: ${title}（${rollbackMsg}）`);
+        return false;
+      }
+    };
+
     if (manualSelected) {
-      if (!manualShareUrl.trim()) throw new Error("请填写固定 115 分享链接");
-      const sourceResp = await subscriptionApi.createSource(subId, {
-        share_url: manualShareUrl.trim(),
-        receive_code: manualReceiveCode.trim(),
-        display_name: manualDisplayName.trim() || title,
-        selected_file_ids: getSelectedPreviewFileIds(manualPreviewKey),
-      });
+      let sourceResp;
+      try {
+        sourceResp = await subscriptionApi.createSource(subId, {
+          share_url: manualShareUrl.trim(),
+          receive_code: manualReceiveCode.trim(),
+          display_name: manualDisplayName.trim() || title,
+          selected_file_ids: getSelectedPreviewFileIds(manualPreviewKey),
+        });
+      } catch (err: unknown) {
+        const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+        const rolledBack = await rollbackCreatedSubscription(msg);
+        throw new Error(rolledBack ? `固定 115 来源绑定失败，已回滚订阅: ${msg}` : `固定 115 来源绑定失败，且订阅回滚失败: ${msg}`);
+      }
       await addLog("SUCCESS", `已添加 115 订阅并绑定固定链接: ${title}`);
       const sourceId = String((sourceResp.data as { id?: string | number })?.id || "");
       await scanFixedSourceAfterCreate(subId, sourceId, manualDisplayName.trim() || title);
@@ -1021,12 +1050,19 @@ export default function SubscriptionDialog({
     }
 
     if (selectedResource?.shareUrl) {
-      const sourceResp = await subscriptionApi.createSource(subId, {
-        share_url: selectedResource.shareUrl,
-        receive_code: selectedResource.receiveCode || "",
-        display_name: selectedResource.name || title,
-        selected_file_ids: getSelectedPreviewFileIds(selectedPan115Key),
-      });
+      let sourceResp;
+      try {
+        sourceResp = await subscriptionApi.createSource(subId, {
+          share_url: selectedResource.shareUrl,
+          receive_code: selectedResource.receiveCode || "",
+          display_name: selectedResource.name || title,
+          selected_file_ids: getSelectedPreviewFileIds(selectedPan115Key),
+        });
+      } catch (err: unknown) {
+        const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || String(err);
+        const rolledBack = await rollbackCreatedSubscription(msg);
+        throw new Error(rolledBack ? `固定 115 来源绑定失败，已回滚订阅: ${msg}` : `固定 115 来源绑定失败，且订阅回滚失败: ${msg}`);
+      }
       await addLog("SUCCESS", `已添加 115 订阅并绑定固定来源: ${title}`);
       const sourceId = String((sourceResp.data as { id?: string | number })?.id || "");
       await scanFixedSourceAfterCreate(subId, sourceId, selectedResource.name || title);
@@ -1204,7 +1240,7 @@ export default function SubscriptionDialog({
                   )}
                   {isPtSubscribed && (
                     <button type="button" onClick={() => void handleCancel("pt")} disabled={submitting} className="rounded-lg px-2.5 py-1.5 text-[10px] font-black glass-hover disabled:opacity-50" style={{ color: "var(--accent-danger)", background: "var(--surface)", border: "1px solid var(--border)" }}>
-                      取消 PT
+                      删除 PT 镜像
                     </button>
                   )}
                 </div>

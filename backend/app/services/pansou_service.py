@@ -15,8 +15,17 @@ class PansouService:
     """Pansou API 服务类"""
 
     def __init__(self, base_url: str | None = None):
-        self.base_url = self._normalize_base_url(base_url or settings.PANSOU_BASE_URL)
-        self.client = self._build_client()
+        initial_base_url = (
+            str(settings.PANSOU_BASE_URL or "").strip()
+            if base_url is None
+            else str(base_url or "").strip()
+        )
+        self.base_url = (
+            self._normalize_base_url(initial_base_url) if initial_base_url else ""
+        )
+        self.client: httpx.AsyncClient | None = (
+            self._build_client() if self.base_url else None
+        )
 
     @staticmethod
     def _normalize_base_url(base_url: str) -> str:
@@ -35,15 +44,18 @@ class PansouService:
         )
 
     def set_base_url(self, base_url: str) -> str:
-        normalized_base_url = self._normalize_base_url(base_url)
+        cleaned_base_url = str(base_url or "").strip()
         old_client = self.client
-        self.base_url = normalized_base_url
-        self.client = self._build_client()
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(old_client.aclose())
-        except RuntimeError:
-            pass
+        self.base_url = (
+            self._normalize_base_url(cleaned_base_url) if cleaned_base_url else ""
+        )
+        self.client = self._build_client() if self.base_url else None
+        if old_client is not None:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(old_client.aclose())
+            except RuntimeError:
+                pass
         return self.base_url
 
     def get_base_url(self) -> str:
@@ -51,7 +63,8 @@ class PansouService:
 
     async def close(self):
         """关闭 HTTP 客户端"""
-        await self.client.aclose()
+        if self.client is not None:
+            await self.client.aclose()
 
     async def health_check(self, base_url: str | None = None) -> dict:
         """
@@ -65,6 +78,8 @@ class PansouService:
             dict: 健康状态
         """
         target_url = self._normalize_base_url(base_url) if base_url else self.base_url
+        if not target_url:
+            return {"status": "not_configured", "error": "Pansou 服务地址未配置"}
         try:
             async with httpx.AsyncClient(
                 base_url=target_url,
@@ -102,6 +117,13 @@ class PansouService:
         Returns:
             dict: 搜索结果
         """
+        if not self.base_url or self.client is None:
+            return {
+                "success": False,
+                "error": "not_configured",
+                "message": "Pansou 服务地址未配置",
+            }
+
         # 将字符串转换为列表
         if isinstance(cloud_types, str):
             cloud_types = [cloud_types]

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     HDHIVE_COOKIE: Optional[str] = None
     HDHIVE_BASE_URL: str = "https://hdhive.com/"
 
-    PANSOU_BASE_URL: str = "http://192.168.10.139:8088/"
+    PANSOU_BASE_URL: str = ""
     TG_API_ID: Optional[str] = None
     TG_API_HASH: Optional[str] = None
     TG_PHONE: Optional[str] = None
@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     TG_SEARCH_DAYS: int = 30
     TG_MAX_MESSAGES_PER_CHANNEL: int = 200
 
-    EMBY_URL: str = "http://192.168.2.139:8096/"
-    EMBY_API_KEY: str = "355c5a7a4cae4966a3c0b40042bbde36"
+    EMBY_URL: str = ""
+    EMBY_API_KEY: str = ""
 
     FEINIU_URL: str = ""
     FEINIU_SECRET: str = ""

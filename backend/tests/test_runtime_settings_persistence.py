@@ -74,3 +74,32 @@ def test_resource_codec_preference_is_saved_and_returned(tmp_path, monkeypatch) 
         (tmp_path / "data" / "runtime_settings.json").read_text(encoding="utf-8")
     )
     assert persisted["resource_preferred_codec"] == ["H.265", "AV1"]
+
+
+def test_default_external_service_addresses_are_empty(tmp_path, monkeypatch) -> None:
+    from app.core.config import Settings, settings
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "PANSOU_BASE_URL", "")
+    monkeypatch.setattr(settings, "EMBY_URL", "")
+    monkeypatch.setattr(settings, "EMBY_API_KEY", "")
+
+    service = RuntimeSettingsService()
+    data = service.get_all()
+
+    code_defaults = Settings()
+    assert code_defaults.PANSOU_BASE_URL == ""
+    assert code_defaults.EMBY_URL == ""
+    assert code_defaults.EMBY_API_KEY == ""
+    assert data["pansou_base_url"] == ""
+    assert data["emby_url"] == ""
+    assert data["emby_api_key"] == ""
+
+
+def test_pansou_service_allows_unconfigured_default() -> None:
+    from app.services.pansou_service import PansouService
+
+    service = PansouService(base_url="")
+
+    assert service.get_base_url() == ""
+    assert service.client is None

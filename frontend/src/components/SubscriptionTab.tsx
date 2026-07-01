@@ -92,6 +92,10 @@ function getExecutionChannel(sub: SubscriptionItem): ExecutionChannel {
   return "unknown";
 }
 
+function isMoviePilotSubscription(sub: SubscriptionItem): boolean {
+  return getExecutionChannel(sub) === "pt";
+}
+
 function getExecutionLabel(sub: SubscriptionItem): string {
   switch (getExecutionChannel(sub)) {
     case "pan115": return "115 转存";
@@ -342,6 +346,14 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
 
   const [detailRunLogs, setDetailRunLogs] = useState<Record<string, unknown>[]>([]);
 
+  const refreshSourceDerivedState = async (sub: SubscriptionItem) => {
+    await Promise.all([
+      loadDetail(sub),
+      loadSubscriptions(),
+      loadMissingOverview(),
+    ]);
+  };
+
   const expandSubscription = (sub: SubscriptionItem, initialTab: SubscriptionDetailTab = "follow") => {
     setExpandedId(sub.id);
     setDetailPanelTab(initialTab);
@@ -400,7 +412,7 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
       });
       setNewSourceUrl("");
       setNewSourceCode("");
-      await loadDetail(sub);
+      await refreshSourceDerivedState(sub);
       await addLog("SUCCESS", `订阅 [${sub.title}] 新增 115 分享补缺源`);
     } catch (err) {
       console.error("add source failed", err);
@@ -414,6 +426,7 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
     try {
       await subscriptionApi.updateSource(sub.id, String(src.id), { enabled: !src.enabled });
       setDetailSources(prev => prev.map(s => s.id === src.id ? { ...s, enabled: !src.enabled } : s));
+      await refreshSourceDerivedState(sub);
     } catch (err) {
       console.error("toggle source failed", err);
     }
@@ -424,6 +437,7 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
     try {
       await subscriptionApi.deleteSource(sub.id, String(src.id));
       setDetailSources(prev => prev.filter(s => s.id !== src.id));
+      await refreshSourceDerivedState(sub);
     } catch (err) {
       console.error("delete source failed", err);
     }
@@ -434,7 +448,7 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
     try {
       await subscriptionApi.scanSource(sub.id, String(src.id));
       await addLog("INFO", `已触发 115 分享补缺源 [${src.display_name || src.source_type}] 扫描`);
-      await loadDetail(sub);
+      await refreshSourceDerivedState(sub);
     } catch (err) {
       console.error("scan source failed", err);
       setErrorMessage("补缺源扫描失败（超时或后端错误）");
@@ -559,15 +573,24 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
 
   // ---- Delete subscription ----
   const handleDelete = async (sub: SubscriptionItem) => {
-    if (!confirm(`确定要取消对 [${sub.title}] 的订阅吗？`)) return;
+    const moviepilotMirror = isMoviePilotSubscription(sub);
+    const prompt = moviepilotMirror
+      ? `确定只删除 [${sub.title}] 的 MoviePilot 本地镜像吗？外部 PT 订阅仍需在 MoviePilot 中管理。`
+      : `确定要取消对 [${sub.title}] 的订阅吗？`;
+    if (!confirm(prompt)) return;
 
     try {
       await subscriptionApi.delete(sub.id);
       setSubscriptions(prev => prev.filter(s => s.id !== sub.id));
-      await addLog("WARN", `已注销对 [${sub.title}] 的订阅。`);
+      await addLog(
+        "WARN",
+        moviepilotMirror
+          ? `已删除 [${sub.title}] 的 MoviePilot 本地镜像；外部 PT 订阅未在 MediaSync115 中取消。`
+          : `已注销对 [${sub.title}] 的订阅。`,
+      );
     } catch (err) {
       console.error("Failed to delete subscription:", err);
-      setErrorMessage("删除订阅失败");
+      setErrorMessage(moviepilotMirror ? "删除 MoviePilot 本地镜像失败" : "删除订阅失败");
     }
   };
 
@@ -1416,7 +1439,7 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
                           onClick={() => handleDelete(sub)}
                           className="p-1.5 rounded-lg transition-all active:scale-95"
                           style={{ background: "rgba(239,68,68,0.12)", color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" } as React.CSSProperties}
-                          title="删除订阅"
+                          title={isMoviePilotSubscription(sub) ? "删除 MoviePilot 本地镜像" : "删除订阅"}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

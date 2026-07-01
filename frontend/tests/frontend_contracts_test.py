@@ -280,6 +280,42 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertGreaterEqual(search.count("requestSeqRef.current += 1"), 3)
         self.assertIn("requestId !== requestSeqRef.current", search)
 
+    def test_moviepilot_delete_copy_is_local_mirror_only(self) -> None:
+        dialog = read_source("src/components/SubscriptionDialog.tsx")
+        subscription_tab = read_source("src/components/SubscriptionTab.tsx")
+
+        self.assertIn("删除 PT 镜像", dialog)
+        self.assertIn("已删除 MoviePilot 本地镜像", dialog)
+        self.assertNotIn("已取消 PT订阅", dialog)
+        self.assertIn("只删除 [${sub.title}] 的 MoviePilot 本地镜像", subscription_tab)
+        self.assertIn("外部 PT 订阅仍需在 MoviePilot 中管理", subscription_tab)
+
+    def test_fixed_pan115_source_create_rolls_back_subscription_on_failure(self) -> None:
+        dialog = read_source("src/components/SubscriptionDialog.tsx")
+
+        self.assertIn("rollbackCreatedSubscription", dialog)
+        self.assertIn("await subscriptionApi.delete(subId)", dialog)
+        self.assertIn("固定 115 来源绑定失败，已回滚订阅", dialog)
+        self.assertLess(
+            dialog.index("if (manualSelected && !manualShareUrl.trim())"),
+            dialog.index("const createResp = await subscriptionApi.create"),
+        )
+
+    def test_subscription_source_mutations_refresh_parent_state(self) -> None:
+        tab = read_source("src/components/SubscriptionTab.tsx")
+
+        self.assertIn("refreshSourceDerivedState", tab)
+        self.assertIn("loadSubscriptions()", tab)
+        self.assertIn("loadMissingOverview()", tab)
+        self.assertGreaterEqual(tab.count("await refreshSourceDerivedState(sub)"), 4)
+
+    def test_npm_test_runs_typescript_contract_tests(self) -> None:
+        package_json = read_source("package.json")
+
+        self.assertIn("npm run lint", package_json)
+        self.assertIn("tests/*.test.ts", package_json)
+        self.assertIn("--import tsx", package_json)
+
     def test_strm_copy_matches_supported_media_servers(self) -> None:
         strm = read_source("src/components/StrmTab.tsx")
 

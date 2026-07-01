@@ -23,6 +23,8 @@ from app.core.timezone_utils import beijing_now
 
 logger = logging.getLogger(__name__)
 
+MEDIA_PROVIDER = "mediasync115"
+
 
 # ── 可选榜单定义 ──────────────────────────────────────────────
 
@@ -202,6 +204,21 @@ async def _fetch_douban_chart(section_key: str, limit: int) -> list[dict[str, An
 
 # ── 自动订阅 ──────────────────────────────────────────────────
 
+def _mediasync115_subscription_clause():
+    return and_(
+        or_(
+            Subscription.provider.is_(None),
+            Subscription.provider == "",
+            Subscription.provider == MEDIA_PROVIDER,
+        ),
+        or_(
+            Subscription.external_system.is_(None),
+            Subscription.external_system == "",
+            Subscription.external_system == MEDIA_PROVIDER,
+        ),
+    )
+
+
 async def load_existing_subscription_keys(
     pairs: list[tuple[int, MediaType]],
 ) -> set[tuple[int, MediaType]]:
@@ -214,7 +231,8 @@ async def load_existing_subscription_keys(
     async with async_session_maker() as db:
         result = await db.execute(
             select(Subscription.tmdb_id, Subscription.media_type).where(
-                Subscription.tmdb_id.in_(tmdb_ids)
+                Subscription.tmdb_id.in_(tmdb_ids),
+                _mediasync115_subscription_clause(),
             )
         )
         existing: set[tuple[int, MediaType]] = set()
@@ -352,10 +370,19 @@ async def _create_subscription_if_not_exists(
     """
     async with async_session_maker() as db:
         conditions = [
-            and_(Subscription.tmdb_id == tmdb_id, Subscription.media_type == media_type)
+            and_(
+                Subscription.tmdb_id == tmdb_id,
+                Subscription.media_type == media_type,
+                _mediasync115_subscription_clause(),
+            )
         ]
         if douban_id:
-            conditions.append(Subscription.douban_id == douban_id)
+            conditions.append(
+                and_(
+                    Subscription.douban_id == douban_id,
+                    _mediasync115_subscription_clause(),
+                )
+            )
 
         existing = await db.execute(
             select(Subscription).where(or_(*conditions)).limit(1)

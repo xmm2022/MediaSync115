@@ -40,6 +40,7 @@ from app.services.pansou_service import pansou_service
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.seedhub_service import seedhub_service
 from app.services.tg_service import tg_service
+from app.services.subscription_delete_service import subscription_delete_service
 from app.services.subscription_cleanup_policy import (
     build_tv_missing_status_kwargs,
     evaluate_movie_cleanup,
@@ -1154,12 +1155,26 @@ class SubscriptionService:
     async def _delete_subscription_with_records(
         self, db: AsyncSession, subscription_id: int
     ) -> None:
-        await db.execute(
-            delete(DownloadRecord).where(
-                DownloadRecord.subscription_id == subscription_id
-            )
+        await subscription_delete_service.delete_local_subscriptions(
+            db,
+            [subscription_id],
         )
-        await db.execute(delete(Subscription).where(Subscription.id == subscription_id))
+
+    async def _apply_precise_transfer_postprocess_status(
+        self,
+        record: DownloadRecord,
+    ) -> dict[str, Any]:
+        archive_result = await media_postprocess_service.trigger_archive_after_transfer(
+            trigger="subscription_transfer"
+        )
+        if archive_result.get("triggered"):
+            record.status = MediaStatus.ARCHIVING
+            record.completed_at = None
+        else:
+            record.status = MediaStatus.COMPLETED
+            record.completed_at = beijing_now()
+        record.error_message = None
+        return archive_result
 
     @staticmethod
     def _apply_cleanup_stats(result: dict[str, Any], media_type: MediaType) -> None:
@@ -3183,9 +3198,9 @@ class SubscriptionService:
                     if selected_mode == "missing":
                         for pair in matched_pairs:
                             missing_episodes.discard(pair)
-                    record.status = MediaStatus.ARCHIVING
-                    record.completed_at = None
-                    record.error_message = None
+                    archive_result = (
+                        await self._apply_precise_transfer_postprocess_status(record)
+                    )
                     record.file_id = parent_folder_id
                     saved += 1
                     await self._notify_transfer_success(
@@ -3194,9 +3209,6 @@ class SubscriptionService:
                         source,
                         "精准转存",
                         getattr(sub, "poster_path", None),
-                    )
-                    await media_postprocess_service.trigger_archive_after_transfer(
-                        trigger="subscription_transfer"
                     )
                     await self._create_step_log(
                         db,
@@ -3215,6 +3227,8 @@ class SubscriptionService:
                             "remaining_missing_count": len(missing_episodes),
                             "target_parent_id": parent_folder_id,
                             "save_mode": "direct",
+                            "archive_triggered": bool(archive_result.get("triggered")),
+                            "archive_skip_reason": archive_result.get("reason"),
                         },
                     )
                     await operation_log_service.log_background_event(
@@ -3368,9 +3382,11 @@ class SubscriptionService:
                 if self._is_already_received_error(str(exc)):
                     # 115 返回已接收时视为成功，避免重复任务被统计为失败。
                     if tv_missing_enabled and is_tv_subscription:
-                        record.status = MediaStatus.ARCHIVING
-                        record.completed_at = None
+                        archive_result = (
+                            await self._apply_precise_transfer_postprocess_status(record)
+                        )
                     else:
+                        archive_result = {"triggered": False, "reason": "not_tv_precise"}
                         record.status = MediaStatus.COMPLETED
                         record.completed_at = beijing_now()
                     record.error_message = None
@@ -3395,6 +3411,8 @@ class SubscriptionService:
                             "source": source,
                             "record_id": record.id,
                             "reason": "already_received",
+                            "archive_triggered": bool(archive_result.get("triggered")),
+                            "archive_skip_reason": archive_result.get("reason"),
                         },
                     )
                     await operation_log_service.log_background_event(
