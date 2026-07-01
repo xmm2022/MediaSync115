@@ -13,6 +13,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import ErrorBanner from "./ui/ErrorBanner";
 import EmptyState from "./ui/EmptyState";
+import { buildWatchlistFillLog } from "../utils/watchlistFillResult";
 
 type Sub = "watchlist" | "person" | "license";
 
@@ -158,8 +159,9 @@ function WatchlistPanel({ addLog }: { addLog: (l: "INFO" | "SUCCESS" | "WARN" | 
   const handleFill = async (l: WatchlistItem) => {
     setBusy(`fill-${l.id}`);
     try {
-      await watchlistApi.fill(l.id);
-      await addLog("SUCCESS", `片单 [${l.name}] 已触发自动填充`);
+      const response = await watchlistApi.fill(l.id);
+      const log = buildWatchlistFillLog(l.name, response.data);
+      await addLog(log.level, log.message);
     } catch (err: any) {
       await addLog("ERROR", `填充失败: ${err?.response?.data?.detail || err?.message}`);
     } finally { setBusy(null); }

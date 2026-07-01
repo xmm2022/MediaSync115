@@ -1,5 +1,6 @@
 import api from './client';
 import type {
+  WatchlistFillResult,
   WatchlistImportPayload,
   WatchlistImportPreviewPayload,
   WatchlistItem,
@@ -30,7 +31,7 @@ export const watchlistApi = {
 
   removeItem: (id: string, itemId: string) => api.delete(`/watchlists/${id}/items/${itemId}`),
 
-  fill: (id: string) => api.post(`/watchlists/${id}/fill`, null, { timeout: 120000 }),
+  fill: (id: string) => api.post<WatchlistFillResult>(`/watchlists/${id}/fill`, null, { timeout: 120000 }),
 
   listForStatus: () => api.get('/watchlists/status-map'),
 

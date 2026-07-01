@@ -394,6 +394,17 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("source_type: string", types)
         self.assertIn("reference: string", types)
 
+    def test_library_watchlist_fill_uses_backend_failure_counts(self) -> None:
+        library = read_source("src/components/LibraryPlusTab.tsx")
+        watchlist_api = read_source("src/api/watchlist.ts")
+        fill_result = read_source("src/utils/watchlistFillResult.ts")
+
+        self.assertIn("buildWatchlistFillLog", library)
+        self.assertIn("WatchlistFillResult", watchlist_api)
+        self.assertIn('level: "WARN"', fill_result)
+        self.assertIn("failed > 0", fill_result)
+        self.assertNotIn("已触发自动填充", library)
+
     def test_explore_search_preserves_non_media_tmdb_types(self) -> None:
         explore = read_source("src/components/ExploreTab.tsx")
         search_resources = read_source("src/utils/searchResources.ts")

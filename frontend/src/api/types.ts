@@ -788,6 +788,18 @@ export interface WatchlistItem {
   [key: string]: unknown;
 }
 
+export interface WatchlistFillResult {
+  success?: boolean;
+  watchlist_id?: number | string;
+  watchlist_name?: string;
+  total_items?: number;
+  new_subscriptions?: number;
+  existing_subscriptions?: number;
+  failed?: number;
+  skipped?: number;
+  message?: string;
+}
+
 export type WatchlistImportPreviewPayload =
   | {
       source_key: string;
