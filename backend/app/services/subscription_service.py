@@ -103,6 +103,11 @@ from app.services.subscriptions.run_summary import (
     normalize_subscription_channel,
     resolve_run_status,
 )
+from app.services.subscriptions.run_state import (
+    build_initial_run_result,
+    build_processing_progress_payload,
+    build_start_progress_payload,
+)
 from app.services.subscriptions.auto_transfer_batch import (
     AutoTransferBatchDependencies,
     AutoTransferBatchStatuses,
@@ -166,32 +171,7 @@ class SubscriptionService:
             },
         )
 
-        result = {
-            "channel": normalized_channel,
-            "run_id": run_id,
-            "checked_count": 0,
-            "processed_count": 0,
-            "new_resource_count": 0,
-            "failed_count": 0,
-            "auto_saved_count": 0,
-            "auto_failed_count": 0,
-            "auto_new_saved_count": 0,
-            "auto_new_failed_count": 0,
-            "auto_retry_saved_count": 0,
-            "auto_retry_failed_count": 0,
-            "resource_checked_count": 0,
-            "resource_duplicate_count": 0,
-            "hdhive_unlock_attempted_count": 0,
-            "hdhive_unlock_success_count": 0,
-            "hdhive_unlock_failed_count": 0,
-            "hdhive_unlock_skipped_count": 0,
-            "hdhive_unlock_points_spent": 0,
-            "cleanup_deleted_count": 0,
-            "cleanup_movie_deleted_count": 0,
-            "cleanup_tv_deleted_count": 0,
-            "errors": [],
-            "started_at": started_at.isoformat(),
-        }
+        result = build_initial_run_result(normalized_channel, run_id, started_at)
         hdhive_unlock_context = self._build_hdhive_unlock_context()
         source_order = self._resolve_source_order(normalized_channel)
 
@@ -285,23 +265,7 @@ class SubscriptionService:
             },
         )
         if progress_callback:
-            await progress_callback(
-                {
-                    "channel": normalized_channel,
-                    "status": "running",
-                    "processed_count": 0,
-                    "checked_count": result["checked_count"],
-                    "new_resource_count": 0,
-                    "auto_saved_count": 0,
-                    "auto_failed_count": 0,
-                    "auto_new_saved_count": 0,
-                    "auto_new_failed_count": 0,
-                    "auto_retry_saved_count": 0,
-                    "auto_retry_failed_count": 0,
-                    "failed_count": 0,
-                    "message": "任务开始执行",
-                }
-            )
+            await progress_callback(build_start_progress_payload(result))
 
         scan_semaphore = asyncio.Semaphore(_SUBSCRIPTION_SCAN_CONCURRENCY)
         result_lock = asyncio.Lock()
@@ -853,23 +817,7 @@ class SubscriptionService:
                     finally:
                         async with result_lock:
                             result["processed_count"] += 1
-                            progress_payload = {
-                                "channel": normalized_channel,
-                                "status": "running",
-                                "processed_count": result["processed_count"],
-                                "checked_count": result["checked_count"],
-                                "new_resource_count": result["new_resource_count"],
-                                "auto_saved_count": result["auto_saved_count"],
-                                "auto_failed_count": result["auto_failed_count"],
-                                "auto_new_saved_count": result["auto_new_saved_count"],
-                                "auto_new_failed_count": result["auto_new_failed_count"],
-                                "auto_retry_saved_count": result["auto_retry_saved_count"],
-                                "auto_retry_failed_count": result[
-                                    "auto_retry_failed_count"
-                                ],
-                                "failed_count": result["failed_count"],
-                                "message": f"已处理 {result['processed_count']}/{result['checked_count']} 项订阅",
-                            }
+                            progress_payload = build_processing_progress_payload(result)
                         if progress_callback:
                             await progress_callback(progress_payload)
 
