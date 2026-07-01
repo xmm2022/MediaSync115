@@ -81,6 +81,10 @@ from app.services.subscriptions.pre_scan_cleanup import (
     PreScanCleanupDependencies,
     evaluate_pre_scan_cleanup as evaluate_pre_scan_cleanup_flow,
 )
+from app.services.subscriptions.pre_scan_cleanup_run_flow import (
+    PreScanCleanupRunDependencies,
+    run_pre_scan_cleanup_for_subscription,
+)
 from app.services.subscriptions.postprocess_status import (
     PostprocessStatusDependencies,
     apply_precise_transfer_postprocess_status as apply_postprocess_status_flow,
@@ -139,8 +143,6 @@ from app.services.subscriptions.run_state import (
 )
 from app.services.subscriptions.run_loader import load_active_subscription_snapshots
 from app.services.subscriptions.run_lifecycle_logs import (
-    build_subscription_auto_cleaned_event_kwargs,
-    build_subscription_auto_cleaned_step,
     build_subscription_done_event_kwargs,
     build_subscription_done_step,
     build_subscription_failed_event_kwargs,
@@ -264,39 +266,44 @@ class SubscriptionService:
                             subscription_title=sub_title,
                             **build_subscription_start_step(sub_title),
                         )
-                        cleanup_before = await self._evaluate_pre_scan_cleanup(
-                            inner_db,
-                            run_id=run_id,
-                            channel=normalized_channel,
-                            sub=sub,
-                        )
-                        if cleanup_before.get("deleted"):
+
+                        async def apply_pre_scan_cleanup_stats_for_run(
+                            media_type: Any,
+                        ) -> None:
                             async with result_lock:
                                 apply_cleanup_stats(
                                     result,
-                                    sub.media_type,
+                                    media_type,
                                     tv_media_type=MediaType.TV,
                                 )
-                            await self._create_step_log(
-                                inner_db,
+
+                        pre_scan_cleanup_result = (
+                            await run_pre_scan_cleanup_for_subscription(
+                                db=inner_db,
                                 run_id=run_id,
                                 channel=normalized_channel,
-                                subscription_id=sub_id,
-                                subscription_title=sub_title,
-                                **build_subscription_auto_cleaned_step(),
+                                sub=sub,
+                                dependencies=PreScanCleanupRunDependencies(
+                                    evaluate_pre_scan_cleanup=(
+                                        self._evaluate_pre_scan_cleanup
+                                    ),
+                                    create_step_log=self._create_step_log,
+                                    log_background_event=(
+                                        operation_log_service.log_background_event
+                                    ),
+                                    apply_cleanup_stats=(
+                                        apply_pre_scan_cleanup_stats_for_run
+                                    ),
+                                ),
                             )
-                            await operation_log_service.log_background_event(
-                                **build_subscription_auto_cleaned_event_kwargs(
-                                    subscription_id=sub_id,
-                                    subscription_title=sub_title,
-                                    channel=normalized_channel,
-                                    trace_id=run_id,
-                                )
-                            )
-                            await inner_db.commit()
+                        )
+                        if pre_scan_cleanup_result.deleted:
                             return
 
-                        tv_missing_snapshot = cleanup_before.get("tv_missing_snapshot")
+                        tv_missing_snapshot = (
+                            pre_scan_cleanup_result.tv_missing_snapshot
+                        )
+
                         async def apply_resource_store_stats_for_run(
                             store_stats: dict[str, Any],
                         ) -> None:
