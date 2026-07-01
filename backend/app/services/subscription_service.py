@@ -61,6 +61,9 @@ from app.services.subscriptions.auto_transfer_offline import (
     is_offline_transfer_record,
     submit_offline_transfer_record,
 )
+from app.services.subscriptions.auto_transfer_share import (
+    submit_share_transfer_record,
+)
 from app.services.subscriptions.hdhive_unlock import (
     allow_unlock_by_threshold,
     build_hdhive_unlock_context,
@@ -2892,86 +2895,31 @@ class SubscriptionService:
                             }
                             break
                 else:
-                    result = await pan_service.save_share_directly(
-                        share_url=share_link,
-                        parent_id=parent_folder_id,
+                    share_submission = await submit_share_transfer_record(
+                        sub=sub,
+                        record=record,
+                        source=source,
+                        share_link=share_link,
                         receive_code=receive_code,
+                        parent_folder_id=parent_folder_id,
                         quality_filter=quality_filter,
-                    )
-                    record.status = MediaStatus.COMPLETED
-                    record.completed_at = beijing_now()
-                    record.error_message = None
-                    record.file_id = parent_folder_id
-                    saved += 1
-                    await self._notify_transfer_success(
-                        sub.title,
-                        record.resource_name,
-                        source,
-                        "分享转存",
-                        getattr(sub, "poster_path", None),
-                    )
-                    await media_postprocess_service.trigger_archive_after_transfer(
-                        trigger="subscription_transfer"
-                    )
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=channel,
-                        subscription_id=sub.id,
-                        subscription_title=sub.title,
-                        step="auto_transfer_item_done",
-                        status="success",
-                        message=f"转存成功：{record.resource_name}",
-                        payload={
-                            "source": source,
-                            "record_id": record.id,
-                            "target_parent_id": parent_folder_id,
-                            "save_mode": "direct",
-                        },
-                    )
-                    await operation_log_service.log_background_event(
-                        source_type="background_task",
-                        module="subscriptions",
-                        action="subscription.record.transfer_ok",
-                        status="success",
-                        message=f"[{sub.title}] [{source}] 分享转存成功：{record.resource_name}",
+                        completed_status=MediaStatus.COMPLETED,
+                        now=beijing_now,
+                        save_share_directly=pan_service.save_share_directly,
+                        notify_transfer_success=self._notify_transfer_success,
+                        trigger_archive_after_transfer=media_postprocess_service.trigger_archive_after_transfer,
+                        log_operation=operation_log_service.log_background_event,
+                        create_step_log=create_auto_transfer_step_log,
+                        emit_transfer_success=emit_transfer_success,
                         trace_id=run_id,
-                        extra={
-                            "subscription_id": sub.id,
-                            "record_id": record.id,
-                            "source": source,
-                            "save_mode": "direct",
-                        },
                     )
-                    # 发送转存成功事件到 Kafka
-                    try:
-                        from app.analytics import kafka_producer
-
-                        if kafka_producer._enabled:
-                            kafka_producer.send(
-                                event_type="transfer_success",
-                                data={
-                                    "subscription_id": sub.id,
-                                    "title": sub.title,
-                                    "source": source,
-                                    "resource_name": record.resource_name,
-                                    "transfer_type": "share",
-                                    "status": "success",
-                                },
-                                key=str(sub.id),
-                            )
-                    except Exception:
-                        pass
-                    subscription_completed = True
-                    cleanup_step = "subscription_cleanup_transferred"
-                    cleanup_message = "转存成功，已自动删除订阅"
-                    cleanup_payload = {
-                        "source": source,
-                        "record_id": record.id,
-                        "target_parent_id": parent_folder_id,
-                        "save_mode": "direct",
-                    }
-                    break
+                    saved += share_submission.saved_increment
+                    subscription_completed = share_submission.subscription_completed
+                    cleanup_step = share_submission.cleanup_step
+                    cleanup_message = share_submission.cleanup_message
+                    cleanup_payload = share_submission.cleanup_payload
+                    if share_submission.should_stop:
+                        break
             except Exception as exc:
                 if self._is_already_received_error(str(exc)):
                     # 115 返回已接收时视为成功，避免重复任务被统计为失败。
