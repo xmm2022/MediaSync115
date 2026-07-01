@@ -19,7 +19,6 @@ from app.models.models import (
     SubscriptionSource,
 )
 from app.core.database import async_session_maker
-from app.services.media_postprocess_service import media_postprocess_service
 from app.services.operation_log_service import operation_log_service
 from app.services.emby_service import emby_service
 from app.services.feiniu_service import feiniu_service
@@ -60,9 +59,8 @@ from app.services.subscriptions.pre_scan_cleanup import (
     PreScanCleanupDependencies,
     evaluate_pre_scan_cleanup as evaluate_pre_scan_cleanup_flow,
 )
-from app.services.subscriptions.postprocess_status import (
-    PostprocessStatusDependencies,
-    apply_precise_transfer_postprocess_status as apply_postprocess_status_flow,
+from app.services.subscriptions.postprocess_status_runtime_adapter import (
+    apply_precise_transfer_postprocess_status_with_runtime_adapter,
 )
 from app.services.subscriptions.fixed_source_scan import (
     FixedSourceScanDependencies,
@@ -299,16 +297,8 @@ class SubscriptionService:
         self,
         record: DownloadRecord,
     ) -> dict[str, Any]:
-        return await apply_postprocess_status_flow(
+        return await apply_precise_transfer_postprocess_status_with_runtime_adapter(
             record,
-            dependencies=PostprocessStatusDependencies(
-                trigger_archive_after_transfer=(
-                    media_postprocess_service.trigger_archive_after_transfer
-                ),
-                archiving_status=MediaStatus.ARCHIVING,
-                completed_status=MediaStatus.COMPLETED,
-                now=beijing_now,
-            ),
         )
 
     def _completed_cleanup_dependencies(self) -> CompletedCleanupDependencies:

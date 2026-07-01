@@ -1,7 +1,9 @@
 import pytest
 
 from app.models.models import DownloadRecord, MediaStatus
-from app.services import subscription_service as subscription_service_module
+from app.services.subscriptions import (
+    postprocess_status_runtime_adapter as postprocess_runtime_adapter_module,
+)
 from app.services.subscription_service import subscription_service
 
 
@@ -24,7 +26,7 @@ async def test_precise_transfer_marks_completed_when_archive_not_triggered(
         return {"triggered": False, "reason": "archive_disabled"}
 
     monkeypatch.setattr(
-        subscription_service_module.media_postprocess_service,
+        postprocess_runtime_adapter_module.media_postprocess_service,
         "trigger_archive_after_transfer",
         fake_trigger_archive_after_transfer,
     )
@@ -47,7 +49,7 @@ async def test_precise_transfer_keeps_archiving_when_archive_triggered(
         return {"triggered": True, "result": {"task_id": "archive-1"}}
 
     monkeypatch.setattr(
-        subscription_service_module.media_postprocess_service,
+        postprocess_runtime_adapter_module.media_postprocess_service,
         "trigger_archive_after_transfer",
         fake_trigger_archive_after_transfer,
     )
