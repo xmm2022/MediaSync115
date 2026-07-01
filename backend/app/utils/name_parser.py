@@ -36,7 +36,7 @@ class NameParser:
             
         # 匹配 - 01 或 01 (常用于动漫，如 繁花 01.mp4)
         # 前面必须有空格或者 - 等分隔符，后面跟着数字，再跟着视频后缀
-        match = re.search(r'(?:[-_ ]|^\s*)(\d{1,4})\s*(?:\.mp4|\.mkv|\.avi|\.ts|\.rmvb|\.flv)', clean_name, re.IGNORECASE)
+        match = re.search(r'(?:[-_ ]|^\s*)(\d{1,4})\s*(?:\.mp4|\.mkv|\.avi|\.ts|\.rmvb|\.flv|\.m4v|\.webm)', clean_name, re.IGNORECASE)
         if match:
             return (1, int(match.group(1)))
             

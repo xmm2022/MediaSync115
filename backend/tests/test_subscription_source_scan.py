@@ -4,6 +4,7 @@ from app.services.subscription_source_service import (
     encode_selected_file_ids,
     select_missing_episode_files,
 )
+from app.utils.name_parser import name_parser
 
 
 def test_build_source_file_fingerprint_prefers_file_id():
@@ -30,6 +31,28 @@ def test_select_missing_episode_files_picks_only_missing_pairs():
     )
 
     assert [item["fid"] for item in selected] == ["2"]
+    assert parsed_count == 2
+    assert unparsed_count == 0
+
+
+def test_name_parser_accepts_preview_bare_episode_video_suffixes():
+    assert name_parser.parse_episode("Show - 01.m4v") == (1, 1)
+    assert name_parser.parse_episode("Show_02.webm") == (1, 2)
+
+
+def test_select_missing_episode_files_matches_m4v_and_webm_preview_hits():
+    files = [
+        {"fid": "m4v", "name": "Show - 01.m4v", "size": 1000},
+        {"fid": "webm", "name": "Show_02.webm", "size": 2000},
+    ]
+
+    selected, parsed_count, unparsed_count = select_missing_episode_files(
+        files,
+        missing_episodes={(1, 1), (1, 2)},
+        quality_filter={},
+    )
+
+    assert [item["fid"] for item in selected] == ["m4v", "webm"]
     assert parsed_count == 2
     assert unparsed_count == 0
 
