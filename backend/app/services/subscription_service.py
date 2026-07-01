@@ -102,6 +102,11 @@ from app.services.subscriptions.fixed_source_run_flow import (
     FixedSourceRunDependencies,
     run_fixed_source_for_subscription,
 )
+from app.services.subscriptions.item_outcome_run_flow import (
+    SubscriptionItemOutcomeDependencies,
+    complete_subscription_item_success,
+    handle_subscription_item_failure,
+)
 from app.services.subscriptions.resource_resolver import (
     resolve_subscription_resources,
 )
@@ -143,10 +148,6 @@ from app.services.subscriptions.run_state import (
 )
 from app.services.subscriptions.run_loader import load_active_subscription_snapshots
 from app.services.subscriptions.run_lifecycle_logs import (
-    build_subscription_done_event_kwargs,
-    build_subscription_done_step,
-    build_subscription_failed_event_kwargs,
-    build_subscription_failed_step,
     build_subscription_start_step,
 )
 from app.services.subscriptions.auto_transfer_retry_records import (
@@ -256,6 +257,30 @@ class SubscriptionService:
                 sub_id = sub.id
                 sub_title = sub.title
                 async with async_session_maker() as inner_db:
+                    async def apply_subscription_failure_for_run(
+                        subscription_id: int,
+                        title: str,
+                        error: BaseException,
+                    ) -> None:
+                        async with result_lock:
+                            apply_subscription_failure(
+                                result,
+                                subscription_id=subscription_id,
+                                title=title,
+                                error=error,
+                            )
+
+                    item_outcome_dependencies = (
+                        SubscriptionItemOutcomeDependencies(
+                            create_step_log=self._create_step_log,
+                            log_background_event=(
+                                operation_log_service.log_background_event
+                            ),
+                            apply_subscription_failure=(
+                                apply_subscription_failure_for_run
+                            ),
+                        )
+                    )
 
                     try:
                         await self._create_step_log(
@@ -474,56 +499,30 @@ class SubscriptionService:
                             fixed_source_result.sub_failed_transfer_count_delta
                         )
 
-                        await self._create_step_log(
-                            inner_db,
+                        await complete_subscription_item_success(
+                            db=inner_db,
                             run_id=run_id,
                             channel=normalized_channel,
                             subscription_id=sub_id,
                             subscription_title=sub_title,
-                            **build_subscription_done_step(),
+                            new_record_count=len(created_records),
+                            should_auto_download=should_auto_download,
+                            sub_saved_count=sub_saved_count,
+                            sub_failed_transfer_count=(
+                                sub_failed_transfer_count
+                            ),
+                            dependencies=item_outcome_dependencies,
                         )
-                        await operation_log_service.log_background_event(
-                            **build_subscription_done_event_kwargs(
-                                subscription_id=sub_id,
-                                subscription_title=sub_title,
-                                channel=normalized_channel,
-                                trace_id=run_id,
-                                new_record_count=len(created_records),
-                                should_auto_download=should_auto_download,
-                                sub_saved_count=sub_saved_count,
-                                sub_failed_transfer_count=(
-                                    sub_failed_transfer_count
-                                ),
-                            )
-                        )
-                        await inner_db.commit()
                     except Exception as exc:
-                        await inner_db.rollback()
-                        async with result_lock:
-                            apply_subscription_failure(
-                                result,
-                                subscription_id=sub_id,
-                                title=sub_title,
-                                error=exc,
-                            )
-                        await self._create_step_log(
-                            inner_db,
+                        await handle_subscription_item_failure(
+                            db=inner_db,
                             run_id=run_id,
                             channel=normalized_channel,
                             subscription_id=sub_id,
                             subscription_title=sub_title,
-                            **build_subscription_failed_step(exc),
+                            error=exc,
+                            dependencies=item_outcome_dependencies,
                         )
-                        await operation_log_service.log_background_event(
-                            **build_subscription_failed_event_kwargs(
-                                subscription_id=sub_id,
-                                subscription_title=sub_title,
-                                channel=normalized_channel,
-                                trace_id=run_id,
-                                error=exc,
-                            )
-                        )
-                        await inner_db.commit()
                     finally:
                         async with result_lock:
                             increment_processed_count(result)
