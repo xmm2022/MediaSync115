@@ -50,11 +50,17 @@ from app.services.subscriptions.resource_metadata import (
     normalize_hdhive_subscription_items,
 )
 from app.services.subscriptions.resource_fetchers import (
-    ResourceFetcherDependencies,
     fetch_from_hdhive as fetch_from_hdhive_flow,
     fetch_from_pansou as fetch_from_pansou_flow,
     fetch_from_tg as fetch_from_tg_flow,
     fetch_offline_magnets as fetch_offline_magnets_flow,
+)
+from app.services.subscriptions.resource_fetcher_adapter import (
+    ResourceFetcherAdapterDependencies,
+    fetch_from_hdhive_with_adapter,
+    fetch_from_pansou_with_adapter,
+    fetch_from_tg_with_adapter,
+    fetch_offline_magnets_with_adapter,
 )
 from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
@@ -1058,114 +1064,63 @@ class SubscriptionService:
         )
         return resolve_source_order(priority, tg_ready=tg_ready)
 
-    def _resource_fetcher_dependencies(self) -> ResourceFetcherDependencies:
-        async def _search_pansou_by_tmdb(
-            tmdb_id: int,
-            media_type: str,
-            season_number: int | None,
-        ) -> dict[str, Any]:
-            return await _search_pansou_pan115_resources(
-                tmdb_id,
-                media_type,
-                season_number,
-            )
-
-        async def _search_pansou_by_keyword(keyword: str) -> Any:
-            return await pansou_service.search_115(keyword, res="results")
-
-        async def _get_hdhive_by_keyword(
-            keyword: str,
-            *,
-            media_type: str,
-        ) -> list[dict[str, Any]]:
-            return await hdhive_service.get_pan115_by_keyword(
-                keyword,
-                media_type=media_type,
-            )
-
-        async def _search_tg_by_keyword(
-            keyword: str,
-            *,
-            media_type: str,
-        ) -> list[dict[str, Any]]:
-            return await tg_service.search_115_by_keyword(
-                keyword,
-                media_type=media_type,
-            )
-
-        async def _search_seedhub_magnets(
-            keyword: str,
-            *,
-            limit: int,
-        ) -> list[dict[str, Any]]:
-            return await seedhub_service.search_magnets_by_keyword(
-                keyword,
-                limit=limit,
-            )
-
-        async def _search_butailing_magnets(
-            keyword: str,
-            *,
-            media_type: str,
-        ) -> list[dict[str, Any]]:
-            return await butailing_service.search_magnets(
-                keyword,
-                media_type=media_type,
-            )
-
-        async def _log_offline_source_fetch(**kwargs: Any) -> None:
-            await operation_log_service.log_background_event(**kwargs)
-
-        return ResourceFetcherDependencies(
-            search_pansou_by_tmdb=_search_pansou_by_tmdb,
-            search_pansou_by_keyword=_search_pansou_by_keyword,
+    def _resource_fetcher_adapter_dependencies(
+        self,
+    ) -> ResourceFetcherAdapterDependencies:
+        return ResourceFetcherAdapterDependencies(
+            search_pansou_by_tmdb=_search_pansou_pan115_resources,
+            search_pansou_keyword=pansou_service.search_115,
             normalize_pansou_resources=_normalize_pansou_pan115_list,
             get_hdhive_tv_pan115=hdhive_service.get_tv_pan115,
             get_hdhive_movie_pan115=hdhive_service.get_movie_pan115,
-            get_hdhive_by_keyword=_get_hdhive_by_keyword,
+            get_hdhive_by_keyword=hdhive_service.get_pan115_by_keyword,
             normalize_hdhive_items=normalize_hdhive_subscription_items,
             prefer_hdhive_free=runtime_settings_service.get_subscription_hdhive_prefer_free,
             sort_hdhive_free_first=hdhive_service.sort_free_first,
-            search_tg_by_keyword=_search_tg_by_keyword,
+            search_tg_by_keyword=tg_service.search_115_by_keyword,
             offline_transfer_enabled=(
                 runtime_settings_service.get_subscription_offline_transfer_enabled
             ),
-            search_seedhub_magnets=_search_seedhub_magnets,
-            search_butailing_magnets=_search_butailing_magnets,
-            log_offline_source_fetch=_log_offline_source_fetch,
+            search_seedhub_magnets=seedhub_service.search_magnets_by_keyword,
+            search_butailing_magnets=butailing_service.search_magnets,
+            log_background_event=operation_log_service.log_background_event,
+            run_fetch_from_pansou=fetch_from_pansou_flow,
+            run_fetch_from_hdhive=fetch_from_hdhive_flow,
+            run_fetch_from_tg=fetch_from_tg_flow,
+            run_fetch_offline_magnets=fetch_offline_magnets_flow,
         )
 
     async def _fetch_from_pansou(
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_from_pansou_flow(
+        return await fetch_from_pansou_with_adapter(
             sub,
-            dependencies=self._resource_fetcher_dependencies(),
+            dependencies=self._resource_fetcher_adapter_dependencies(),
         )
 
     async def _fetch_from_hdhive(
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_from_hdhive_flow(
+        return await fetch_from_hdhive_with_adapter(
             sub,
-            dependencies=self._resource_fetcher_dependencies(),
+            dependencies=self._resource_fetcher_adapter_dependencies(),
         )
 
     async def _fetch_from_tg(
         self, sub: "SubscriptionSnapshot"
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_from_tg_flow(
+        return await fetch_from_tg_with_adapter(
             sub,
-            dependencies=self._resource_fetcher_dependencies(),
+            dependencies=self._resource_fetcher_adapter_dependencies(),
         )
 
     async def _fetch_offline_magnets(
         self,
         sub: "SubscriptionSnapshot",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_offline_magnets_flow(
+        return await fetch_offline_magnets_with_adapter(
             sub,
-            dependencies=self._resource_fetcher_dependencies(),
+            dependencies=self._resource_fetcher_adapter_dependencies(),
         )
 
     def _build_hdhive_unlock_context(self) -> dict[str, Any]:
