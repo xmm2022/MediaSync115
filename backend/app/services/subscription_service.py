@@ -77,6 +77,10 @@ from app.services.subscriptions.pre_scan_cleanup import (
     PreScanCleanupDependencies,
     evaluate_pre_scan_cleanup as evaluate_pre_scan_cleanup_flow,
 )
+from app.services.subscriptions.postprocess_status import (
+    PostprocessStatusDependencies,
+    apply_precise_transfer_postprocess_status as apply_postprocess_status_flow,
+)
 from app.services.subscriptions.quality_filter import (
     SubscriptionQualityPreferences,
     build_subscription_quality_filter,
@@ -1070,17 +1074,17 @@ class SubscriptionService:
         self,
         record: DownloadRecord,
     ) -> dict[str, Any]:
-        archive_result = await media_postprocess_service.trigger_archive_after_transfer(
-            trigger="subscription_transfer"
+        return await apply_postprocess_status_flow(
+            record,
+            dependencies=PostprocessStatusDependencies(
+                trigger_archive_after_transfer=(
+                    media_postprocess_service.trigger_archive_after_transfer
+                ),
+                archiving_status=MediaStatus.ARCHIVING,
+                completed_status=MediaStatus.COMPLETED,
+                now=beijing_now,
+            ),
         )
-        if archive_result.get("triggered"):
-            record.status = MediaStatus.ARCHIVING
-            record.completed_at = None
-        else:
-            record.status = MediaStatus.COMPLETED
-            record.completed_at = beijing_now()
-        record.error_message = None
-        return archive_result
 
     @staticmethod
     def _apply_cleanup_stats(result: dict[str, Any], media_type: MediaType) -> None:
