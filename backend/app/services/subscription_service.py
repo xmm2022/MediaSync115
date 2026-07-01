@@ -113,6 +113,14 @@ from app.services.subscriptions.run_completion import (
     build_run_finish_step_payload,
     complete_run_result,
 )
+from app.services.subscriptions.run_counters import (
+    apply_auto_transfer_stats,
+    apply_fixed_source_transfer_stats,
+    apply_resource_store_stats,
+    apply_subscription_failure,
+    increment_processed_count,
+    set_checked_count,
+)
 from app.services.subscriptions.run_state import (
     build_initial_run_result,
     build_processing_progress_payload,
@@ -256,7 +264,7 @@ class SubscriptionService:
             )
             for row in subs_result.all()
         ]
-        result["checked_count"] = len(subscriptions)
+        set_checked_count(result, len(subscriptions))
         await self._create_step_log(
             db,
             run_id=run_id,
@@ -401,11 +409,7 @@ class SubscriptionService:
                         created_records = store_stats["created_records"]
                         duplicate_urls = store_stats["duplicate_urls"]
                         async with result_lock:
-                            result["new_resource_count"] += len(created_records)
-                            result["resource_checked_count"] += int(store_stats["checked_count"])
-                            result["resource_duplicate_count"] += int(
-                                store_stats["duplicate_count"]
-                            )
+                            apply_resource_store_stats(result, store_stats)
                         await self._create_step_log(
                             inner_db,
                             run_id=run_id,
@@ -505,12 +509,11 @@ class SubscriptionService:
                                     new_auto_stats.get("failed") or 0
                                 )
                                 async with result_lock:
-                                    result["auto_saved_count"] += new_auto_stats["saved"]
-                                    result["auto_failed_count"] += new_auto_stats["failed"]
-                                    result["auto_new_saved_count"] += new_auto_stats["saved"]
-                                    result["auto_new_failed_count"] += new_auto_stats["failed"]
-                                    if new_auto_stats["errors"]:
-                                        result["errors"].extend(new_auto_stats["errors"])
+                                    apply_auto_transfer_stats(
+                                        result,
+                                        new_auto_stats,
+                                        transfer_source="new",
+                                    )
                                 await self._create_step_log(
                                     inner_db,
                                     run_id=run_id,
@@ -586,12 +589,11 @@ class SubscriptionService:
                                     retry_auto_stats.get("failed") or 0
                                 )
                                 async with result_lock:
-                                    result["auto_saved_count"] += retry_auto_stats["saved"]
-                                    result["auto_failed_count"] += retry_auto_stats["failed"]
-                                    result["auto_retry_saved_count"] += retry_auto_stats["saved"]
-                                    result["auto_retry_failed_count"] += retry_auto_stats["failed"]
-                                    if retry_auto_stats["errors"]:
-                                        result["errors"].extend(retry_auto_stats["errors"])
+                                    apply_auto_transfer_stats(
+                                        result,
+                                        retry_auto_stats,
+                                        transfer_source="retry",
+                                    )
                                 await self._create_step_log(
                                     inner_db,
                                     run_id=run_id,
@@ -716,8 +718,11 @@ class SubscriptionService:
                             sub_saved_count += fixed_saved
                             sub_failed_transfer_count += fixed_failed
                             async with result_lock:
-                                result["auto_saved_count"] += fixed_saved
-                                result["auto_failed_count"] += fixed_failed
+                                apply_fixed_source_transfer_stats(
+                                    result,
+                                    saved=fixed_saved,
+                                    failed=fixed_failed,
+                                )
                             if sub.media_type == MediaType.MOVIE and fixed_saved > 0:
                                 await self._delete_subscription_with_records(inner_db, sub_id)
                                 await operation_log_service.log_background_event(
@@ -791,13 +796,11 @@ class SubscriptionService:
                     except Exception as exc:
                         await inner_db.rollback()
                         async with result_lock:
-                            result["failed_count"] += 1
-                            result["errors"].append(
-                                {
-                                    "subscription_id": sub_id,
-                                    "title": sub_title,
-                                    "error": str(exc),
-                                }
+                            apply_subscription_failure(
+                                result,
+                                subscription_id=sub_id,
+                                title=sub_title,
+                                error=exc,
                             )
                         await self._create_step_log(
                             inner_db,
@@ -826,7 +829,7 @@ class SubscriptionService:
                         await inner_db.commit()
                     finally:
                         async with result_lock:
-                            result["processed_count"] += 1
+                            increment_processed_count(result)
                             progress_payload = build_processing_progress_payload(result)
                         if progress_callback:
                             await progress_callback(progress_payload)
