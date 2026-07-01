@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
@@ -66,6 +65,7 @@ from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
     resolve_source_order,
 )
+from app.services.subscriptions.snapshot import SubscriptionSnapshot
 from app.services.subscriptions.resource_resolver import (
     ResourceResolverDependencies,
     resolve_subscription_resources,
@@ -2912,21 +2912,3 @@ class SubscriptionService:
 
 
 subscription_service = SubscriptionService()
-
-
-@dataclass(slots=True)
-class SubscriptionSnapshot:
-    id: int
-    tmdb_id: int | None
-    douban_id: str | None
-    title: str
-    media_type: MediaType
-    year: str | None
-    auto_download: bool
-    tv_scope: str
-    tv_season_number: int | None
-    tv_episode_start: int | None
-    tv_episode_end: int | None
-    tv_follow_mode: str
-    tv_include_specials: bool
-    has_successful_transfer: bool
