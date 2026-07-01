@@ -113,19 +113,11 @@ from app.services.subscriptions.resource_storage_db_adapter import (
     store_new_resources_with_db_adapter,
 )
 from app.services.subscriptions.run_summary import (
-    build_run_message,
     normalize_subscription_channel,
-    resolve_run_status,
 )
-from app.services.subscriptions.run_completion import (
-    apply_hdhive_unlock_stats,
-    apply_run_finalize_error,
-    build_run_finalize_failed_message,
-    build_run_finalize_failed_payload,
-    build_run_finish_event_extra,
-    build_run_finish_event_message,
-    build_run_finish_step_payload,
-    complete_run_result,
+from app.services.subscriptions.run_finalize_flow import (
+    RunFinalizeDependencies,
+    finalize_subscription_run,
 )
 from app.services.subscriptions.run_counters import (
     apply_auto_transfer_stats,
@@ -588,87 +580,24 @@ class SubscriptionService:
         if subscriptions:
             await asyncio.gather(*(_bounded_subscription(sub) for sub in subscriptions))
 
-        status = resolve_run_status(
-            result["failed_count"],
-            result["checked_count"],
-            result["auto_failed_count"],
+        await finalize_subscription_run(
+            db=db,
+            channel=normalized_channel,
+            run_id=run_id,
+            result=result,
+            started_at=started_at,
+            hdhive_unlock_context=hdhive_unlock_context,
             success_status=ExecutionStatus.SUCCESS,
             failed_status=ExecutionStatus.FAILED,
             partial_status=ExecutionStatus.PARTIAL,
+            dependencies=RunFinalizeDependencies(
+                log_background_event=operation_log_service.log_background_event,
+                create_execution_log=self._create_execution_log,
+                create_step_log=self._create_step_log,
+                prune_step_logs=self._prune_step_logs,
+                now=beijing_now,
+            ),
         )
-        unlock_stats = hdhive_unlock_context.get("stats", {})
-        apply_hdhive_unlock_stats(result, unlock_stats)
-        message = build_run_message(result)
-        finished_at = beijing_now()
-        complete_run_result(
-            result,
-            status_value=status.value,
-            message=message,
-            finished_at=finished_at,
-        )
-
-        await operation_log_service.log_background_event(
-            source_type="background_task",
-            module="subscriptions",
-            action="subscription.check.finish",
-            status=status.value,
-            message=build_run_finish_event_message(normalized_channel, result),
-            trace_id=run_id,
-            extra=build_run_finish_event_extra(normalized_channel, result),
-        )
-
-        finalize_error = ""
-        try:
-            await self._create_execution_log(
-                db=db,
-                channel=normalized_channel,
-                status=status,
-                message=message,
-                checked_count=result["checked_count"],
-                new_resource_count=result["new_resource_count"],
-                failed_count=result["failed_count"],
-                details=result["errors"],
-                started_at=started_at,
-                finished_at=finished_at,
-            )
-            await self._create_step_log(
-                db,
-                run_id=run_id,
-                channel=normalized_channel,
-                step="run_finish",
-                status=status.value,
-                message=message,
-                payload=build_run_finish_step_payload(result),
-            )
-            await self._prune_step_logs(db)
-            await db.commit()
-        except Exception as exc:
-            finalize_error = str(exc)
-            await db.rollback()
-            apply_run_finalize_error(
-                result,
-                summary_message=message,
-                finalize_error=finalize_error,
-                success_status_value=ExecutionStatus.SUCCESS.value,
-                partial_status_value=ExecutionStatus.PARTIAL.value,
-            )
-
-            try:
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=normalized_channel,
-                    step="run_finalize_failed",
-                    status="warning",
-                    message=build_run_finalize_failed_message(finalize_error),
-                    payload=build_run_finalize_failed_payload(
-                        finalize_error,
-                        status_before_finalize=status.value,
-                    ),
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
         return result
 
     async def _create_step_log(
