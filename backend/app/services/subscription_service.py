@@ -43,8 +43,13 @@ from app.services.subscriptions.resource_candidates import (
     filter_resources_excluding_urls,
     merge_auto_save_stats,
     normalize_share_url,
-    resource_candidate_url,
     should_continue_link_fallback,
+)
+from app.services.subscriptions.record_selection import (
+    dedupe_records_by_resource_url,
+    exclude_new_records,
+    merge_records,
+    select_retryable_records,
 )
 from app.services.subscriptions.resource_metadata import (
     build_hdhive_keyword,
@@ -53,8 +58,6 @@ from app.services.subscriptions.resource_metadata import (
     determine_resource_type,
     extract_resource_name,
     is_already_received_error,
-    is_likely_115_share_identifier,
-    is_retryable_transfer_error,
     is_video_filename,
     normalize_hdhive_subscription_items,
     split_share_link_and_receive_code,
@@ -467,10 +470,10 @@ class SubscriptionService:
                                     sub_id,
                                     duplicate_urls,
                                 )
-                                retry_records = self._merge_records(
+                                retry_records = merge_records(
                                     retry_records, duplicate_retry_records
                                 )
-                            retry_records = self._exclude_new_records(
+                            retry_records = exclude_new_records(
                                 retry_records, created_records
                             )
 
@@ -1721,7 +1724,7 @@ class SubscriptionService:
             resolve_subscription_quality_filter=self._resolve_subscription_quality_filter,
             prepare_hdhive_locked_resources=self._prepare_hdhive_locked_resources,
             build_hdhive_unlock_context=self._build_hdhive_unlock_context,
-            filter_resources_excluding_urls=self._filter_resources_excluding_urls,
+            filter_resources_excluding_urls=filter_resources_excluding_urls,
             log_source_fetch=log_source_fetch,
             emit_source_attempt=emit_source_attempt,
         )
@@ -2173,26 +2176,7 @@ class SubscriptionService:
         failed_rows = list(failed_result.scalars().all())
         pending_rows = list(pending_result.scalars().all())
 
-        retryable: list[DownloadRecord] = []
-        for row in failed_rows:
-            is_offline = str(row.resource_type or "") in ("magnet", "ed2k")
-            if not is_offline and not is_likely_115_share_identifier(
-                row.resource_url
-            ):
-                continue
-            if not is_retryable_transfer_error(row.error_message or ""):
-                continue
-            retryable.append(row)
-
-        for row in pending_rows:
-            is_offline = str(row.resource_type or "") in ("magnet", "ed2k")
-            if not is_offline and not is_likely_115_share_identifier(
-                row.resource_url
-            ):
-                continue
-            retryable.append(row)
-
-        return retryable
+        return select_retryable_records(failed_rows, pending_rows)
 
     async def _load_force_retry_records(
         self,
@@ -2223,52 +2207,7 @@ class SubscriptionService:
                 .order_by(DownloadRecord.created_at.desc())
             )
 
-        selected: list[DownloadRecord] = []
-        seen_urls: set[str] = set()
-        for row in rows_result.scalars().all():
-            key = str(row.resource_url or "").strip()
-            if not key or key in seen_urls:
-                continue
-            seen_urls.add(key)
-            selected.append(row)
-        return selected
-
-    @staticmethod
-    def _exclude_new_records(
-        retry_records: list[DownloadRecord], new_records: list[DownloadRecord]
-    ) -> list[DownloadRecord]:
-        new_keys: set[str] = set()
-        for item in new_records:
-            if not item:
-                continue
-            new_keys.add(str(item.resource_url or "").strip())
-        if not new_keys:
-            return retry_records
-        return [
-            item
-            for item in retry_records
-            if str(item.resource_url or "").strip() not in new_keys
-        ]
-
-    @staticmethod
-    def _merge_records(
-        primary: list[DownloadRecord], secondary: list[DownloadRecord]
-    ) -> list[DownloadRecord]:
-        merged: list[DownloadRecord] = []
-        seen_keys: set[str] = set()
-        for record in primary + secondary:
-            if not record:
-                continue
-            key = (
-                f"id:{record.id}"
-                if record.id is not None
-                else f"url:{record.resource_url}"
-            )
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            merged.append(record)
-        return merged
+        return dedupe_records_by_resource_url(rows_result.scalars().all())
 
     async def _load_subscription_resource_urls(
         self, db: AsyncSession, subscription_id: int
@@ -2279,34 +2218,8 @@ class SubscriptionService:
                 select(DownloadRecord.resource_url).where(
                     DownloadRecord.subscription_id == subscription_id
                 )
-            )
-        return {str(row[0]).strip() for row in result.all() if row and row[0]}
-
-    @staticmethod
-    def _resource_candidate_url(item: dict[str, Any]) -> str:
-        return resource_candidate_url(item)
-
-    @classmethod
-    def _filter_resources_excluding_urls(
-        cls, resources: list[dict[str, Any]], exclude_urls: set[str]
-    ) -> list[dict[str, Any]]:
-        return filter_resources_excluding_urls(resources, exclude_urls)
-
-    @staticmethod
-    def _merge_auto_save_stats(target: dict[str, Any], source: dict[str, Any]) -> None:
-        merge_auto_save_stats(target, source)
-
-    def _should_continue_link_fallback(
-        self,
-        sub: "SubscriptionSnapshot",
-        stats: dict[str, Any],
-        *,
-        attempted_count: int,
-    ) -> bool:
-        """判断是否需要在链接失效后继续搜索下一条资源。"""
-        return should_continue_link_fallback(
-            sub.media_type, stats, attempted_count=attempted_count
         )
+        return {str(row[0]).strip() for row in result.all() if row and row[0]}
 
     async def _auto_save_records_with_link_fallback(
         self,
@@ -2376,12 +2289,12 @@ class SubscriptionService:
                 source=source_label,
                 tv_missing_snapshot=tv_missing_snapshot,
             )
-            self._merge_auto_save_stats(merged, last_stats)
+            merge_auto_save_stats(merged, last_stats)
             merged["link_fallback_rounds"] = round_idx
             pending_records = []
 
-            if not self._should_continue_link_fallback(
-                sub, last_stats, attempted_count=last_attempted_count
+            if not should_continue_link_fallback(
+                sub.media_type, last_stats, attempted_count=last_attempted_count
             ):
                 break
 
@@ -2437,7 +2350,7 @@ class SubscriptionService:
                     else None,
                 )
 
-            resources = self._filter_resources_excluding_urls(resources, exclude_urls)
+            resources = filter_resources_excluding_urls(resources, exclude_urls)
             if not resources:
                 await self._create_step_log(
                     db,

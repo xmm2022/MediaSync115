@@ -3,9 +3,12 @@
 """
 from app.models.models import MediaType
 from app.services.subscription_service import (
-    SubscriptionService,
     SubscriptionSnapshot,
-    subscription_service,
+)
+from app.services.subscriptions.resource_candidates import (
+    filter_resources_excluding_urls,
+    merge_auto_save_stats,
+    should_continue_link_fallback,
 )
 
 
@@ -51,22 +54,22 @@ class TestSubscriptionLinkFallback:
     """链接失效后是否继续搜索下一条资源的判断"""
 
     def test_should_continue_for_movie_when_all_failed(self) -> None:
-        assert subscription_service._should_continue_link_fallback(
-            _movie_snapshot(),
+        assert should_continue_link_fallback(
+            _movie_snapshot().media_type,
             {"saved": 0, "failed": 1, "subscription_completed": False},
             attempted_count=1,
         )
 
     def test_should_stop_for_movie_when_saved(self) -> None:
-        assert not subscription_service._should_continue_link_fallback(
-            _movie_snapshot(),
+        assert not should_continue_link_fallback(
+            _movie_snapshot().media_type,
             {"saved": 1, "failed": 0, "subscription_completed": False},
             attempted_count=1,
         )
 
     def test_should_continue_for_tv_with_remaining_missing(self) -> None:
-        assert subscription_service._should_continue_link_fallback(
-            _tv_snapshot(),
+        assert should_continue_link_fallback(
+            _tv_snapshot().media_type,
             {
                 "saved": 1,
                 "failed": 0,
@@ -81,7 +84,7 @@ class TestSubscriptionLinkFallback:
             {"share_link": "https://115.com/s/sw1"},
             {"share_link": "https://115.com/s/sw2"},
         ]
-        filtered = SubscriptionService._filter_resources_excluding_urls(
+        filtered = filter_resources_excluding_urls(
             resources,
             {"https://115.com/s/sw1"},
         )
@@ -99,7 +102,7 @@ class TestSubscriptionLinkFallback:
             "cleanup_payload": {},
             "remaining_missing_count": None,
         }
-        SubscriptionService._merge_auto_save_stats(
+        merge_auto_save_stats(
             target,
             {
                 "saved": 1,
