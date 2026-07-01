@@ -60,6 +60,9 @@ from app.services.subscriptions.auto_transfer_context import (
 from app.services.subscriptions.auto_transfer_already_received import (
     handle_already_received_transfer,
 )
+from app.services.subscriptions.auto_transfer_failure import (
+    handle_transfer_failure,
+)
 from app.services.subscriptions.auto_transfer_offline import (
     is_offline_transfer_record,
     submit_offline_transfer_record,
@@ -2836,62 +2839,18 @@ class SubscriptionService:
                         break
                     if already_received_result.should_continue:
                         continue
-                record.status = MediaStatus.FAILED
-                record.error_message = str(exc)[:1000]
-                failed += 1
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                    step="auto_transfer_try_next_link",
-                    status="info",
-                    message=f"链接转存失败，将尝试下一条资源：{str(exc)[:120]}",
-                    payload={
-                        "source": source,
-                        "record_id": record.id,
-                        "error": str(exc)[:300],
-                    },
-                )
-                await self._create_step_log(
-                    db,
-                    run_id=run_id,
-                    channel=channel,
-                    subscription_id=sub.id,
-                    subscription_title=sub.title,
-                        step="auto_transfer_item_failed",
-                        status="failed",
-                        message=f"转存失败：{record.resource_name}（{str(exc)[:100]}）",
-                    payload={
-                        "source": source,
-                        "record_id": record.id,
-                        "error": str(exc)[:500],
-                    },
-                )
-                await operation_log_service.log_background_event(
-                    source_type="background_task",
-                    module="subscriptions",
-                    action="subscription.record.transfer_fail",
-                    status="failed",
-                    message=f"[{sub.title}] [{source}] 转存失败：{record.resource_name}（{str(exc)[:200]}）",
+                failure_result = await handle_transfer_failure(
+                    sub=sub,
+                    record=record,
+                    source=source,
+                    exc=exc,
+                    failed_status=MediaStatus.FAILED,
+                    create_step_log=create_auto_transfer_step_log,
+                    log_operation=operation_log_service.log_background_event,
                     trace_id=run_id,
-                    extra={
-                        "subscription_id": sub.id,
-                        "record_id": record.id,
-                        "source": source,
-                        "error": str(exc)[:300],
-                    },
                 )
-                errors.append(
-                    {
-                        "source": source,
-                        "subscription_id": sub.id,
-                        "title": sub.title,
-                        "resource": record.resource_name,
-                        "error": str(exc),
-                    }
-                )
+                failed += failure_result.failed_increment
+                errors.append(failure_result.error_entry)
 
         return {
             "saved": saved,
