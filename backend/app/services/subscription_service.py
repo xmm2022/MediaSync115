@@ -38,6 +38,15 @@ from app.services.resource_search import (
     normalize_pansou_pan115_list as _normalize_pansou_pan115_list,
     search_pansou_pan115_resources as _search_pansou_pan115_resources,
 )
+from app.services.subscriptions.resource_candidates import (
+    extract_offline_url,
+    extract_resource_url,
+    filter_resources_excluding_urls,
+    merge_auto_save_stats,
+    normalize_share_url,
+    resource_candidate_url,
+    should_continue_link_fallback,
+)
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.seedhub_service import seedhub_service
 from app.services.subscription_source_service import (
@@ -2714,38 +2723,17 @@ class SubscriptionService:
 
     @staticmethod
     def _resource_candidate_url(item: dict[str, Any]) -> str:
-        return (
-            SubscriptionService._extract_resource_url(item)
-            or SubscriptionService._extract_offline_url(item)
-        ).strip()
+        return resource_candidate_url(item)
 
     @classmethod
     def _filter_resources_excluding_urls(
         cls, resources: list[dict[str, Any]], exclude_urls: set[str]
     ) -> list[dict[str, Any]]:
-        if not exclude_urls:
-            return list(resources)
-        filtered: list[dict[str, Any]] = []
-        for item in resources:
-            url = cls._resource_candidate_url(item)
-            if url and url in exclude_urls:
-                continue
-            filtered.append(item)
-        return filtered
+        return filter_resources_excluding_urls(resources, exclude_urls)
 
     @staticmethod
     def _merge_auto_save_stats(target: dict[str, Any], source: dict[str, Any]) -> None:
-        target["saved"] = int(target.get("saved") or 0) + int(source.get("saved") or 0)
-        target["failed"] = int(target.get("failed") or 0) + int(source.get("failed") or 0)
-        target.setdefault("errors", [])
-        target["errors"].extend(list(source.get("errors") or []))
-        if source.get("subscription_completed"):
-            target["subscription_completed"] = True
-            target["cleanup_step"] = str(source.get("cleanup_step") or "")
-            target["cleanup_message"] = str(source.get("cleanup_message") or "")
-            target["cleanup_payload"] = dict(source.get("cleanup_payload") or {})
-        if source.get("remaining_missing_count") is not None:
-            target["remaining_missing_count"] = source.get("remaining_missing_count")
+        merge_auto_save_stats(target, source)
 
     def _should_continue_link_fallback(
         self,
@@ -2755,14 +2743,9 @@ class SubscriptionService:
         attempted_count: int,
     ) -> bool:
         """判断是否需要在链接失效后继续搜索下一条资源。"""
-        if stats.get("subscription_completed"):
-            return False
-        if sub.media_type == MediaType.TV:
-            remaining = stats.get("remaining_missing_count")
-            if remaining is not None:
-                return int(remaining) > 0
-            return int(stats.get("saved") or 0) == 0 and attempted_count > 0
-        return int(stats.get("saved") or 0) == 0 and attempted_count > 0
+        return should_continue_link_fallback(
+            sub.media_type, stats, attempted_count=attempted_count
+        )
 
     async def _auto_save_records_with_link_fallback(
         self,
@@ -3761,39 +3744,16 @@ class SubscriptionService:
 
     @staticmethod
     def _normalize_share_url(url: str) -> str:
-        url = url.strip()
-        if not url:
-            return ""
-        if "#" in url:
-            url = url.split("#")[0]
-        url = url.replace("https://115cdn.com/", "https://115.com/")
-        return url
+        return normalize_share_url(url)
 
     @staticmethod
     def _extract_resource_url(item: dict[str, Any]) -> str:
-        raw_url = str(
-            item.get("pan115_share_link")
-            or item.get("share_link")
-            or item.get("shareLink")
-            or item.get("share_link")
-            or item.get("share_url")
-            or item.get("url")
-            or ""
-        ).strip()
-        return SubscriptionService._normalize_share_url(raw_url)
+        return extract_resource_url(item)
 
     @staticmethod
     def _extract_offline_url(item: dict[str, Any]) -> str:
         """从资源条目中提取磁力链接或 ED2K 链接。"""
-        for key in ("magnet", "magnet_link", "magnet_url"):
-            val = str(item.get(key) or "").strip()
-            if val and val.lower().startswith("magnet:"):
-                return val
-        for key in ("ed2k", "ed2k_link", "ed2k_url"):
-            val = str(item.get(key) or "").strip()
-            if val and val.lower().startswith("ed2k://"):
-                return val
-        return ""
+        return extract_offline_url(item)
 
     @staticmethod
     def _extract_hash_from_offline_url(url: str) -> str:
