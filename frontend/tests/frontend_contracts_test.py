@@ -319,6 +319,19 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("loadMissingOverview()", tab)
         self.assertGreaterEqual(tab.count("await refreshSourceDerivedState(sub)"), 4)
 
+    def test_fixed_pan115_source_file_selection_is_manageable(self) -> None:
+        selector = read_source("src/components/SubscriptionSourceFileSelector.tsx")
+        subscription_tab = read_source("src/components/SubscriptionTab.tsx")
+        missing_tab = read_source("src/components/MissingEpisodesTab.tsx")
+        types = read_source("src/api/types.ts")
+
+        self.assertIn("selected_file_ids", selector)
+        self.assertIn("subscriptionApi.updateSource", selector)
+        self.assertIn("取消固定文件限制", selector)
+        self.assertIn("<SubscriptionSourceFileSelector", subscription_tab)
+        self.assertIn("<SubscriptionSourceFileSelector", missing_tab)
+        self.assertIn("files?: SubscriptionSourceFile[]", types)
+
     def test_npm_test_runs_typescript_contract_tests(self) -> None:
         package_json = read_source("package.json")
 

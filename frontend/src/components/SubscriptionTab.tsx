@@ -5,6 +5,7 @@ import { getApiErrorMessage } from "../api/errors";
 import { Workflow, Plus, Trash2, Play, Pause, Rss, AlertCircle, ChevronDown, Link2, RefreshCw, Database, ClipboardList, CheckCircle2, XCircle, Activity, Search, SlidersHorizontal, HardDrive, Cloud, Download } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import EmptyState from "./ui/EmptyState";
+import SubscriptionSourceFileSelector from "./SubscriptionSourceFileSelector";
 import type { SyncDirectory } from "../types";
 
 // directories prop: provided by App, built from archive API (folders+config+tasks).
@@ -453,6 +454,10 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
       console.error("scan source failed", err);
       setErrorMessage("补缺源扫描失败（超时或后端错误）");
     }
+  };
+
+  const handleSourceUpdated = (updatedSource: SubscriptionSource) => {
+    setDetailSources(prev => prev.map(src => src.id === updatedSource.id ? updatedSource : src));
   };
 
   const handleDeleteDownload = async (sub: SubscriptionItem, dl: DownloadRecord) => {
@@ -1544,46 +1549,56 @@ export default function SubscriptionTab({ directories, addLog, onNavigateToMissi
                           ) : (
                             <div className="space-y-1.5">
                               {detailSources.map(src => (
-                                <div key={src.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
+                                <div key={src.id} className="flex flex-col gap-2 rounded-lg px-2 py-1.5"
                                   style={{ background: "var(--surface)", border: "1px solid var(--border)" } as React.CSSProperties}>
-                                  <div className="min-w-0">
-                                    <div className="text-[10px] font-bold truncate" style={{ color: "var(--txt)" } as React.CSSProperties}>
-                                      {src.display_name || src.source_type}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="text-[10px] font-bold truncate" style={{ color: "var(--txt)" } as React.CSSProperties}>
+                                        {src.display_name || src.source_type}
+                                      </div>
+                                      <div className="text-[9px] font-semibold truncate" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
+                                        {src.enabled ? "启用" : "已禁用"}
+                                        {src.last_scan_status ? ` · ${src.last_scan_status}` : ""}
+                                        {src.last_error ? ` · ${src.last_error}` : ""}
+                                      </div>
                                     </div>
-                                    <div className="text-[9px] font-semibold truncate" style={{ color: "var(--txt-muted)" } as React.CSSProperties}>
-                                      {src.enabled ? "启用" : "已禁用"}
-                                      {src.last_scan_status ? ` · ${src.last_scan_status}` : ""}
-                                      {src.last_error ? ` · ${src.last_error}` : ""}
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <button
+                                        onClick={() => handleToggleSource(sub, src)}
+                                        className="px-1.5 py-1 rounded text-[9px] font-bold transition-colors cursor-pointer"
+                                        style={src.enabled
+                                          ? { background: "rgba(245,158,11,0.14)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.3)" } as React.CSSProperties
+                                          : { background: "rgba(34,197,94,0.14)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.3)" } as React.CSSProperties}
+                                        title={src.enabled ? "禁用" : "启用"}
+                                      >
+                                        {src.enabled ? "停" : "启"}
+                                      </button>
+                                      <button
+                                        onClick={() => handleScanSource(sub, src)}
+                                        className="p-1 rounded text-brand-primary hover:bg-brand-primary/10 transition-colors cursor-pointer"
+                                        style={{ border: "1px solid var(--border)" } as React.CSSProperties}
+                                        title="扫描补缺源"
+                                      >
+                                        <RefreshCw className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteSource(sub, src)}
+                                        className="p-1 rounded transition-colors cursor-pointer"
+                                        style={{ color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" } as React.CSSProperties}
+                                        title="删除来源"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <button
-                                      onClick={() => handleToggleSource(sub, src)}
-                                      className="px-1.5 py-1 rounded text-[9px] font-bold transition-colors"
-                                      style={src.enabled
-                                        ? { background: "rgba(245,158,11,0.14)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.3)" } as React.CSSProperties
-                                        : { background: "rgba(34,197,94,0.14)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.3)" } as React.CSSProperties}
-                                      title={src.enabled ? "禁用" : "启用"}
-                                    >
-                                      {src.enabled ? "停" : "启"}
-                                    </button>
-                                    <button
-                                      onClick={() => handleScanSource(sub, src)}
-                                      className="p-1 rounded text-brand-primary hover:bg-brand-primary/10 transition-colors"
-                                      style={{ border: "1px solid var(--border)" } as React.CSSProperties}
-                                      title="扫描补缺源"
-                                    >
-                                      <RefreshCw className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteSource(sub, src)}
-                                      className="p-1 rounded transition-colors"
-                                      style={{ color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" } as React.CSSProperties}
-                                      title="删除来源"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
+                                  <SubscriptionSourceFileSelector
+                                    subscriptionId={sub.id}
+                                    subscriptionTitle={sub.title}
+                                    source={src}
+                                    addLog={addLog}
+                                    onSourceUpdated={handleSourceUpdated}
+                                    onRefresh={() => refreshSourceDerivedState(sub)}
+                                  />
                                 </div>
                               ))}
                             </div>

@@ -122,8 +122,24 @@ export interface SubscriptionSource {
   last_error?: string;
   last_found_episode?: string;
   last_transferred_count?: number;
+  files?: SubscriptionSourceFile[];
   created_at?: string;
   updated_at?: string;
+}
+
+export interface SubscriptionSourceFile {
+  id: number;
+  source_id: number;
+  share_file_id?: string | null;
+  file_name: string;
+  file_size?: number | null;
+  season_number?: number | null;
+  episode_number?: number | null;
+  fingerprint: string;
+  status: string;
+  last_seen_at?: string | null;
+  transferred_at?: string | null;
+  error_message?: string | null;
 }
 
 export interface DownloadRecord {

@@ -4,8 +4,10 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select, or_, and_
 from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.timezone_utils import beijing_now
 from app.models.models import (
@@ -15,6 +17,8 @@ from app.models.models import (
     MediaType,
     Subscription,
     SubscriptionExecutionLog,
+    SubscriptionSource,
+    SubscriptionSourceFile,
     SubscriptionStepLog,
 )
 from app.services.operation_log_service import operation_log_service
@@ -369,6 +373,38 @@ class DownloadRecordUpdate(BaseModel):
     offline_status: Optional[str] = None
 
 
+def serialize_subscription_source_file(file: SubscriptionSourceFile) -> dict[str, Any]:
+    return {
+        "id": file.id,
+        "source_id": file.source_id,
+        "share_file_id": file.share_file_id,
+        "file_name": file.file_name,
+        "file_size": int(file.file_size or 0),
+        "season_number": file.season_number,
+        "episode_number": file.episode_number,
+        "fingerprint": file.fingerprint,
+        "status": file.status,
+        "last_seen_at": file.last_seen_at.isoformat() if file.last_seen_at else None,
+        "transferred_at": file.transferred_at.isoformat() if file.transferred_at else None,
+        "error_message": file.error_message,
+    }
+
+
+def _loaded_source_files(source: SubscriptionSource) -> list[SubscriptionSourceFile]:
+    if "files" in sa_inspect(source).unloaded:
+        return []
+    return sorted(
+        list(source.files or []),
+        key=lambda file: (
+            file.season_number is None,
+            file.season_number or 0,
+            file.episode_number is None,
+            file.episode_number or 0,
+            str(file.file_name or ""),
+        ),
+    )
+
+
 def serialize_subscription_source(source) -> dict[str, Any]:
     return {
         "id": source.id,
@@ -388,6 +424,10 @@ def serialize_subscription_source(source) -> dict[str, Any]:
         "last_error": source.last_error,
         "last_found_episode": source.last_found_episode,
         "last_transferred_count": int(source.last_transferred_count or 0),
+        "files": [
+            serialize_subscription_source_file(file)
+            for file in _loaded_source_files(source)
+        ],
         "created_at": source.created_at.isoformat() if source.created_at else None,
         "updated_at": source.updated_at.isoformat() if source.updated_at else None,
     }
@@ -402,10 +442,9 @@ async def enrich_subscriptions_with_sources(
         sub_id: [] for sub_id in ids
     }
     if ids:
-        from app.models.models import SubscriptionSource
-
         result = await db.execute(
             select(SubscriptionSource)
+            .options(selectinload(SubscriptionSource.files))
             .where(SubscriptionSource.subscription_id.in_(ids))
             .order_by(SubscriptionSource.created_at.desc())
         )

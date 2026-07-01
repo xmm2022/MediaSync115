@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.timezone_utils import beijing_now
 from app.models.models import (
@@ -216,6 +217,7 @@ class SubscriptionSourceService:
     ) -> list[SubscriptionSource]:
         result = await db.execute(
             select(SubscriptionSource)
+            .options(selectinload(SubscriptionSource.files))
             .where(SubscriptionSource.subscription_id == int(subscription_id))
             .order_by(SubscriptionSource.created_at.desc())
         )

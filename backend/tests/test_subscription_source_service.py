@@ -1,7 +1,61 @@
 import pytest
 from sqlalchemy import delete, select
 
-from app.models.models import MediaType, Subscription, SubscriptionSource
+from app.models.models import (
+    MediaType,
+    Subscription,
+    SubscriptionSource,
+    SubscriptionSourceFile,
+)
+
+
+async def _delete_sources_by_ids(db, source_ids: list[int]) -> None:
+    if not source_ids:
+        return
+    await db.execute(
+        delete(SubscriptionSourceFile).where(
+            SubscriptionSourceFile.source_id.in_(source_ids)
+        )
+    )
+    await db.execute(
+        delete(SubscriptionSource).where(SubscriptionSource.id.in_(source_ids))
+    )
+
+
+async def _delete_sources_by_share(db, share_fragment: str) -> None:
+    source_ids = [
+        int(row[0])
+        for row in (
+            await db.execute(
+                select(SubscriptionSource.id).where(
+                    SubscriptionSource.share_url.like(f"%{share_fragment}%")
+                )
+            )
+        ).all()
+    ]
+    await _delete_sources_by_ids(db, source_ids)
+
+
+async def _delete_subscription_by_tmdb(db, tmdb_id: int) -> None:
+    subscription_ids = [
+        int(row[0])
+        for row in (
+            await db.execute(select(Subscription.id).where(Subscription.tmdb_id == tmdb_id))
+        ).all()
+    ]
+    if subscription_ids:
+        source_ids = [
+            int(row[0])
+            for row in (
+                await db.execute(
+                    select(SubscriptionSource.id).where(
+                        SubscriptionSource.subscription_id.in_(subscription_ids)
+                    )
+                )
+            ).all()
+        ]
+        await _delete_sources_by_ids(db, source_ids)
+    await db.execute(delete(Subscription).where(Subscription.tmdb_id == tmdb_id))
 
 
 @pytest.mark.asyncio
@@ -11,8 +65,8 @@ async def test_create_manual_source_allows_movie_subscription(tmp_path):
 
     await ensure_tables_exist()
     async with async_session_maker() as db:
-        await db.execute(delete(SubscriptionSource).where(SubscriptionSource.share_url.like("%abc123%")))
-        await db.execute(delete(Subscription).where(Subscription.tmdb_id == 1001))
+        await _delete_sources_by_share(db, "abc123")
+        await _delete_subscription_by_tmdb(db, 1001)
         await db.commit()
         movie = Subscription(
             tmdb_id=1001,
@@ -43,8 +97,8 @@ async def test_create_manual_source_stores_receive_code_from_link():
 
     await ensure_tables_exist()
     async with async_session_maker() as db:
-        await db.execute(delete(SubscriptionSource).where(SubscriptionSource.share_url.like("%abc123%")))
-        await db.execute(delete(Subscription).where(Subscription.tmdb_id == 2002))
+        await _delete_sources_by_share(db, "abc123")
+        await _delete_subscription_by_tmdb(db, 2002)
         await db.commit()
         sub = Subscription(
             tmdb_id=2002,
@@ -75,7 +129,6 @@ async def test_create_manual_source_stores_receive_code_from_link():
 @pytest.mark.asyncio
 async def test_scan_manual_movie_source_transfers_best_video():
     from app.core.database import async_session_maker, ensure_tables_exist
-    from app.models.models import SubscriptionSourceFile
     from app.services.subscription_source_service import subscription_source_service
 
     class FakePanService:
@@ -100,8 +153,8 @@ async def test_scan_manual_movie_source_transfers_best_video():
 
     await ensure_tables_exist()
     async with async_session_maker() as db:
-        await db.execute(delete(SubscriptionSource).where(SubscriptionSource.share_url.like("%abc123%")))
-        await db.execute(delete(Subscription).where(Subscription.tmdb_id == 2001))
+        await _delete_sources_by_share(db, "abc123")
+        await _delete_subscription_by_tmdb(db, 2001)
         await db.commit()
         movie = Subscription(
             tmdb_id=2001,
@@ -177,8 +230,8 @@ async def test_scan_manual_tv_source_respects_selected_file_ids():
 
     await ensure_tables_exist()
     async with async_session_maker() as db:
-        await db.execute(delete(SubscriptionSource).where(SubscriptionSource.share_url.like("%abc124%")))
-        await db.execute(delete(Subscription).where(Subscription.tmdb_id == 3003))
+        await _delete_sources_by_share(db, "abc124")
+        await _delete_subscription_by_tmdb(db, 3003)
         await db.commit()
         sub = Subscription(
             tmdb_id=3003,

@@ -23,6 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import SubscriptionSourceFileSelector from "./SubscriptionSourceFileSelector";
 
 interface MissingEpisodesTabProps {
   addLog: (level: "INFO" | "SUCCESS" | "WARN" | "ERROR", message: string) => Promise<void>;
@@ -407,6 +408,15 @@ export default function MissingEpisodesTab({
     }
   };
 
+  const handleSourceUpdated = (subscriptionId: string, updatedSource: SubscriptionSource) => {
+    setSourcesBySubId((prev) => ({
+      ...prev,
+      [subscriptionId]: (prev[subscriptionId] || []).map((source) => (
+        source.id === updatedSource.id ? updatedSource : source
+      )),
+    }));
+  };
+
   const handleMoviePilotPreview = async (row: MissingRow) => {
     setCompletionBusyId(row.subscription.id);
     setErrorMessage(null);
@@ -697,49 +707,60 @@ export default function MissingEpisodesTab({
                                   const busy = sourceBusyId === `${row.subscription.id}:${source.id}`;
                                   const sourceActionBusy = Boolean(sourceBusyId?.startsWith(`${row.subscription.id}:${source.id}`));
                                   return (
-                                    <div key={source.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl px-3 py-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
-                                      <div className="min-w-0">
-                                        <p className="text-[10px] font-black truncate" style={{ color: "var(--txt)" }}>
-                                          {source.display_name || source.source_type || "115 分享源"}
-                                        </p>
-                                        <p className="text-[9px] font-semibold truncate" style={{ color: source.last_error ? "var(--accent-danger)" : "var(--txt-muted)" }}>
-                                          {source.enabled ? "启用" : "已停用"}
-                                          {source.last_scan_status ? ` · ${source.last_scan_status}` : ""}
-                                          {source.last_error ? ` · ${source.last_error}` : ""}
-                                        </p>
+                                    <div key={source.id} className="flex flex-col gap-2 rounded-xl px-3 py-2" style={{ background: "var(--surface-subtle)", border: "1px solid var(--border)" }}>
+                                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="min-w-0">
+                                          <p className="text-[10px] font-black truncate" style={{ color: "var(--txt)" }}>
+                                            {source.display_name || source.source_type || "115 分享源"}
+                                          </p>
+                                          <p className="text-[9px] font-semibold truncate" style={{ color: source.last_error ? "var(--accent-danger)" : "var(--txt-muted)" }}>
+                                            {source.enabled ? "启用" : "已停用"}
+                                            {source.last_scan_status ? ` · ${source.last_scan_status}` : ""}
+                                            {source.last_error ? ` · ${source.last_error}` : ""}
+                                          </p>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleToggleSource(row, source)}
+                                            disabled={Boolean(sourceBusyId)}
+                                            className="px-2 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer"
+                                            style={source.enabled
+                                              ? { background: "rgba(245,158,11,0.14)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.3)" }
+                                              : { background: "rgba(34,197,94,0.14)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.3)" }}
+                                          >
+                                            {source.enabled ? "停用" : "启用"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleScanSource(row, source)}
+                                            disabled={Boolean(sourceBusyId)}
+                                            className="px-3 py-1.5 rounded-lg text-[9px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center justify-center gap-1 cursor-pointer"
+                                          >
+                                            <RefreshCw className={`w-3 h-3 ${busy ? "animate-spin" : ""}`} />
+                                            扫描
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleDeleteSource(row, source)}
+                                            disabled={Boolean(sourceBusyId)}
+                                            className="p-1.5 rounded-lg disabled:opacity-50 cursor-pointer"
+                                            style={{ color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" }}
+                                            title="删除补缺源"
+                                          >
+                                            <Trash2 className={`w-3.5 h-3.5 ${sourceActionBusy && !busy ? "animate-pulse" : ""}`} />
+                                          </button>
+                                        </div>
                                       </div>
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleToggleSource(row, source)}
-                                          disabled={Boolean(sourceBusyId)}
-                                          className="px-2 py-1.5 rounded-lg text-[9px] font-black disabled:opacity-50 cursor-pointer"
-                                          style={source.enabled
-                                            ? { background: "rgba(245,158,11,0.14)", color: "var(--accent-warn)", border: "1px solid rgba(245,158,11,0.3)" }
-                                            : { background: "rgba(34,197,94,0.14)", color: "var(--accent-ok)", border: "1px solid rgba(34,197,94,0.3)" }}
-                                        >
-                                          {source.enabled ? "停用" : "启用"}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleScanSource(row, source)}
-                                          disabled={Boolean(sourceBusyId)}
-                                          className="px-3 py-1.5 rounded-lg text-[9px] font-black bg-brand-primary text-white disabled:opacity-50 flex items-center justify-center gap-1 cursor-pointer"
-                                        >
-                                          <RefreshCw className={`w-3 h-3 ${busy ? "animate-spin" : ""}`} />
-                                          扫描
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleDeleteSource(row, source)}
-                                          disabled={Boolean(sourceBusyId)}
-                                          className="p-1.5 rounded-lg disabled:opacity-50 cursor-pointer"
-                                          style={{ color: "var(--accent-danger)", border: "1px solid rgba(239,68,68,0.3)" }}
-                                          title="删除补缺源"
-                                        >
-                                          <Trash2 className={`w-3.5 h-3.5 ${sourceActionBusy && !busy ? "animate-pulse" : ""}`} />
-                                        </button>
-                                      </div>
+                                      <SubscriptionSourceFileSelector
+                                        subscriptionId={row.subscription.id}
+                                        subscriptionTitle={row.subscription.title}
+                                        source={source}
+                                        disabled={Boolean(sourceBusyId)}
+                                        addLog={addLog}
+                                        onSourceUpdated={(updated) => handleSourceUpdated(row.subscription.id, updated)}
+                                        onRefresh={() => loadSources(row.subscription.id)}
+                                      />
                                     </div>
                                   );
                                 })}
