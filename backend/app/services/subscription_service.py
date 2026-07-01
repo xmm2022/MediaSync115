@@ -77,6 +77,10 @@ from app.services.subscriptions.pre_scan_cleanup import (
     PreScanCleanupDependencies,
     evaluate_pre_scan_cleanup as evaluate_pre_scan_cleanup_flow,
 )
+from app.services.subscriptions.quality_filter import (
+    SubscriptionQualityPreferences,
+    build_subscription_quality_filter,
+)
 from app.services.subscriptions.fixed_source_scan import (
     FixedSourceScanDependencies,
     scan_fixed_sources_for_subscription as scan_fixed_sources_flow,
@@ -1878,18 +1882,23 @@ class SubscriptionService:
         return runtime_settings_service.get_resource_preferred_resolutions()
 
     def _resolve_subscription_quality_filter(self, sub: "SubscriptionSnapshot") -> dict[str, Any]:
-        hdr = runtime_settings_service.get_resource_preferred_hdr()
-        codec = runtime_settings_service.get_resource_preferred_codec()
-        preferred_formats = (hdr or []) + (codec or [])
-        return {
-            "preferred_resolutions": runtime_settings_service.get_resource_preferred_resolutions() or None,
-            "preferred_formats": preferred_formats or None,
-            "exclude_labels": runtime_settings_service.get_resource_exclude_tags() or None,
-            "preferred_languages": runtime_settings_service.get_resource_preferred_audio() or None,
-            "preferred_subtitles": runtime_settings_service.get_resource_preferred_subtitles() or None,
-            "min_size_gb": runtime_settings_service.get_resource_min_size_gb(),
-            "max_size_gb": runtime_settings_service.get_resource_max_size_gb(),
-        }
+        _ = sub
+        return build_subscription_quality_filter(
+            SubscriptionQualityPreferences(
+                preferred_resolutions=(
+                    runtime_settings_service.get_resource_preferred_resolutions()
+                ),
+                preferred_hdr=runtime_settings_service.get_resource_preferred_hdr(),
+                preferred_codec=runtime_settings_service.get_resource_preferred_codec(),
+                exclude_labels=runtime_settings_service.get_resource_exclude_tags(),
+                preferred_audio=runtime_settings_service.get_resource_preferred_audio(),
+                preferred_subtitles=(
+                    runtime_settings_service.get_resource_preferred_subtitles()
+                ),
+                min_size_gb=runtime_settings_service.get_resource_min_size_gb(),
+                max_size_gb=runtime_settings_service.get_resource_max_size_gb(),
+            )
+        )
 
     @staticmethod
     async def _notify_transfer_success(
