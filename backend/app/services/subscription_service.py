@@ -57,6 +57,9 @@ from app.services.subscriptions.resource_resolver import (
 from app.services.subscriptions.auto_transfer_context import (
     build_auto_transfer_tv_missing_context,
 )
+from app.services.subscriptions.auto_transfer_already_received import (
+    handle_already_received_transfer,
+)
 from app.services.subscriptions.auto_transfer_offline import (
     is_offline_transfer_record,
     submit_offline_transfer_record,
@@ -2807,68 +2810,32 @@ class SubscriptionService:
                         break
             except Exception as exc:
                 if self._is_already_received_error(str(exc)):
-                    # 115 返回已接收时视为成功，避免重复任务被统计为失败。
-                    if tv_missing_enabled and is_tv_subscription:
-                        archive_result = (
-                            await self._apply_precise_transfer_postprocess_status(record)
-                        )
-                    else:
-                        archive_result = {"triggered": False, "reason": "not_tv_precise"}
-                        record.status = MediaStatus.COMPLETED
-                        record.completed_at = beijing_now()
-                    record.error_message = None
-                    saved += 1
-                    await self._notify_transfer_success(
-                        sub.title,
-                        record.resource_name,
-                        source,
-                        "已在网盘（跳过重复）",
-                        getattr(sub, "poster_path", None),
-                    )
-                    await self._create_step_log(
-                        db,
-                        run_id=run_id,
-                        channel=channel,
-                        subscription_id=sub.id,
-                        subscription_title=sub.title,
-                        step="auto_transfer_item_done",
-                        status="success",
-                        message=f"资源已在网盘中，无需重复转存：{record.resource_name}",
-                        payload={
-                            "source": source,
-                            "record_id": record.id,
-                            "reason": "already_received",
-                            "archive_triggered": bool(archive_result.get("triggered")),
-                            "archive_skip_reason": archive_result.get("reason"),
-                        },
-                    )
-                    await operation_log_service.log_background_event(
-                        source_type="background_task",
-                        module="subscriptions",
-                        action="subscription.record.transfer_ok",
-                        status="success",
-                        message=f"[{sub.title}] [{source}] 资源已在网盘中：{record.resource_name}",
+                    already_received_result = await handle_already_received_transfer(
+                        sub=sub,
+                        record=record,
+                        source=source,
+                        parent_folder_id=parent_folder_id,
+                        is_tv_subscription=is_tv_subscription,
+                        tv_missing_enabled=tv_missing_enabled,
+                        completed_status=MediaStatus.COMPLETED,
+                        now=beijing_now,
+                        apply_precise_postprocess_status=self._apply_precise_transfer_postprocess_status,
+                        notify_transfer_success=self._notify_transfer_success,
+                        create_step_log=create_auto_transfer_step_log,
+                        log_operation=operation_log_service.log_background_event,
                         trace_id=run_id,
-                        extra={
-                            "subscription_id": sub.id,
-                            "record_id": record.id,
-                            "source": source,
-                            "reason": "already_received",
-                        },
                     )
-                    if not is_tv_subscription:
-                        subscription_completed = True
-                        cleanup_step = "subscription_cleanup_transferred"
-                        cleanup_message = "资源已在网盘中，已自动删除订阅"
-                        cleanup_payload = {
-                            "source": source,
-                            "record_id": record.id,
-                            "reason": "already_received",
-                            "target_parent_id": parent_folder_id,
-                            "save_mode": "direct",
-                        }
+                    saved += already_received_result.saved_increment
+                    subscription_completed = (
+                        already_received_result.subscription_completed
+                    )
+                    cleanup_step = already_received_result.cleanup_step
+                    cleanup_message = already_received_result.cleanup_message
+                    cleanup_payload = already_received_result.cleanup_payload
+                    if already_received_result.should_stop:
                         break
-                    continue
+                    if already_received_result.should_continue:
+                        continue
                 record.status = MediaStatus.FAILED
                 record.error_message = str(exc)[:1000]
                 failed += 1
