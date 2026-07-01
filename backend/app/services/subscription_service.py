@@ -103,6 +103,13 @@ from app.services.subscriptions.run_summary import (
     normalize_subscription_channel,
     resolve_run_status,
 )
+from app.services.subscriptions.run_completion import (
+    apply_hdhive_unlock_stats,
+    build_run_finish_event_extra,
+    build_run_finish_event_message,
+    build_run_finish_step_payload,
+    complete_run_result,
+)
 from app.services.subscriptions.run_state import (
     build_initial_run_result,
     build_processing_progress_payload,
@@ -838,48 +845,24 @@ class SubscriptionService:
             partial_status=ExecutionStatus.PARTIAL,
         )
         unlock_stats = hdhive_unlock_context.get("stats", {})
-        result["hdhive_unlock_attempted_count"] = int(
-            unlock_stats.get("attempted") or 0
-        )
-        result["hdhive_unlock_success_count"] = int(unlock_stats.get("success") or 0)
-        result["hdhive_unlock_failed_count"] = int(unlock_stats.get("failed") or 0)
-        result["hdhive_unlock_skipped_count"] = int(unlock_stats.get("skipped") or 0)
-        result["hdhive_unlock_points_spent"] = int(
-            unlock_stats.get("points_spent") or 0
-        )
+        apply_hdhive_unlock_stats(result, unlock_stats)
         message = build_run_message(result)
         finished_at = beijing_now()
-        result["finished_at"] = finished_at.isoformat()
-        result["status"] = status.value
-        result["message"] = message
+        complete_run_result(
+            result,
+            status_value=status.value,
+            message=message,
+            finished_at=finished_at,
+        )
 
         await operation_log_service.log_background_event(
             source_type="background_task",
             module="subscriptions",
             action="subscription.check.finish",
             status=status.value,
-            message=(
-                f"订阅检查任务完成（频道：{normalized_channel}）：检查 {result['checked_count']} 项，"
-                f"新增资源 {result['new_resource_count']} 条，"
-                f"转存成功 {result['auto_saved_count']} 条，转存失败 {result['auto_failed_count']} 条，"
-                f"自动清理 {result['cleanup_deleted_count']} 项，"
-                f"失败 {result['failed_count']} 项"
-            ),
+            message=build_run_finish_event_message(normalized_channel, result),
             trace_id=run_id,
-            extra={
-                "channel": normalized_channel,
-                "checked_count": result["checked_count"],
-                "new_resource_count": result["new_resource_count"],
-                "auto_saved_count": result["auto_saved_count"],
-                "auto_failed_count": result["auto_failed_count"],
-                "cleanup_deleted_count": result["cleanup_deleted_count"],
-                "failed_count": result["failed_count"],
-                "hdhive_unlock_attempted_count": result[
-                    "hdhive_unlock_attempted_count"
-                ],
-                "hdhive_unlock_success_count": result["hdhive_unlock_success_count"],
-                "hdhive_unlock_points_spent": result["hdhive_unlock_points_spent"],
-            },
+            extra=build_run_finish_event_extra(normalized_channel, result),
         )
 
         finalize_error = ""
@@ -903,31 +886,7 @@ class SubscriptionService:
                 step="run_finish",
                 status=status.value,
                 message=message,
-                payload={
-                    "checked_count": result["checked_count"],
-                    "resource_checked_count": result["resource_checked_count"],
-                    "new_resource_count": result["new_resource_count"],
-                    "resource_duplicate_count": result["resource_duplicate_count"],
-                    "auto_saved_count": result["auto_saved_count"],
-                    "auto_failed_count": result["auto_failed_count"],
-                    "failed_count": result["failed_count"],
-                    "cleanup_deleted_count": result["cleanup_deleted_count"],
-                    "cleanup_movie_deleted_count": result[
-                        "cleanup_movie_deleted_count"
-                    ],
-                    "cleanup_tv_deleted_count": result["cleanup_tv_deleted_count"],
-                    "hdhive_unlock_attempted_count": result[
-                        "hdhive_unlock_attempted_count"
-                    ],
-                    "hdhive_unlock_success_count": result[
-                        "hdhive_unlock_success_count"
-                    ],
-                    "hdhive_unlock_failed_count": result["hdhive_unlock_failed_count"],
-                    "hdhive_unlock_skipped_count": result[
-                        "hdhive_unlock_skipped_count"
-                    ],
-                    "hdhive_unlock_points_spent": result["hdhive_unlock_points_spent"],
-                },
+                payload=build_run_finish_step_payload(result),
             )
             await self._prune_step_logs(db)
             await db.commit()
