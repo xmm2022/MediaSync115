@@ -373,6 +373,19 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("w-full sm:w-auto", library)
         self.assertNotIn('className="flex gap-2">\\n          <input type="number"', library)
 
+    def test_library_import_buttons_use_watchlist_import_schema(self) -> None:
+        library = read_source("src/components/LibraryPlusTab.tsx")
+        watchlist_api = read_source("src/api/watchlist.ts")
+        types = read_source("src/api/types.ts")
+
+        self.assertIn('source_key: "oscar_best_picture"', library)
+        self.assertNotIn('source:"tmdb"', library)
+        self.assertNotIn('media_type:"movie"', library)
+        self.assertIn("WatchlistImportPreviewPayload", watchlist_api)
+        self.assertIn("WatchlistImportPayload", watchlist_api)
+        self.assertIn("source_type: string", types)
+        self.assertIn("reference: string", types)
+
 
 if __name__ == "__main__":
     unittest.main()

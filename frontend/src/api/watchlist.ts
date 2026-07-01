@@ -1,5 +1,9 @@
 import api from './client';
-import type { WatchlistItem } from './types';
+import type {
+  WatchlistImportPayload,
+  WatchlistImportPreviewPayload,
+  WatchlistItem,
+} from './types';
 
 export const watchlistApi = {
   list: () => api.get<WatchlistItem[]>('/watchlists'),
@@ -34,8 +38,9 @@ export const watchlistApi = {
 
   getImportSources: () => api.get('/watchlists/import/sources'),
 
-  previewImport: (data: Record<string, unknown>) => api.post('/watchlists/import/preview', data),
+  previewImport: (data: WatchlistImportPreviewPayload) =>
+    api.post('/watchlists/import/preview', data),
 
-  importFromTmdb: (data: Record<string, unknown>) =>
+  importFromTmdb: (data: WatchlistImportPayload) =>
     api.post('/watchlists/import', data, { timeout: 120000 }),
 };

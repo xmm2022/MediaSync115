@@ -101,10 +101,10 @@ export default function LibraryPlusTab({ addLog }: { addLog: (l: "INFO" | "SUCCE
               className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>导入目录</button>
             <button onClick={async () => { try { const r = await watchlistApi.getImportSources(); await addLog("SUCCESS", `导入来源: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
               className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>导入来源</button>
-            <button onClick={async () => { try { const r = await watchlistApi.previewImport({source:"tmdb",media_type:"movie"}); await addLog("SUCCESS", `导入预览: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+            <button onClick={async () => { try { const r = await watchlistApi.previewImport({ source_key: "oscar_best_picture" }); await addLog("SUCCESS", `导入预览: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
               className="px-2 py-1 rounded text-[9px] font-bold glass-hover" style={{ color:"var(--txt-muted)", border:"1px solid var(--border)" }}>导入预览</button>
-            <button onClick={async () => { try { const r = await watchlistApi.importFromTmdb({source:"tmdb",media_type:"movie"}); await addLog("SUCCESS", `TMDB导入: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
-              className="px-2 py-1 rounded text-[9px] font-bold text-white" style={{ background:"var(--brand-primary)" }}>导入TMDB</button>
+            <button onClick={async () => { try { const r = await watchlistApi.importFromTmdb({ source_key: "oscar_best_picture", name: "奥斯卡最佳影片" }); await addLog("SUCCESS", `TMDB导入: ${JSON.stringify(r.data)}`); } catch(e:any) { await addLog("ERROR", String(e)); } }}
+              className="px-2 py-1 rounded text-[9px] font-bold text-white" style={{ background:"var(--brand-primary)" }}>导入奥斯卡</button>
           </div>
         </div>
       )}

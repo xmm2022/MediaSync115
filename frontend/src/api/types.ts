@@ -788,6 +788,23 @@ export interface WatchlistItem {
   [key: string]: unknown;
 }
 
+export type WatchlistImportPreviewPayload =
+  | {
+      source_key: string;
+      reference?: string;
+    }
+  | {
+      source_type: string;
+      reference: string;
+    };
+
+export type WatchlistImportPayload = WatchlistImportPreviewPayload & {
+  watchlist_id?: number;
+  name?: string;
+  description?: string;
+  auto_fill_enabled?: boolean;
+};
+
 // ---- PersonFollow ----
 export interface PersonFollowItem {
   id: string;
