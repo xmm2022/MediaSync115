@@ -135,6 +135,14 @@ from app.services.subscriptions.run_item_logs import (
     build_store_done_event_kwargs,
     build_store_new_resources_step,
 )
+from app.services.subscriptions.run_transfer_logs import (
+    build_auto_transfer_done_event_kwargs,
+    build_auto_transfer_done_step,
+    build_auto_transfer_skip_step,
+    build_auto_transfer_start_event_kwargs,
+    build_auto_transfer_start_step,
+    build_auto_transfer_summary_step,
+)
 from app.services.subscriptions.auto_transfer_batch import (
     AutoTransferBatchDependencies,
     AutoTransferBatchStatuses,
@@ -386,22 +394,19 @@ class SubscriptionService:
                                     channel=normalized_channel,
                                     subscription_id=sub_id,
                                     subscription_title=sub_title,
-                                    step="auto_transfer_new_start",
-                                    status="info",
-                                    message=f"开始转存 {len(created_records)} 个新资源",
+                                    **build_auto_transfer_start_step(
+                                        "new",
+                                        len(created_records),
+                                    ),
                                 )
                                 await operation_log_service.log_background_event(
-                                    source_type="background_task",
-                                    module="subscriptions",
-                                    action="subscription.item.transfer_new_start",
-                                    status="info",
-                                    message=f"[{sub_title}] 开始自动转存新资源 {len(created_records)} 条",
-                                    trace_id=run_id,
-                                    extra={
-                                        "subscription_id": sub_id,
-                                        "title": sub_title,
-                                        "count": len(created_records),
-                                    },
+                                    **build_auto_transfer_start_event_kwargs(
+                                        transfer_source="new",
+                                        subscription_id=sub_id,
+                                        subscription_title=sub_title,
+                                        trace_id=run_id,
+                                        record_count=len(created_records),
+                                    )
                                 )
                                 new_auto_stats = await self._auto_save_records_with_link_fallback(
                                     inner_db,
@@ -430,30 +435,19 @@ class SubscriptionService:
                                     channel=normalized_channel,
                                     subscription_id=sub_id,
                                     subscription_title=sub_title,
-                                    step="auto_transfer_new_done",
-                                    status="success"
-                                    if new_auto_stats["failed"] == 0
-                                    else "partial",
-                                    message=(
-                                        f"新资源转存完成：成功 {new_auto_stats['saved']} 条"
-                                        + (f"，失败 {new_auto_stats['failed']} 条" if new_auto_stats['failed'] else "")
+                                    **build_auto_transfer_done_step(
+                                        "new",
+                                        new_auto_stats,
                                     ),
                                 )
                                 await operation_log_service.log_background_event(
-                                    source_type="background_task",
-                                    module="subscriptions",
-                                    action="subscription.item.transfer_new_done",
-                                    status="success"
-                                    if new_auto_stats["failed"] == 0
-                                    else "warning",
-                                    message=f"[{sub_title}] 新资源转存完成：成功 {new_auto_stats['saved']} 条，失败 {new_auto_stats['failed']} 条",
-                                    trace_id=run_id,
-                                    extra={
-                                        "subscription_id": sub_id,
-                                        "title": sub_title,
-                                        "saved": new_auto_stats["saved"],
-                                        "failed": new_auto_stats["failed"],
-                                    },
+                                    **build_auto_transfer_done_event_kwargs(
+                                        transfer_source="new",
+                                        subscription_id=sub_id,
+                                        subscription_title=sub_title,
+                                        trace_id=run_id,
+                                        stats=new_auto_stats,
+                                    )
                                 )
                                 if new_auto_stats.get("subscription_completed"):
                                     cleanup_after_auto = new_auto_stats
@@ -465,22 +459,19 @@ class SubscriptionService:
                                     channel=normalized_channel,
                                     subscription_id=sub_id,
                                     subscription_title=sub_title,
-                                    step="auto_transfer_retry_start",
-                                    status="info",
-                                    message=f"开始重试之前失败的 {len(retry_records)} 个资源",
+                                    **build_auto_transfer_start_step(
+                                        "retry",
+                                        len(retry_records),
+                                    ),
                                 )
                                 await operation_log_service.log_background_event(
-                                    source_type="background_task",
-                                    module="subscriptions",
-                                    action="subscription.item.transfer_retry_start",
-                                    status="info",
-                                    message=f"[{sub_title}] 开始重试历史记录 {len(retry_records)} 条",
-                                    trace_id=run_id,
-                                    extra={
-                                        "subscription_id": sub_id,
-                                        "title": sub_title,
-                                        "count": len(retry_records),
-                                    },
+                                    **build_auto_transfer_start_event_kwargs(
+                                        transfer_source="retry",
+                                        subscription_id=sub_id,
+                                        subscription_title=sub_title,
+                                        trace_id=run_id,
+                                        record_count=len(retry_records),
+                                    )
                                 )
                                 retry_auto_stats = await self._auto_save_records_with_link_fallback(
                                     inner_db,
@@ -510,30 +501,19 @@ class SubscriptionService:
                                     channel=normalized_channel,
                                     subscription_id=sub_id,
                                     subscription_title=sub_title,
-                                    step="auto_transfer_retry_done",
-                                    status="success"
-                                    if retry_auto_stats["failed"] == 0
-                                    else "partial",
-                                    message=(
-                                        f"重试完成：成功 {retry_auto_stats['saved']} 条"
-                                        + (f"，失败 {retry_auto_stats['failed']} 条" if retry_auto_stats['failed'] else "")
+                                    **build_auto_transfer_done_step(
+                                        "retry",
+                                        retry_auto_stats,
                                     ),
                                 )
                                 await operation_log_service.log_background_event(
-                                    source_type="background_task",
-                                    module="subscriptions",
-                                    action="subscription.item.transfer_retry_done",
-                                    status="success"
-                                    if retry_auto_stats["failed"] == 0
-                                    else "warning",
-                                    message=f"[{sub_title}] 历史重试完成：成功 {retry_auto_stats['saved']} 条，失败 {retry_auto_stats['failed']} 条",
-                                    trace_id=run_id,
-                                    extra={
-                                        "subscription_id": sub_id,
-                                        "title": sub_title,
-                                        "saved": retry_auto_stats["saved"],
-                                        "failed": retry_auto_stats["failed"],
-                                    },
+                                    **build_auto_transfer_done_event_kwargs(
+                                        transfer_source="retry",
+                                        subscription_id=sub_id,
+                                        subscription_title=sub_title,
+                                        trace_id=run_id,
+                                        stats=retry_auto_stats,
+                                    )
                                 )
                                 if retry_auto_stats.get("subscription_completed"):
                                     cleanup_after_auto = retry_auto_stats
@@ -544,16 +524,13 @@ class SubscriptionService:
                                 channel=normalized_channel,
                                 subscription_id=sub_id,
                                 subscription_title=sub_title,
-                                step="auto_transfer_summary",
-                                status="success"
-                                if sub_failed_transfer_count == 0
-                                else "partial",
-                                message=(
-                                    f"本轮转存汇总：成功 {sub_saved_count} 条"
-                                    + (f"，失败 {sub_failed_transfer_count} 条" if sub_failed_transfer_count else "")
-                                    + f"（新资源 {len(created_records)} 个"
-                                    + (f"，重试 {len(retry_records)} 个" if retry_records else "")
-                                    + "）"
+                                **build_auto_transfer_summary_step(
+                                    sub_saved_count=sub_saved_count,
+                                    sub_failed_transfer_count=(
+                                        sub_failed_transfer_count
+                                    ),
+                                    new_record_count=len(created_records),
+                                    retry_record_count=len(retry_records),
                                 ),
                             )
                             if cleanup_after_auto is not None:
@@ -605,9 +582,7 @@ class SubscriptionService:
                                 channel=normalized_channel,
                                 subscription_id=sub_id,
                                 subscription_title=sub_title,
-                                step="auto_transfer_skip",
-                                status="info",
-                                message="未开启自动转存，已记录资源供手动处理",
+                                **build_auto_transfer_skip_step(),
                             )
 
                         if (
