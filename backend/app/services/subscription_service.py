@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Awaitable, Callable
@@ -50,6 +49,13 @@ from app.services.subscriptions.resource_candidates import (
 from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
     resolve_source_order,
+)
+from app.services.subscriptions.offline_transfer import (
+    build_submitted_offline_metadata,
+    extract_first_nested_value,
+    extract_hash_from_offline_url,
+    extract_offline_info_hash,
+    extract_offline_task_id,
 )
 from app.services.subscriptions.tv_episode_selection import (
     select_missing_episode_files as select_tv_missing_episode_files,
@@ -3165,16 +3171,14 @@ class SubscriptionService:
                         url=record.resource_url,
                         wp_path_id=offline_folder_id,
                     )
+                    offline_metadata = build_submitted_offline_metadata(
+                        offline_result, record.resource_url
+                    )
                     record.status = MediaStatus.OFFLINE_SUBMITTED
                     record.offline_submitted_at = beijing_now()
                     record.offline_status = "submitted"
-                    record.offline_info_hash = (
-                        self._extract_offline_info_hash(offline_result)
-                        or self._extract_hash_from_offline_url(record.resource_url)
-                    )
-                    record.offline_task_id = self._extract_offline_task_id(
-                        offline_result
-                    )
+                    record.offline_info_hash = offline_metadata.info_hash
+                    record.offline_task_id = offline_metadata.task_id
                     record.completed_at = None
                     record.error_message = None
                     record.file_id = offline_folder_id
@@ -3689,55 +3693,19 @@ class SubscriptionService:
 
     @staticmethod
     def _extract_hash_from_offline_url(url: str) -> str:
-        raw = str(url or "").strip()
-        if not raw:
-            return ""
-        magnet_match = re.search(r"btih:([a-zA-Z0-9]{32,40})", raw, re.IGNORECASE)
-        if magnet_match:
-            return magnet_match.group(1).upper()
-        return ""
+        return extract_hash_from_offline_url(url)
 
     @classmethod
     def _extract_offline_info_hash(cls, payload: Any) -> str:
-        return cls._extract_first_nested_value(
-            payload,
-            {
-                "info_hash",
-                "infoHash",
-                "hash",
-                "task_hash",
-                "taskHash",
-            },
-        )
+        return extract_offline_info_hash(payload)
 
     @classmethod
     def _extract_offline_task_id(cls, payload: Any) -> str:
-        return cls._extract_first_nested_value(
-            payload,
-            {
-                "task_id",
-                "taskId",
-                "taskid",
-                "id",
-            },
-        )
+        return extract_offline_task_id(payload)
 
     @classmethod
     def _extract_first_nested_value(cls, payload: Any, keys: set[str]) -> str:
-        if isinstance(payload, dict):
-            for key, value in payload.items():
-                if key in keys and value not in (None, ""):
-                    return str(value).strip()
-            for value in payload.values():
-                found = cls._extract_first_nested_value(value, keys)
-                if found:
-                    return found
-        if isinstance(payload, list):
-            for item in payload:
-                found = cls._extract_first_nested_value(item, keys)
-                if found:
-                    return found
-        return ""
+        return extract_first_nested_value(payload, keys)
 
     @staticmethod
     def _parse_json_list_field(value: str | None) -> list[str]:
