@@ -23,6 +23,12 @@ from app.utils.proxy import proxy_manager
 
 DEFAULT_ANIRSS_DOWNLOAD_PATH_PRESETS: list[str] = []
 
+LEGACY_EXTERNAL_SERVICE_DEFAULTS = {
+    "pansou_base_url": "http://192.168.10.139:8088/",
+    "emby_url": "http://192.168.2.139:8096/",
+    "emby_api_key": "355c5a7a4cae4966a3c0b40042bbde36",
+}
+
 
 class RuntimeSettingsService:
     ENV_FIELD_MAP = {
@@ -223,8 +229,24 @@ class RuntimeSettingsService:
         self._load()
         self._merge_settings_backed_values()
         self._ensure_auth_defaults()
+        self._clear_legacy_external_service_defaults()
         self._migrate_detail_visible_tabs()
         self.apply_runtime_overrides()
+
+    def _clear_legacy_external_service_defaults(self) -> None:
+        changed = False
+        for key, legacy_value in LEGACY_EXTERNAL_SERVICE_DEFAULTS.items():
+            if key not in self._loaded_keys:
+                continue
+            if str(self._data.get(key) or "").strip() != legacy_value:
+                continue
+            self._data[key] = ""
+            changed = True
+        if changed:
+            try:
+                self._save()
+            except Exception:
+                pass
 
     def _migrate_detail_visible_tabs(self) -> None:
         """老配置里没有 quark 相关 tab key 时自动补全，让新增功能默认可见"""

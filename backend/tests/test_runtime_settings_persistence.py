@@ -103,3 +103,38 @@ def test_pansou_service_allows_unconfigured_default() -> None:
 
     assert service.get_base_url() == ""
     assert service.client is None
+
+
+def test_legacy_external_service_defaults_are_cleared(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    runtime_dir = tmp_path / "data"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    runtime_path = runtime_dir / "runtime_settings.json"
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "pansou_base_url": "http://192.168.10.139:8088/",
+                "emby_url": "http://192.168.2.139:8096/",
+                "emby_api_key": "355c5a7a4cae4966a3c0b40042bbde36",
+                "tmdb_api_key": "keep-me",
+                "auth_username": "admin",
+                "auth_password_hash": "hash",
+                "auth_secret": "secret",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    service = RuntimeSettingsService()
+    data = service.get_all()
+    persisted = json.loads(runtime_path.read_text(encoding="utf-8"))
+
+    assert data["pansou_base_url"] == ""
+    assert data["emby_url"] == ""
+    assert data["emby_api_key"] == ""
+    assert data["tmdb_api_key"] == "keep-me"
+    assert persisted["pansou_base_url"] == ""
+    assert persisted["emby_url"] == ""
+    assert persisted["emby_api_key"] == ""
+    assert persisted["tmdb_api_key"] == "keep-me"
