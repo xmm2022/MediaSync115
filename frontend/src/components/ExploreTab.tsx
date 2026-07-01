@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Sparkles,
   Trophy,
@@ -228,8 +228,12 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
   const [directResults, setDirectResults] = useState<MediaResourceLink[]>([]);
   const [directLoading, setDirectLoading] = useState(false);
   const [directError, setDirectError] = useState<string | null>(null);
+  const boardRequestSeqRef = useRef(0);
+  const mediaSearchRequestSeqRef = useRef(0);
 
   const fetchBoard = useCallback(async (board: ExploreBoardKey) => {
+    const requestId = boardRequestSeqRef.current + 1;
+    boardRequestSeqRef.current = requestId;
     setLoading(true);
     setError(null);
     setItems([]);
@@ -237,6 +241,8 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
 
     try {
       const agg: Record<string, BadgeStatus> = {};
+      let nextItems: ExploreItem[] = [];
+      let nextTitle = "";
       if (board === "tmdb") {
         const { data } = await searchApi.getExploreSections("tmdb", 24, false);
         const allItems: ExploreItem[] = [];
@@ -248,8 +254,8 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
             }
           }
         }
-        setItems(allItems);
-        setSectionTitle("TMDB 流行趋势");
+        nextItems = allItems;
+        nextTitle = "TMDB 流行趋势";
         mergeStatusMap(agg, data?.emby_status_map as Record<string, unknown> | undefined, "emby");
         mergeStatusMap(agg, data?.feiniu_status_map as Record<string, unknown> | undefined, "feiniu");
       } else if (board === "douban") {
@@ -267,8 +273,8 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
           mergeStatusMap(agg, section.embyStatusMap, "emby");
           mergeStatusMap(agg, section.feiniuStatusMap, "feiniu");
         }
-        setItems(allItems);
-        setSectionTitle("豆瓣电影榜单");
+        nextItems = allItems;
+        nextTitle = "豆瓣电影榜单";
       } else {
         const { data } = await searchApi.getExploreDoubanSection(
           DOUBAN_ANIME_SECTION_KEY,
@@ -277,16 +283,22 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
           0,
         );
         const section = normalizeSectionPayload(data);
-        setItems(section.items);
-        setSectionTitle(section?.title || "豆瓣动画");
+        nextItems = section.items;
+        nextTitle = section?.title || "豆瓣动画";
         mergeStatusMap(agg, section.embyStatusMap, "emby");
         mergeStatusMap(agg, section.feiniuStatusMap, "feiniu");
       }
+      if (requestId !== boardRequestSeqRef.current) return;
+      setItems(nextItems);
+      setSectionTitle(nextTitle);
       setStatusMap(agg);
     } catch (err: unknown) {
+      if (requestId !== boardRequestSeqRef.current) return;
       setError(getApiErrorMessage(err, "探索数据加载失败，请稍后重试"));
     } finally {
-      setLoading(false);
+      if (requestId === boardRequestSeqRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -296,6 +308,8 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
 
   const runMediaSearch = async (event?: React.FormEvent, forcedKeyword?: string) => {
     event?.preventDefault();
+    const requestId = mediaSearchRequestSeqRef.current + 1;
+    mediaSearchRequestSeqRef.current = requestId;
     const keyword = (forcedKeyword ?? searchQuery).trim();
     if (forcedKeyword !== undefined) {
       setSearchQuery(keyword);
@@ -305,6 +319,7 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
       setSearchResults([]);
       setSearchStatusMap({});
       setSearchError(null);
+      setSearchLoading(false);
       return;
     }
 
@@ -326,16 +341,20 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
       const agg: Record<string, BadgeStatus> = {};
       mergeStatusMap(agg, data.emby_status_map, "emby");
       mergeStatusMap(agg, data.feiniu_status_map, "feiniu");
+      if (requestId !== mediaSearchRequestSeqRef.current) return;
       setSearchResults(mapped);
       setSearchStatusMap(agg);
       if (mapped.length === 0) {
         setSearchError(`未搜索到「${keyword}」相关影视，可展开高级直搜按标题查资源。`);
       }
     } catch (err) {
+      if (requestId !== mediaSearchRequestSeqRef.current) return;
       setSearchResults([]);
       setSearchError(getApiErrorMessage(err, "影视搜索失败，请检查 TMDB 搜索配置后重试"));
     } finally {
-      setSearchLoading(false);
+      if (requestId === mediaSearchRequestSeqRef.current) {
+        setSearchLoading(false);
+      }
     }
   };
 

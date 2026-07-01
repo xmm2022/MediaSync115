@@ -409,6 +409,19 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertNotIn('resource.media_type === "tv" ? "tv" : "movie"', explore)
         self.assertNotIn('rawMediaType === "tv" ? "tv" : "movie"', explore)
 
+    def test_explore_ignores_stale_async_results(self) -> None:
+        explore = read_source("src/components/ExploreTab.tsx")
+
+        self.assertIn("boardRequestSeqRef", explore)
+        self.assertIn("mediaSearchRequestSeqRef", explore)
+        self.assertIn("requestId !== boardRequestSeqRef.current", explore)
+        self.assertIn("requestId === boardRequestSeqRef.current", explore)
+        self.assertIn("requestId !== mediaSearchRequestSeqRef.current", explore)
+        self.assertIn("requestId === mediaSearchRequestSeqRef.current", explore)
+        self.assertGreaterEqual(explore.count("setItems(nextItems)"), 1)
+        self.assertNotIn("setItems(allItems)", explore)
+        self.assertNotIn("setItems(section.items)", explore)
+
 
 if __name__ == "__main__":
     unittest.main()
