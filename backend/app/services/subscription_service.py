@@ -51,6 +51,9 @@ from app.services.subscriptions.source_attempts import (
     build_source_attempt_summary,
     resolve_source_order,
 )
+from app.services.subscriptions.tv_episode_selection import (
+    select_missing_episode_files as select_tv_missing_episode_files,
+)
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.seedhub_service import seedhub_service
 from app.services.subscription_source_service import (
@@ -68,7 +71,6 @@ from app.services.subscription_cleanup_policy import (
 )
 from app.services.tv_missing_service import tv_missing_service
 from app.utils.resource_tags import sort_by_preference, filter_and_sort_by_quality
-from app.utils.name_parser import name_parser
 
 logger = logging.getLogger(__name__)
 
@@ -3246,28 +3248,13 @@ class SubscriptionService:
                     all_files = await pan_service.get_share_all_files_recursive(
                         share_code, receive_code
                     )
-                    matched_candidates: dict[tuple[int, int], list[dict[str, Any]]] = {}
-                    parsed_count = 0
-                    unparsed_video_count = 0
-
-                    for item in all_files:
-                        if not isinstance(item, dict):
-                            continue
-                        fid = str(item.get("fid") or "").strip()
-                        filename = str(item.get("name") or "").strip()
-                        if not fid or not filename:
-                            continue
-                        is_video_file = self._is_video_filename(filename)
-                        if not is_video_file:
-                            continue
-                        parsed = name_parser.parse_episode(filename)
-                        if parsed:
-                            parsed_count += 1
-                            pair = (int(parsed[0]), int(parsed[1]))
-                            if pair in missing_episodes:
-                                matched_candidates.setdefault(pair, []).append(item)
-                            continue
-                        unparsed_video_count += 1
+                    selection = select_tv_missing_episode_files(
+                        all_files,
+                        missing_episodes=missing_episodes,
+                        quality_filter=quality_filter,
+                        best_picker=pan_service.pick_best_video_file,
+                        is_video_file=self._is_video_filename,
+                    )
 
                     await self._create_step_log(
                         db,
@@ -3277,37 +3264,19 @@ class SubscriptionService:
                         subscription_title=sub.title,
                         step="tv_record_files_parsed",
                         status="info",
-                        message=f"已解析资源文件，找到 {sum(len(items) for items in matched_candidates.values())} 个匹配缺集的文件：{record.resource_name}",
+                        message=f"已解析资源文件，找到 {selection.matched_missing_count} 个匹配缺集的文件：{record.resource_name}",
                         payload={
                             "record_id": record.id,
                             "total_files": len(all_files),
-                            "parsed_count": parsed_count,
-                            "matched_missing_count": sum(
-                                len(items) for items in matched_candidates.values()
-                            ),
-                            "unparsed_video_count": unparsed_video_count,
+                            "parsed_count": selection.parsed_count,
+                            "matched_missing_count": selection.matched_missing_count,
+                            "unparsed_video_count": selection.unparsed_video_count,
                             "remaining_missing_count": len(missing_episodes),
                         },
                     )
 
-                    selected_items: list[dict[str, Any]] = []
-                    for items in matched_candidates.values():
-                        if len(items) > 1:
-                            selected_items.append(
-                                pan_service.pick_best_video_file(items, quality_filter) or items[0]
-                            )
-                        else:
-                            selected_items.extend(items)
-                    selected_file_ids = list(
-                        dict.fromkeys(
-                            [
-                                str(item.get("fid"))
-                                for item in selected_items
-                                if item.get("fid")
-                            ]
-                        )
-                    )
-                    matched_pairs = set(matched_candidates.keys())
+                    selected_file_ids = selection.selected_file_ids
+                    matched_pairs = selection.matched_pairs
                     selected_mode = "missing"
 
                     if not selected_file_ids:

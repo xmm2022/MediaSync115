@@ -17,23 +17,15 @@ from app.models.models import (
     SubscriptionSourceFile,
 )
 from app.services.pan115_service import Pan115Service
+from app.services.subscriptions.tv_episode_selection import (
+    is_video_filename as _is_video_filename,
+    item_file_id as _selection_item_file_id,
+    select_missing_episode_files as _select_missing_episode_files,
+)
 from app.utils.name_parser import name_parser
 
 
 MANUAL_PAN115_SOURCE = "manual_pan115_share"
-VIDEO_EXTENSIONS = (
-    ".mp4",
-    ".mkv",
-    ".avi",
-    ".rmvb",
-    ".flv",
-    ".ts",
-    ".m2ts",
-    ".mov",
-    ".wmv",
-    ".m4v",
-    ".webm",
-)
 
 
 def _sanitize_receive_code(value: str | None) -> str:
@@ -63,7 +55,7 @@ def _extract_receive_code_from_url(value: str) -> str:
 
 
 def is_video_filename(filename: str) -> bool:
-    return str(filename or "").strip().lower().endswith(VIDEO_EXTENSIONS)
+    return _is_video_filename(filename)
 
 
 def _item_size(item: dict[str, Any]) -> int:
@@ -82,7 +74,7 @@ def build_source_file_fingerprint(item: dict[str, Any]) -> str:
 
 
 def _item_file_id(item: dict[str, Any]) -> str:
-    return str(item.get("fid") or item.get("file_id") or "").strip()
+    return _selection_item_file_id(item)
 
 
 def normalize_selected_file_ids(value: Any) -> list[str]:
@@ -122,40 +114,18 @@ def select_missing_episode_files(
     quality_filter: dict[str, Any] | None = None,
     selected_file_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
-    matched_candidates: dict[tuple[int, int], list[dict[str, Any]]] = {}
-    parsed_count = 0
-    unparsed_video_count = 0
-    allowed_ids = {str(item).strip() for item in selected_file_ids or set() if str(item).strip()}
-    for item in files:
-        if not isinstance(item, dict):
-            continue
-        filename = str(item.get("name") or "").strip()
-        fid = _item_file_id(item)
-        if not filename or not fid:
-            continue
-        if allowed_ids and fid not in allowed_ids:
-            continue
-        if not is_video_filename(filename):
-            continue
-        parsed = name_parser.parse_episode(filename)
-        if parsed:
-            parsed_count += 1
-            pair = (int(parsed[0]), int(parsed[1]))
-            if pair in missing_episodes:
-                matched_candidates.setdefault(pair, []).append(item)
-            continue
-        unparsed_video_count += 1
-
-    selected: list[dict[str, Any]] = []
-    for items in matched_candidates.values():
-        if len(items) > 1:
-            selected.append(
-                Pan115Service.pick_best_video_file(items, quality_filter or {})
-                or items[0]
-            )
-        else:
-            selected.extend(items)
-    return selected, parsed_count, unparsed_video_count
+    selection = _select_missing_episode_files(
+        files,
+        missing_episodes=missing_episodes,
+        quality_filter=quality_filter or {},
+        selected_file_ids=selected_file_ids,
+        best_picker=Pan115Service.pick_best_video_file,
+    )
+    return (
+        selection.selected_items,
+        selection.parsed_count,
+        selection.unparsed_video_count,
+    )
 
 
 class SubscriptionSourceService:
