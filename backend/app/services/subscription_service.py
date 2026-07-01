@@ -115,6 +115,7 @@ from app.services.subscriptions.run_completion import (
 )
 from app.services.subscriptions.run_counters import (
     apply_auto_transfer_stats,
+    apply_cleanup_stats,
     apply_fixed_source_transfer_stats,
     apply_resource_store_stats,
     apply_subscription_failure,
@@ -312,7 +313,11 @@ class SubscriptionService:
                         )
                         if cleanup_before.get("deleted"):
                             async with result_lock:
-                                self._apply_cleanup_stats(result, sub.media_type)
+                                apply_cleanup_stats(
+                                    result,
+                                    sub.media_type,
+                                    tv_media_type=MediaType.TV,
+                                )
                             await self._create_step_log(
                                 inner_db,
                                 run_id=run_id,
@@ -683,7 +688,11 @@ class SubscriptionService:
                                     else None,
                                 )
                                 async with result_lock:
-                                    self._apply_cleanup_stats(result, sub.media_type)
+                                    apply_cleanup_stats(
+                                        result,
+                                        sub.media_type,
+                                        tv_media_type=MediaType.TV,
+                                    )
                         else:
                             await self._create_step_log(
                                 inner_db,
@@ -750,7 +759,11 @@ class SubscriptionService:
                                     payload={"fixed_saved": fixed_saved},
                                 )
                                 async with result_lock:
-                                    self._apply_cleanup_stats(result, sub.media_type)
+                                    apply_cleanup_stats(
+                                        result,
+                                        sub.media_type,
+                                        tv_media_type=MediaType.TV,
+                                    )
 
                         await self._create_step_log(
                             inner_db,
@@ -1000,20 +1013,6 @@ class SubscriptionService:
                 now=beijing_now,
             ),
         )
-
-    @staticmethod
-    def _apply_cleanup_stats(result: dict[str, Any], media_type: MediaType) -> None:
-        result["cleanup_deleted_count"] = (
-            int(result.get("cleanup_deleted_count") or 0) + 1
-        )
-        if media_type == MediaType.TV:
-            result["cleanup_tv_deleted_count"] = (
-                int(result.get("cleanup_tv_deleted_count") or 0) + 1
-            )
-        else:
-            result["cleanup_movie_deleted_count"] = (
-                int(result.get("cleanup_movie_deleted_count") or 0) + 1
-            )
 
     def _completed_cleanup_dependencies(self) -> CompletedCleanupDependencies:
         return CompletedCleanupDependencies(

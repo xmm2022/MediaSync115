@@ -67,3 +67,22 @@ def apply_subscription_failure(
             "error": str(error),
         }
     )
+
+
+def apply_cleanup_stats(
+    result: dict[str, Any],
+    media_type: Any,
+    *,
+    tv_media_type: Any,
+) -> None:
+    result["cleanup_deleted_count"] = (
+        int(result.get("cleanup_deleted_count") or 0) + 1
+    )
+    if media_type == tv_media_type:
+        result["cleanup_tv_deleted_count"] = (
+            int(result.get("cleanup_tv_deleted_count") or 0) + 1
+        )
+    else:
+        result["cleanup_movie_deleted_count"] = (
+            int(result.get("cleanup_movie_deleted_count") or 0) + 1
+        )

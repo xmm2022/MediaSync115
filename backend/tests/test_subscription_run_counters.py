@@ -5,6 +5,7 @@ from typing import Any
 
 from app.services.subscriptions.run_counters import (
     apply_auto_transfer_stats,
+    apply_cleanup_stats,
     apply_fixed_source_transfer_stats,
     apply_resource_store_stats,
     apply_subscription_failure,
@@ -29,6 +30,9 @@ def _result() -> dict[str, Any]:
         "auto_new_failed_count": 0,
         "auto_retry_saved_count": 0,
         "auto_retry_failed_count": 0,
+        "cleanup_deleted_count": 0,
+        "cleanup_movie_deleted_count": 0,
+        "cleanup_tv_deleted_count": 0,
         "failed_count": 0,
         "errors": [],
     }
@@ -128,6 +132,35 @@ def test_apply_subscription_failure_records_existing_error_shape() -> None:
             "error": "boom",
         }
     ]
+
+
+def test_apply_cleanup_stats_counts_tv_cleanup() -> None:
+    result = _result()
+    tv_media_type = object()
+
+    apply_cleanup_stats(
+        result,
+        tv_media_type,
+        tv_media_type=tv_media_type,
+    )
+
+    assert result["cleanup_deleted_count"] == 1
+    assert result["cleanup_tv_deleted_count"] == 1
+    assert result["cleanup_movie_deleted_count"] == 0
+
+
+def test_apply_cleanup_stats_counts_non_tv_cleanup_as_movie() -> None:
+    result = _result()
+
+    apply_cleanup_stats(
+        result,
+        object(),
+        tv_media_type=object(),
+    )
+
+    assert result["cleanup_deleted_count"] == 1
+    assert result["cleanup_tv_deleted_count"] == 0
+    assert result["cleanup_movie_deleted_count"] == 1
 
 
 def test_run_counters_module_stays_independent_from_runtime_layers() -> None:
