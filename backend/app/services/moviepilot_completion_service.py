@@ -511,11 +511,20 @@ class MoviePilotCompletionService:
             title = MoviePilotCompletionService._extract_title(item)
             if not title:
                 continue
-            parsed = name_parser.parse_episode(title)
+            parsed = MoviePilotCompletionService._parse_episode_with_season_confidence(title)
             if not parsed:
                 continue
-            season, episode = int(parsed[0]), int(parsed[1])
-            if (season, episode) not in missing_pairs:
+            parsed_season, parsed_episode, has_explicit_season = parsed
+            target_pairs = (
+                [(parsed_season, parsed_episode)]
+                if has_explicit_season
+                else sorted(
+                    (season, episode)
+                    for season, episode in missing_pairs
+                    if episode == parsed_episode
+                )
+            )
+            if not target_pairs:
                 continue
             resource_url = MoviePilotCompletionService._extract_resource_url(item)
             resource_hash = MoviePilotCompletionService._extract_resource_hash(
@@ -523,68 +532,107 @@ class MoviePilotCompletionService:
                 title=title,
                 resource_url=resource_url,
             )
-            match_issue = MoviePilotCompletionService._subscription_match_issue(
-                item,
-                title=title,
-                expected_title=expected_title,
-                tmdb_id=tmdb_id,
-                douban_id=douban_id,
-                year=year,
-            )
-            if match_issue:
-                candidates.append(
-                    MoviePilotEpisodeCandidate(
-                        season=season,
-                        episode=episode,
-                        item=item,
-                        title=title,
-                        resource_url=resource_url,
-                        resource_hash=resource_hash,
-                        status="ambiguous",
-                        reason=match_issue,
-                    )
-                )
-                continue
-            if not resource_url:
-                candidates.append(
-                    MoviePilotEpisodeCandidate(
-                        season=season,
-                        episode=episode,
-                        item=item,
-                        title=title,
-                        resource_url="",
-                        resource_hash=resource_hash,
-                        status="ambiguous",
-                        reason="资源缺少可推送的种子下载链接",
-                    )
-                )
-                continue
-            if MoviePilotCompletionService._looks_like_pack_or_multi_episode(title):
-                candidates.append(
-                    MoviePilotEpisodeCandidate(
-                        season=season,
-                        episode=episode,
-                        item=item,
-                        title=title,
-                        resource_url=resource_url,
-                        resource_hash=resource_hash,
-                        status="ambiguous",
-                        reason="疑似季包、全集包或多集资源，需人工确认",
-                    )
-                )
-                continue
-            candidates.append(
-                MoviePilotEpisodeCandidate(
-                    season=season,
-                    episode=episode,
-                    item=item,
+            for season, episode in target_pairs:
+                if (season, episode) not in missing_pairs:
+                    continue
+                match_issue = MoviePilotCompletionService._subscription_match_issue(
+                    item,
                     title=title,
-                    resource_url=resource_url,
-                    resource_hash=resource_hash,
-                    status="matched",
+                    expected_title=expected_title,
+                    tmdb_id=tmdb_id,
+                    douban_id=douban_id,
+                    year=year,
                 )
-            )
+                if match_issue:
+                    candidates.append(
+                        MoviePilotEpisodeCandidate(
+                            season=season,
+                            episode=episode,
+                            item=item,
+                            title=title,
+                            resource_url=resource_url,
+                            resource_hash=resource_hash,
+                            status="ambiguous",
+                            reason=match_issue,
+                        )
+                    )
+                    continue
+                if not has_explicit_season:
+                    candidates.append(
+                        MoviePilotEpisodeCandidate(
+                            season=season,
+                            episode=episode,
+                            item=item,
+                            title=title,
+                            resource_url=resource_url,
+                            resource_hash=resource_hash,
+                            status="ambiguous",
+                            reason="资源标题缺少明确季号，需人工确认",
+                        )
+                    )
+                    continue
+                if not resource_url:
+                    candidates.append(
+                        MoviePilotEpisodeCandidate(
+                            season=season,
+                            episode=episode,
+                            item=item,
+                            title=title,
+                            resource_url="",
+                            resource_hash=resource_hash,
+                            status="ambiguous",
+                            reason="资源缺少可推送的种子下载链接",
+                        )
+                    )
+                    continue
+                if MoviePilotCompletionService._looks_like_pack_or_multi_episode(title):
+                    candidates.append(
+                        MoviePilotEpisodeCandidate(
+                            season=season,
+                            episode=episode,
+                            item=item,
+                            title=title,
+                            resource_url=resource_url,
+                            resource_hash=resource_hash,
+                            status="ambiguous",
+                            reason="疑似季包、全集包或多集资源，需人工确认",
+                        )
+                    )
+                    continue
+                candidates.append(
+                    MoviePilotEpisodeCandidate(
+                        season=season,
+                        episode=episode,
+                        item=item,
+                        title=title,
+                        resource_url=resource_url,
+                        resource_hash=resource_hash,
+                        status="matched",
+                    )
+                )
+                continue
         return candidates
+
+    @staticmethod
+    def _parse_episode_with_season_confidence(title: str) -> tuple[int, int, bool] | None:
+        parsed = name_parser.parse_episode(title)
+        if not parsed:
+            return None
+        return (
+            int(parsed[0]),
+            int(parsed[1]),
+            MoviePilotCompletionService._has_explicit_season_marker(title),
+        )
+
+    @staticmethod
+    def _has_explicit_season_marker(title: str) -> bool:
+        clean_title = re.sub(r"\[.*?\]", "", str(title or ""))
+        clean_title = re.sub(r"\{.*?\}", "", clean_title)
+        clean_title = re.sub(r"\(.*?\)", "", clean_title)
+        return bool(
+            re.search(r"S\d+\s*E\d+", clean_title, re.IGNORECASE)
+            or re.search(r"第\s*\d+\s*季.*?第\s*\d+\s*集", clean_title)
+        )
 
     @staticmethod
     def _extract_missing_pairs(payload: dict[str, Any]) -> set[tuple[int, int]]:

@@ -108,6 +108,54 @@ def test_select_episode_candidates_accepts_single_missing_episode() -> None:
     assert candidates[0].resource_hash == "hash-s01e02"
 
 
+def test_select_episode_candidates_marks_seasonless_episode_ambiguous() -> None:
+    candidates = MoviePilotCompletionService.select_episode_candidates(
+        [
+            {
+                "title": "Example.Show.E02.1080p.WEB-DL",
+                "torrent_url": "https://example.test/e02.torrent",
+                "hash": "hash-e02",
+            },
+            {
+                "title": "Example Show 第2集 1080p",
+                "torrent_url": "https://example.test/cn-e02.torrent",
+                "hash": "hash-cn-e02",
+            },
+            {
+                "title": "Example Show - 02.mkv",
+                "torrent_url": "https://example.test/bare-02.torrent",
+                "hash": "hash-bare-02",
+            },
+        ],
+        missing_pairs={(1, 2)},
+    )
+
+    assert len(candidates) == 3
+    assert {candidate.status for candidate in candidates} == {"ambiguous"}
+    assert {candidate.season for candidate in candidates} == {1}
+    assert {candidate.episode for candidate in candidates} == {2}
+    assert all("缺少明确季号" in candidate.reason for candidate in candidates)
+
+
+def test_select_episode_candidates_does_not_default_seasonless_episode_to_season_one() -> None:
+    candidates = MoviePilotCompletionService.select_episode_candidates(
+        [
+            {
+                "title": "Example.Show.E02.1080p.WEB-DL",
+                "torrent_url": "https://example.test/e02.torrent",
+                "hash": "hash-e02",
+            }
+        ],
+        missing_pairs={(2, 2)},
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].season == 2
+    assert candidates[0].episode == 2
+    assert candidates[0].status == "ambiguous"
+    assert "缺少明确季号" in candidates[0].reason
+
+
 def test_select_episode_candidates_marks_packs_and_ranges_ambiguous() -> None:
     candidates = MoviePilotCompletionService.select_episode_candidates(
         [
