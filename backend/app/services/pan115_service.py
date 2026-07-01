@@ -5,8 +5,11 @@
 
 import asyncio
 import io
+import logging
 import random
 import re
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Set
 from uuid import uuid4
@@ -18,6 +21,7 @@ from app.core.timezone_utils import beijing_now
 
 P115Client = None
 _P115CLIENT_IMPORT_ERROR = ""
+logger = logging.getLogger(__name__)
 
 VIDEO_FILE_EXTENSIONS = (
     ".mp4",
@@ -1506,6 +1510,7 @@ class Pan115Service:
             "sign": token_payload.get("sign"),
         }
         qr_url = str(token_payload.get("qrcode") or "").strip()
+        qr_url_source = "token" if qr_url else "fallback"
         if not qr_url:
             qr_url = f"https://115.com/scan/dg-{uid}"
 
@@ -1518,6 +1523,7 @@ class Pan115Service:
                 "uid": uid,
                 "scan_payload": scan_payload,
                 "qr_url": qr_url,
+                "qr_url_source": qr_url_source,
                 "app": normalized_app,
                 "state": "pending",
                 "message": "等待扫码",
@@ -1525,6 +1531,13 @@ class Pan115Service:
                 "expires_at": expires_at,
                 "cookie": "",
             }
+        logger.info(
+            "115 QR start app=%s token=%s uid_suffix=%s qr_source=%s",
+            normalized_app,
+            token[:8],
+            uid[-6:],
+            qr_url_source,
+        )
 
         return {
             "token": token,
@@ -1536,7 +1549,7 @@ class Pan115Service:
 
     async def get_qr_login_image(self, token: str) -> bytes:
         """
-        获取扫码二维码PNG图片，供前端直接展示。
+        获取扫码二维码图片，供前端直接展示。
         """
         await self._clear_expired_qr_sessions()
         normalized = str(token or "").strip()
@@ -1550,28 +1563,79 @@ class Pan115Service:
         if not uid:
             raise RuntimeError("扫码会话缺少uid，无法获取二维码图片")
         qr_url = str(item.get("qr_url") or "").strip()
+        qr_url_source = str(item.get("qr_url_source") or "").strip()
         app = normalize_pan115_qr_login_app(str(item.get("app") or ""))
-        image_bytes = await asyncio.wait_for(
-            _get_p115_client_cls().login_qrcode(
-                uid,
-                app=app,
-                async_=True,
-                timeout=8,
-            ),
-            timeout=8.5,
-        )
-        if isinstance(image_bytes, (bytes, bytearray)):
-            raw = bytes(image_bytes)
-            if raw.startswith(b"\x89PNG\r\n\x1a\n"):
-                return raw
+
+        if qr_url_source != "token":
+            image_bytes = await self._fetch_qr_login_image(uid, app)
+            if image_bytes:
+                logger.info(
+                    "115 QR image app=%s token=%s uid_suffix=%s source=uid_png bytes=%s",
+                    app,
+                    normalized[:8],
+                    uid[-6:],
+                    len(image_bytes),
+                )
+                return image_bytes
 
         if not qr_url:
             raise RuntimeError("二维码图片响应异常，且缺少可本地生成的二维码链接")
+        logger.info(
+            "115 QR image app=%s token=%s uid_suffix=%s source=local_qr qr_source=%s",
+            app,
+            normalized[:8],
+            uid[-6:],
+            qr_url_source or "unknown",
+        )
         return self._build_qr_login_image(qr_url)
 
     @staticmethod
+    async def _fetch_qr_login_image(uid: str, app: str) -> bytes:
+        """从 115 显式获取绑定 uid 的二维码图片，绕过 p115client 漏传 uid 的实现。"""
+        normalized_uid = str(uid or "").strip()
+        normalized_app = normalize_pan115_qr_login_app(app)
+        if not normalized_uid:
+            return b""
+
+        def _request() -> bytes:
+            url = (
+                "https://qrcodeapi.115.com"
+                f"/api/1.0/{quote(normalized_app, safe='')}/1.0/qrcode"
+                f"?uid={quote(normalized_uid, safe='')}"
+            )
+            request = Request(
+                url,
+                headers={
+                    "Referer": "https://qrcodeapi.115.com",
+                    "User-Agent": "MediaSync115/qr-login",
+                },
+            )
+            with urlopen(request, timeout=8) as response:
+                return response.read()
+
+        try:
+            raw = await asyncio.wait_for(asyncio.to_thread(_request), timeout=8.5)
+        except Exception as exc:
+            logger.info(
+                "115 QR image fetch failed app=%s uid_suffix=%s error=%s",
+                normalized_app,
+                normalized_uid[-6:],
+                str(exc)[:200],
+            )
+            return b""
+        if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+            return raw
+        logger.info(
+            "115 QR image fetch returned non-png app=%s uid_suffix=%s bytes=%s",
+            normalized_app,
+            normalized_uid[-6:],
+            len(raw),
+        )
+        return b""
+
+    @staticmethod
     def _build_qr_login_image(content: str) -> bytes:
-        """本地生成扫码二维码 PNG，用于 115 生活 App 这类上游不直接返回图片的 app。"""
+        """本地生成扫码二维码，用于 115 生活 App 这类上游不直接返回图片的 app。"""
         value = str(content or "").strip()
         if not value:
             raise RuntimeError("二维码内容不能为空")
@@ -1648,6 +1712,12 @@ class Pan115Service:
             )
         except asyncio.CancelledError:
             message = "115扫码状态查询超时，请继续等待或稍后重试"
+            logger.info(
+                "115 QR status timeout app=%s token=%s uid_suffix=%s",
+                session_app,
+                normalized[:8],
+                str(item.get("uid") or "")[-6:],
+            )
             await self._update_qr_session(normalized, state="pending", message=message)
             return {
                 "authorized": False,
@@ -1661,6 +1731,13 @@ class Pan115Service:
             }
         except Exception as exc:
             message = str(exc)[:300] or "等待扫码"
+            logger.info(
+                "115 QR status error app=%s token=%s uid_suffix=%s error=%s",
+                session_app,
+                normalized[:8],
+                str(item.get("uid") or "")[-6:],
+                message,
+            )
             await self._update_qr_session(normalized, state="pending", message=message)
             return {
                 "authorized": False,
@@ -1678,6 +1755,14 @@ class Pan115Service:
         status_message = str(
             status_data.get("msg") or status_data.get("message") or ""
         ).strip()
+        logger.info(
+            "115 QR status app=%s token=%s uid_suffix=%s status_code=%s msg=%s",
+            session_app,
+            normalized[:8],
+            str(item.get("uid") or "")[-6:],
+            status_code,
+            status_message[:120],
+        )
 
         if status_code == 0:
             message = status_message or "等待扫码"
@@ -1760,6 +1845,12 @@ class Pan115Service:
             )
         except asyncio.CancelledError:
             message = "已确认扫码，获取 Cookie 超时，请继续等待"
+            logger.info(
+                "115 QR result timeout app=%s token=%s uid_suffix=%s",
+                session_app,
+                normalized[:8],
+                str(item.get("uid") or "")[-6:],
+            )
             await self._update_qr_session(normalized, state="scanned", message=message)
             return {
                 "authorized": False,
@@ -1773,6 +1864,13 @@ class Pan115Service:
             }
         except Exception as exc:
             message = str(exc)[:300] or "已确认扫码，等待获取 Cookie"
+            logger.info(
+                "115 QR result error app=%s token=%s uid_suffix=%s error=%s",
+                session_app,
+                normalized[:8],
+                str(item.get("uid") or "")[-6:],
+                message,
+            )
             await self._update_qr_session(normalized, state="scanned", message=message)
             return {
                 "authorized": False,
@@ -1786,6 +1884,13 @@ class Pan115Service:
             }
         result_data = check_response(result_resp)
         cookie = self._normalize_qr_cookie(result_data)
+        logger.info(
+            "115 QR result app=%s token=%s uid_suffix=%s cookie=%s",
+            session_app,
+            normalized[:8],
+            str(item.get("uid") or "")[-6:],
+            bool(cookie),
+        )
         if not cookie:
             raise RuntimeError("扫码成功但未获取到Cookie")
 
