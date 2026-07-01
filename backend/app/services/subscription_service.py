@@ -54,6 +54,11 @@ from app.services.subscriptions.resource_resolver import (
     ResourceResolverDependencies,
     resolve_subscription_resources,
 )
+from app.services.subscriptions.run_summary import (
+    build_run_message,
+    normalize_subscription_channel,
+    resolve_run_status,
+)
 from app.services.subscriptions.auto_transfer_context import (
     build_auto_transfer_tv_missing_context,
 )
@@ -121,7 +126,7 @@ class SubscriptionService:
         force_auto_download: bool = False,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
-        normalized_channel = self._normalize_channel(channel)
+        normalized_channel = normalize_subscription_channel(channel)
         run_id = uuid4().hex
         started_at = beijing_now()
         await operation_log_service.log_background_event(
@@ -852,10 +857,13 @@ class SubscriptionService:
         if subscriptions:
             await asyncio.gather(*(_bounded_subscription(sub) for sub in subscriptions))
 
-        status = self._resolve_status(
+        status = resolve_run_status(
             result["failed_count"],
             result["checked_count"],
             result["auto_failed_count"],
+            success_status=ExecutionStatus.SUCCESS,
+            failed_status=ExecutionStatus.FAILED,
+            partial_status=ExecutionStatus.PARTIAL,
         )
         unlock_stats = hdhive_unlock_context.get("stats", {})
         result["hdhive_unlock_attempted_count"] = int(
@@ -867,7 +875,7 @@ class SubscriptionService:
         result["hdhive_unlock_points_spent"] = int(
             unlock_stats.get("points_spent") or 0
         )
-        message = self._build_message(result)
+        message = build_run_message(result)
         finished_at = beijing_now()
         result["finished_at"] = finished_at.isoformat()
         result["status"] = status.value
@@ -3146,44 +3154,6 @@ class SubscriptionService:
             "already received",
         )
         return any(token in text for token in tokens)
-
-    @staticmethod
-    def _normalize_channel(channel: str) -> str:
-        normalized = str(channel or "").strip().lower()
-        if normalized not in {"pansou", "hdhive", "tg", "priority", "all"}:
-            raise ValueError("unsupported channel")
-        return normalized
-
-    @staticmethod
-    def _resolve_status(
-        failed_count: int, checked_count: int, auto_failed_count: int
-    ) -> ExecutionStatus:
-        total_failed = failed_count + auto_failed_count
-        if total_failed <= 0:
-            return ExecutionStatus.SUCCESS
-        if failed_count >= max(checked_count, 1):
-            return ExecutionStatus.FAILED
-        return ExecutionStatus.PARTIAL
-
-    @staticmethod
-    def _build_message(result: dict[str, Any]) -> str:
-        parts = [
-            f"共 {result['checked_count']} 个订阅",
-        ]
-        if result["new_resource_count"] > 0:
-            parts.append(f"发现 {result['new_resource_count']} 个新资源")
-        else:
-            parts.append("未发现新资源")
-        if result["auto_saved_count"] > 0:
-            parts.append(f"转存成功 {result['auto_saved_count']} 个")
-        if result["auto_failed_count"] > 0:
-            parts.append(f"转存失败 {result['auto_failed_count']} 个")
-        if result["cleanup_deleted_count"] > 0:
-            parts.append(f"自动完成 {result['cleanup_deleted_count']} 个订阅")
-        if result["failed_count"] > 0:
-            parts.append(f"处理出错 {result['failed_count']} 个")
-        return "，".join(parts)
-
 
     async def fetch_resources_for_media(
         self,
