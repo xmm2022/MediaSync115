@@ -114,6 +114,10 @@ from app.services.subscriptions.hdhive_unlock import (
 from app.services.subscriptions.tv_episode_selection import (
     select_missing_episode_files as select_tv_missing_episode_files,
 )
+from app.services.subscriptions.transfer_notifications import (
+    TransferNotificationDependencies,
+    notify_transfer_success as notify_transfer_success_flow,
+)
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.seedhub_service import seedhub_service
 from app.services.subscription_source_service import (
@@ -1908,23 +1912,22 @@ class SubscriptionService:
         method: str,
         poster_path: str | None = None,
     ) -> None:
-        """订阅任务中网盘转存成功（含已在网盘跳过）时通过 TG Bot 推送。"""
-        import logging
-
-        logger = logging.getLogger(__name__)
-        try:
-            from html import escape
+        async def notify(message: str, *, poster_path: str | None = None) -> None:
             from app.services.tg_bot.notifications import tg_bot_notify
 
-            lines = [
-                "<b>订阅 · 转存成功</b>",
-                f"订阅：{escape(sub_title)}",
-                f"资源：{escape(resource_name)}",
-                f"来源：{escape(source)}　方式：{escape(method)}",
-            ]
-            await tg_bot_notify("\n".join(lines), poster_path=poster_path)
-        except Exception:
-            logger.warning("订阅转存 TG 通知发送失败", exc_info=True)
+            await tg_bot_notify(message, poster_path=poster_path)
+
+        await notify_transfer_success_flow(
+            sub_title,
+            resource_name,
+            source,
+            method,
+            poster_path=poster_path,
+            dependencies=TransferNotificationDependencies(
+                notify=notify,
+                log_warning=logger.warning,
+            ),
+        )
 
     async def fetch_resources_for_media(
         self,
