@@ -62,3 +62,29 @@ def test_database_import_validates_backend_before_engine_creation() -> None:
     assert "requires PostgreSQL" in combined_output
     assert "ModuleNotFoundError" not in combined_output
     assert "No module named 'aiosqlite'" not in combined_output
+
+
+def test_watchlist_auto_fill_is_registered_as_scheduler_job() -> None:
+    """片单 auto_fill_enabled 应被调度器实际消费。"""
+    backend_root = Path(__file__).resolve().parents[1]
+    job_registry = (backend_root / "app/services/job_registry.py").read_text(
+        encoding="utf-8"
+    )
+    scheduler_service = (
+        backend_root / "app/services/subscription_scheduler_service.py"
+    ).read_text(encoding="utf-8")
+    watchlist_service = (
+        backend_root / "app/services/watchlist_service.py"
+    ).read_text(encoding="utf-8")
+    watchlists_api = (backend_root / "app/api/watchlists.py").read_text(
+        encoding="utf-8"
+    )
+    main = (backend_root / "main.py").read_text(encoding="utf-8")
+
+    assert '"watchlist.auto_fill"' in job_registry
+    assert "run_auto_fill_watchlists" in job_registry
+    assert "run_auto_fill_watchlists" in watchlist_service
+    assert "Watchlist.auto_fill_enabled == True" in scheduler_service
+    assert "ensure_watchlist_auto_fill_task" in scheduler_service
+    assert "ensure_watchlist_auto_fill_task" in watchlists_api
+    assert "ensure_watchlist_auto_fill_task" in main

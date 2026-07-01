@@ -237,6 +237,9 @@ async def lifespan(app: FastAPI):
     await subscription_scheduler_service.ensure_person_follow_task(
         run_immediately=False,
     )
+    await subscription_scheduler_service.ensure_watchlist_auto_fill_task(
+        run_immediately=False,
+    )
     await subscription_scheduler_service.ensure_tg_index_incremental_task()
     await hdhive_checkin_scheduler_service.ensure_checkin_task()
     await emby_sync_scheduler_service.ensure_sync_task()

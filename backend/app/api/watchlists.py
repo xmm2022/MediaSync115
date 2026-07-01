@@ -22,6 +22,7 @@ from app.services.watchlist_service import (
     fill_watchlist_missing_subscriptions,
     get_watchlist_item_status_map,
 )
+from app.services.subscription_scheduler_service import subscription_scheduler_service
 
 router = APIRouter(prefix="/watchlists", tags=["片单"])
 
@@ -123,6 +124,9 @@ async def create_watchlist(
     db.add(watchlist)
     await db.commit()
     await db.refresh(watchlist)
+    await subscription_scheduler_service.ensure_watchlist_auto_fill_task(
+        run_immediately=False
+    )
     return _serialize_watchlist(watchlist, item_count=0)
 
 
@@ -169,8 +173,9 @@ async def import_watchlist(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
+        result: dict[str, Any]
         if payload.source_key:
-            return await import_catalog_to_watchlist(
+            result = await import_catalog_to_watchlist(
                 db,
                 source_key=payload.source_key,
                 reference=payload.reference,
@@ -179,8 +184,8 @@ async def import_watchlist(
                 description=payload.description,
                 auto_fill_enabled=payload.auto_fill_enabled,
             )
-        if payload.source_type and payload.reference:
-            return await import_tmdb_to_watchlist(
+        elif payload.source_type and payload.reference:
+            result = await import_tmdb_to_watchlist(
                 db,
                 source_type=payload.source_type,
                 reference=payload.reference,
@@ -189,7 +194,12 @@ async def import_watchlist(
                 description=payload.description,
                 auto_fill_enabled=payload.auto_fill_enabled,
             )
-        raise ValueError("请选择导入来源，或填写 TMDB 链接")
+        else:
+            raise ValueError("请选择导入来源，或填写 TMDB 链接")
+        await subscription_scheduler_service.ensure_watchlist_auto_fill_task(
+            run_immediately=False
+        )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -236,6 +246,9 @@ async def update_watchlist(
 
     await db.commit()
     await db.refresh(watchlist)
+    await subscription_scheduler_service.ensure_watchlist_auto_fill_task(
+        run_immediately=False
+    )
     count_result = await db.execute(
         select(func.count(WatchlistItem.id)).where(WatchlistItem.watchlist_id == watchlist_id)
     )
@@ -253,6 +266,9 @@ async def delete_watchlist(
         raise HTTPException(status_code=404, detail="片单不存在")
     await db.delete(watchlist)
     await db.commit()
+    await subscription_scheduler_service.ensure_watchlist_auto_fill_task(
+        run_immediately=False
+    )
     return {"success": True, "message": "片单已删除"}
 
 

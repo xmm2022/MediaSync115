@@ -32,6 +32,7 @@ class JobRegistry:
             "subscription.check": self._check_subscription,
             "chart_subscription.sync": self._chart_subscription_sync,
             "person_follow.sync": self._person_follow_sync,
+            "watchlist.auto_fill": self._watchlist_auto_fill,
             "tg.index.incremental": self._tg_index_incremental,
             "moviepilot.sync": self._moviepilot_sync,
         }
@@ -170,6 +171,11 @@ class JobRegistry:
         from app.services.person_follow_service import run_person_follow_sync
 
         return await run_person_follow_sync()
+
+    async def _watchlist_auto_fill(self, **kwargs) -> dict[str, Any]:
+        from app.services.watchlist_service import run_auto_fill_watchlists
+
+        return await run_auto_fill_watchlists()
 
     async def _tg_index_incremental(self, **kwargs) -> dict[str, Any]:
         from app.services.tg_sync_service import tg_sync_service
