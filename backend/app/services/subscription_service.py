@@ -145,17 +145,7 @@ from app.services.subscriptions.run_item_logs import (
     build_store_done_event_kwargs,
     build_store_new_resources_step,
 )
-from app.services.subscriptions.run_transfer_logs import (
-    build_auto_transfer_done_event_kwargs,
-    build_auto_transfer_done_step,
-    build_auto_transfer_skip_step,
-    build_auto_transfer_start_event_kwargs,
-    build_auto_transfer_start_step,
-    build_auto_transfer_summary_step,
-)
 from app.services.subscriptions.run_cleanup_logs import (
-    build_cleanup_after_transfer_event_kwargs,
-    build_cleanup_after_transfer_step,
     build_fixed_source_movie_cleanup_event_kwargs,
     build_fixed_source_movie_cleanup_step,
 )
@@ -171,6 +161,10 @@ from app.services.subscriptions.run_lifecycle_logs import (
 from app.services.subscriptions.auto_transfer_retry_records import (
     AutoTransferRetryRecordDependencies,
     select_auto_transfer_retry_records,
+)
+from app.services.subscriptions.auto_transfer_run_flow import (
+    AutoTransferRunDependencies,
+    run_auto_transfer_for_subscription,
 )
 from app.services.subscriptions.auto_save_resources_adapter import (
     AutoSaveResourcesAdapterDependencies,
@@ -390,14 +384,19 @@ class SubscriptionService:
                         )
 
                         should_auto_download = force_auto_download or bool(sub.auto_download)
-                        sub_saved_count = 0
-                        sub_failed_transfer_count = 0
-                        cleanup_after_auto: dict[str, Any] | None = None
-                        if should_auto_download:
-                            retry_records = await select_auto_transfer_retry_records(
-                                db=inner_db,
-                                subscription_id=sub_id,
-                                auto_download=bool(sub.auto_download),
+                        async def select_auto_transfer_retry_records_for_run(
+                            *,
+                            db: Any,
+                            subscription_id: int,
+                            auto_download: bool,
+                            force_auto_download: bool,
+                            duplicate_urls: list[str],
+                            created_records: list[Any],
+                        ) -> list[Any]:
+                            return await select_auto_transfer_retry_records(
+                                db=db,
+                                subscription_id=subscription_id,
+                                auto_download=auto_download,
                                 force_auto_download=force_auto_download,
                                 duplicate_urls=duplicate_urls,
                                 created_records=created_records,
@@ -409,187 +408,64 @@ class SubscriptionService:
                                 ),
                             )
 
-                            if created_records:
-                                await self._create_step_log(
-                                    inner_db,
-                                    run_id=run_id,
-                                    channel=normalized_channel,
-                                    subscription_id=sub_id,
-                                    subscription_title=sub_title,
-                                    **build_auto_transfer_start_step(
-                                        "new",
-                                        len(created_records),
-                                    ),
+                        async def apply_auto_transfer_stats_for_run(
+                            stats: dict[str, Any],
+                            transfer_source: str,
+                        ) -> None:
+                            async with result_lock:
+                                apply_auto_transfer_stats(
+                                    result,
+                                    stats,
+                                    transfer_source=transfer_source,
                                 )
-                                await operation_log_service.log_background_event(
-                                    **build_auto_transfer_start_event_kwargs(
-                                        transfer_source="new",
-                                        subscription_id=sub_id,
-                                        subscription_title=sub_title,
-                                        trace_id=run_id,
-                                        record_count=len(created_records),
-                                    )
-                                )
-                                new_auto_stats = await self._auto_save_records_with_link_fallback(
-                                    inner_db,
-                                    run_id,
-                                    normalized_channel,
-                                    sub,
-                                    created_records,
-                                    transfer_source="new",
-                                    tv_missing_snapshot=tv_missing_snapshot,
-                                    hdhive_unlock_context=hdhive_unlock_context,
-                                    source_order=source_order,
-                                )
-                                sub_saved_count += int(new_auto_stats.get("saved") or 0)
-                                sub_failed_transfer_count += int(
-                                    new_auto_stats.get("failed") or 0
-                                )
-                                async with result_lock:
-                                    apply_auto_transfer_stats(
-                                        result,
-                                        new_auto_stats,
-                                        transfer_source="new",
-                                    )
-                                await self._create_step_log(
-                                    inner_db,
-                                    run_id=run_id,
-                                    channel=normalized_channel,
-                                    subscription_id=sub_id,
-                                    subscription_title=sub_title,
-                                    **build_auto_transfer_done_step(
-                                        "new",
-                                        new_auto_stats,
-                                    ),
-                                )
-                                await operation_log_service.log_background_event(
-                                    **build_auto_transfer_done_event_kwargs(
-                                        transfer_source="new",
-                                        subscription_id=sub_id,
-                                        subscription_title=sub_title,
-                                        trace_id=run_id,
-                                        stats=new_auto_stats,
-                                    )
-                                )
-                                if new_auto_stats.get("subscription_completed"):
-                                    cleanup_after_auto = new_auto_stats
 
-                            if retry_records and cleanup_after_auto is None:
-                                await self._create_step_log(
-                                    inner_db,
-                                    run_id=run_id,
-                                    channel=normalized_channel,
-                                    subscription_id=sub_id,
-                                    subscription_title=sub_title,
-                                    **build_auto_transfer_start_step(
-                                        "retry",
-                                        len(retry_records),
-                                    ),
+                        async def apply_cleanup_stats_for_run(media_type: Any) -> None:
+                            async with result_lock:
+                                apply_cleanup_stats(
+                                    result,
+                                    media_type,
+                                    tv_media_type=MediaType.TV,
                                 )
-                                await operation_log_service.log_background_event(
-                                    **build_auto_transfer_start_event_kwargs(
-                                        transfer_source="retry",
-                                        subscription_id=sub_id,
-                                        subscription_title=sub_title,
-                                        trace_id=run_id,
-                                        record_count=len(retry_records),
-                                    )
-                                )
-                                retry_auto_stats = await self._auto_save_records_with_link_fallback(
-                                    inner_db,
-                                    run_id,
-                                    normalized_channel,
-                                    sub,
-                                    retry_records,
-                                    transfer_source="retry",
-                                    tv_missing_snapshot=tv_missing_snapshot,
-                                    hdhive_unlock_context=hdhive_unlock_context,
-                                    source_order=source_order,
-                                    enable_link_refetch=False,
-                                )
-                                sub_saved_count += int(retry_auto_stats.get("saved") or 0)
-                                sub_failed_transfer_count += int(
-                                    retry_auto_stats.get("failed") or 0
-                                )
-                                async with result_lock:
-                                    apply_auto_transfer_stats(
-                                        result,
-                                        retry_auto_stats,
-                                        transfer_source="retry",
-                                    )
-                                await self._create_step_log(
-                                    inner_db,
-                                    run_id=run_id,
-                                    channel=normalized_channel,
-                                    subscription_id=sub_id,
-                                    subscription_title=sub_title,
-                                    **build_auto_transfer_done_step(
-                                        "retry",
-                                        retry_auto_stats,
-                                    ),
-                                )
-                                await operation_log_service.log_background_event(
-                                    **build_auto_transfer_done_event_kwargs(
-                                        transfer_source="retry",
-                                        subscription_id=sub_id,
-                                        subscription_title=sub_title,
-                                        trace_id=run_id,
-                                        stats=retry_auto_stats,
-                                    )
-                                )
-                                if retry_auto_stats.get("subscription_completed"):
-                                    cleanup_after_auto = retry_auto_stats
 
-                            await self._create_step_log(
-                                inner_db,
+                        auto_transfer_result = (
+                            await run_auto_transfer_for_subscription(
+                                db=inner_db,
                                 run_id=run_id,
                                 channel=normalized_channel,
-                                subscription_id=sub_id,
-                                subscription_title=sub_title,
-                                **build_auto_transfer_summary_step(
-                                    sub_saved_count=sub_saved_count,
-                                    sub_failed_transfer_count=(
-                                        sub_failed_transfer_count
+                                sub=sub,
+                                should_auto_download=should_auto_download,
+                                force_auto_download=force_auto_download,
+                                duplicate_urls=duplicate_urls,
+                                created_records=created_records,
+                                tv_missing_snapshot=tv_missing_snapshot,
+                                hdhive_unlock_context=hdhive_unlock_context,
+                                source_order=source_order,
+                                dependencies=AutoTransferRunDependencies(
+                                    select_retry_records=(
+                                        select_auto_transfer_retry_records_for_run
                                     ),
-                                    new_record_count=len(created_records),
-                                    retry_record_count=len(retry_records),
+                                    auto_save_records_with_link_fallback=(
+                                        self._auto_save_records_with_link_fallback
+                                    ),
+                                    create_step_log=self._create_step_log,
+                                    log_background_event=(
+                                        operation_log_service.log_background_event
+                                    ),
+                                    delete_subscription_with_records=(
+                                        self._delete_subscription_with_records
+                                    ),
+                                    apply_auto_transfer_stats=(
+                                        apply_auto_transfer_stats_for_run
+                                    ),
+                                    apply_cleanup_stats=apply_cleanup_stats_for_run,
                                 ),
                             )
-                            if cleanup_after_auto is not None:
-                                await self._delete_subscription_with_records(inner_db, sub_id)
-                                await operation_log_service.log_background_event(
-                                    **build_cleanup_after_transfer_event_kwargs(
-                                        subscription_id=sub_id,
-                                        subscription_title=sub_title,
-                                        trace_id=run_id,
-                                        cleanup_stats=cleanup_after_auto,
-                                    )
-                                )
-                                await self._create_step_log(
-                                    inner_db,
-                                    run_id=run_id,
-                                    channel=normalized_channel,
-                                    subscription_id=sub_id,
-                                    subscription_title=sub_title,
-                                    **build_cleanup_after_transfer_step(
-                                        cleanup_after_auto
-                                    ),
-                                )
-                                async with result_lock:
-                                    apply_cleanup_stats(
-                                        result,
-                                        sub.media_type,
-                                        tv_media_type=MediaType.TV,
-                                    )
-                        else:
-                            await self._create_step_log(
-                                inner_db,
-                                run_id=run_id,
-                                channel=normalized_channel,
-                                subscription_id=sub_id,
-                                subscription_title=sub_title,
-                                **build_auto_transfer_skip_step(),
-                            )
+                        )
+                        sub_saved_count = auto_transfer_result.sub_saved_count
+                        sub_failed_transfer_count = (
+                            auto_transfer_result.sub_failed_transfer_count
+                        )
+                        cleanup_after_auto = auto_transfer_result.cleanup_after_auto
 
                         if (
                             cleanup_after_auto is None
