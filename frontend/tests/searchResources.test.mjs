@@ -36,6 +36,35 @@ assert.equal(tv.title, "Game of Thrones");
 assert.equal(tv.category, "TV");
 assert.equal(tv.year, 2011);
 
+const collection = mapSearchItemToResource(
+  {
+    id: 10,
+    media_type: "collection",
+    name: "Star Wars Collection",
+  },
+  undefined,
+  { allowIdAsTmdb: true },
+);
+
+assert.equal(collection.tmdb_id, 10);
+assert.equal(collection.media_type, "collection");
+assert.equal(collection.category, "Movie");
+
+const person = mapSearchItemToResource(
+  {
+    id: 525,
+    media_type: "person",
+    name: "Christopher Nolan",
+    poster_path: "/xuAIuYSmsUzKlUMBFGVZaWsY3DZ.jpg",
+  },
+  undefined,
+  { allowIdAsTmdb: true },
+);
+
+assert.equal(person.tmdb_id, 525);
+assert.equal(person.media_type, "person");
+assert.equal(person.title, "Christopher Nolan");
+
 const unresolvedDouban = mapSearchItemToResource({
   id: "36474027",
   douban_id: "36474027",

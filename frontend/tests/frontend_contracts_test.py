@@ -394,6 +394,21 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("source_type: string", types)
         self.assertIn("reference: string", types)
 
+    def test_explore_search_preserves_non_media_tmdb_types(self) -> None:
+        explore = read_source("src/components/ExploreTab.tsx")
+        search_resources = read_source("src/utils/searchResources.ts")
+        types = read_source("src/types.ts")
+
+        self.assertIn('"person"', search_resources)
+        self.assertIn('"person"', types)
+        self.assertIn("normalizeExploreMediaType", explore)
+        self.assertIn("getExploreMediaTypeLabel", explore)
+        self.assertIn("canOpenMediaDetail", explore)
+        self.assertIn('normalizedMediaType === "person"', explore)
+        self.assertIn("disabled={detailState[stateKey]?.status === \"loading\" || !detailSupported}", explore)
+        self.assertNotIn('resource.media_type === "tv" ? "tv" : "movie"', explore)
+        self.assertNotIn('rawMediaType === "tv" ? "tv" : "movie"', explore)
+
 
 if __name__ == "__main__":
     unittest.main()

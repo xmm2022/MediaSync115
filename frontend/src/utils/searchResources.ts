@@ -12,7 +12,7 @@ export interface SearchResourceItem {
   year?: number | string;
   release_date?: string;
   first_air_date?: string;
-  media_type?: "movie" | "tv" | "collection" | string;
+  media_type?: "movie" | "tv" | "collection" | "person" | string;
   tmdb_id?: number;
   douban_id?: string;
   overview?: string;
@@ -54,10 +54,16 @@ export function mapSearchItemToResource(
   options: SearchResourceMapOptions = {},
 ): MediaResource {
   const rawMediaType = String(item.media_type || "movie").toLowerCase();
-  const mediaType: "movie" | "tv" | "collection" =
-    rawMediaType === "tv" ? "tv" : rawMediaType === "collection" ? "collection" : "movie";
+  const mediaType: "movie" | "tv" | "collection" | "person" =
+    rawMediaType === "tv"
+      ? "tv"
+      : rawMediaType === "collection"
+        ? "collection"
+        : rawMediaType === "person"
+          ? "person"
+          : "movie";
   const tmdbId = normalizeTmdbId(item, options);
-  const category: "Movie" | "TV" | "Anime" = mediaType === "movie" ? "Movie" : "TV";
+  const category: "Movie" | "TV" | "Anime" = mediaType === "tv" ? "TV" : "Movie";
   const tags = [
     ...(item.genres || []),
     ...(item.tags || []),

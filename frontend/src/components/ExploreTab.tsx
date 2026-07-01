@@ -57,6 +57,7 @@ const FALLBACK_POSTER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='176' viewBox='0 0 120 176'%3E%3Crect fill='%23e2e8f0' width='120' height='176'/%3E%3Ctext x='60' y='92' text-anchor='middle' fill='%2394a3b8' font-size='12'%3ENo Poster%3C/text%3E%3C/svg%3E";
 
 type DirectResourceSourceKey = "115_hdhive" | "115_tg" | "magnet_seedhub";
+type ExploreMediaType = "movie" | "tv" | "collection" | "person";
 
 const DIRECT_RESOURCE_SOURCES: { key: DirectResourceSourceKey; label: string; desc: string }[] = [
   { key: "115_hdhive", label: "115·HDHive", desc: "按关键词查询 HDHive 网盘资源" },
@@ -167,9 +168,28 @@ function normalizeTitleKeyword(title: string) {
   return title.split(" (")[0].trim();
 }
 
+function normalizeExploreMediaType(value?: string): ExploreMediaType {
+  const raw = String(value || "movie").toLowerCase();
+  if (raw === "tv" || raw === "collection" || raw === "person") return raw;
+  return "movie";
+}
+
+function getExploreMediaTypeLabel(value?: string) {
+  const mediaType = normalizeExploreMediaType(value);
+  if (mediaType === "tv") return "剧集";
+  if (mediaType === "collection") return "合集";
+  if (mediaType === "person") return "人物";
+  return "电影";
+}
+
+function canOpenMediaDetail(value?: string): value is "movie" | "tv" {
+  const mediaType = normalizeExploreMediaType(value);
+  return mediaType === "movie" || mediaType === "tv";
+}
+
 function mapSearchResultToExploreItem(item: SearchResourceItem, idx: number): ExploreItem {
   const resource = mapSearchItemToResource(item, undefined, { allowIdAsTmdb: true });
-  const mediaType = resource.media_type === "tv" ? "tv" : "movie";
+  const mediaType = normalizeExploreMediaType(resource.media_type);
   return {
     rank: idx + 1,
     id: resource.tmdb_id || item.id || `search-${idx}`,
@@ -357,8 +377,21 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
   const openDetail = async (item: ExploreItem, idx: number, scope: "board" | "search" = "board") => {
     const title = item.title || "未知标题";
     const key = `${scope}:${item.id ?? idx}`;
-    const rawMediaType = String(item.media_type || "movie").toLowerCase();
-    const mediaType: "movie" | "tv" = rawMediaType === "tv" ? "tv" : "movie";
+    const normalizedMediaType = normalizeExploreMediaType(item.media_type);
+    if (!canOpenMediaDetail(normalizedMediaType)) {
+      setDetailState((prev) => ({
+        ...prev,
+        [key]: {
+          status: "error",
+          message:
+            normalizedMediaType === "person"
+              ? "人物结果请到关注影人中管理，暂不支持打开为影视详情。"
+              : "合集结果暂不支持直接打开影视详情。",
+        },
+      }));
+      return;
+    }
+    const mediaType: "movie" | "tv" = normalizedMediaType;
     const navigate = (tmdbId: number) => {
       onNavigateToDetail({
         tmdbId,
@@ -423,6 +456,7 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
     const bKey = buildBadgeKey(item.media_type, item.tmdb_id);
     const badge = bKey ? <LibraryBadge status={options.badges[bKey]} /> : null;
     const leftPad = options.showRank ? "pl-4" : "";
+    const detailSupported = canOpenMediaDetail(item.media_type);
 
     return (
       <div
@@ -480,7 +514,7 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
                 </>
               )}
               <span className="text-brand-primary">
-                {item.media_type === "tv" ? "剧集" : "电影"}
+                {getExploreMediaTypeLabel(item.media_type)}
               </span>
               {item.year && (
                 <>
@@ -501,8 +535,11 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
             <button
               type="button"
               onClick={() => openDetail(item, idx, options.scope)}
-              disabled={detailState[stateKey]?.status === "loading"}
-              className="px-2.5 py-1.5 rounded-lg text-[10px] font-black hover:text-brand-primary transition-all flex items-center gap-1 glass-hover disabled:opacity-60 cursor-pointer"
+              disabled={detailState[stateKey]?.status === "loading" || !detailSupported}
+              title={detailSupported ? "打开资源详情" : "该类型暂不支持打开资源详情"}
+              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black hover:text-brand-primary transition-all flex items-center gap-1 glass-hover disabled:opacity-60 ${
+                detailSupported ? "cursor-pointer" : "cursor-not-allowed"
+              }`}
               style={{ color: "var(--txt-secondary)", background: "var(--surface-subtle)", border: "1px solid var(--border)" }}
             >
               {detailState[stateKey]?.status === "loading" ? (
@@ -510,7 +547,7 @@ export default function ExploreTab({ onNavigateToDetail }: ExploreTabProps) {
               ) : (
                 <ArrowRight className="w-3.5 h-3.5" />
               )}
-              <span>{detailState[stateKey]?.status === "loading" ? "打开中" : "资源详情"}</span>
+              <span>{detailState[stateKey]?.status === "loading" ? "打开中" : detailSupported ? "资源详情" : "暂不支持"}</span>
             </button>
           </div>
 

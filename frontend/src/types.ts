@@ -42,7 +42,7 @@ export interface MediaResource {
   links: MediaResourceLink[];
   // Fields for real backend API (search/explore + transfer)
   tmdb_id?: number;
-  media_type?: "movie" | "tv" | "collection";
+  media_type?: "movie" | "tv" | "collection" | "person";
 }
 
 export interface MediaResourceLink {
