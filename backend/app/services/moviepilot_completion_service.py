@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -49,7 +50,9 @@ class MoviePilotEpisodeCandidate:
 
 
 class MoviePilotCompletionService:
-    terminal_statuses = {"pushed", "processing"}
+    terminal_statuses = {"pushed"}
+    active_statuses = {"processing"}
+    processing_timeout = timedelta(minutes=30)
 
     async def preview_missing_completion(
         self,
@@ -220,17 +223,43 @@ class MoviePilotCompletionService:
 
         missing_pairs = self._extract_missing_pairs(missing_status)
         records = await self._load_records(db, int(subscription.id))
+        await self._expire_stale_processing_records(db, records)
+        now = beijing_now()
         processed = [
             self._record_payload(record)
             for record in records
-            if not force and record.status in self.terminal_statuses
+            if self._is_protected_record(record, now=now)
         ]
         terminal_pairs = {
             (int(record.season_number), int(record.episode_number))
             for record in records
-            if not force and record.status in self.terminal_statuses
+            if self._is_protected_record(record, now=now)
         }
         searchable_pairs = missing_pairs - terminal_pairs
+        if not searchable_pairs:
+            return {
+                "subscription_id": subscription.id,
+                "tmdb_id": subscription.tmdb_id,
+                "title": subscription.title,
+                "status": "ok",
+                "message": "MoviePilot 缺集补齐预览完成",
+                "missing_status": missing_status,
+                "missing_episodes": [
+                    {"season_number": season, "episode_number": episode}
+                    for season, episode in sorted(missing_pairs)
+                ],
+                "auto_push": [],
+                "ambiguous": [],
+                "no_match": [],
+                "processed": processed,
+                "counts": {
+                    "missing": len(missing_pairs),
+                    "auto_push": 0,
+                    "ambiguous": 0,
+                    "no_match": 0,
+                    "processed": len(processed),
+                },
+            }
         items = await moviepilot_provider_service.search_title(subscription.title)
         candidates = self.select_episode_candidates(
             items,
@@ -350,8 +379,17 @@ class MoviePilotCompletionService:
             .limit(1)
         )
         record = result.scalar_one_or_none()
-        if record is not None and not force and record.status in self.terminal_statuses:
-            return None, self._record_payload(record)
+        now = beijing_now()
+        if record is not None:
+            if record.status == "processing" and self._is_processing_stale(
+                record,
+                now=now,
+            ):
+                record.status = "failed"
+                record.error_message = self._stale_processing_message()
+                record.updated_at = now
+            elif self._is_protected_record(record, now=now):
+                return None, self._record_payload(record)
         if record is None:
             record = MoviePilotCompletionRecord(
                 subscription_id=int(subscription.id),
@@ -701,6 +739,60 @@ class MoviePilotCompletionService:
     @staticmethod
     def _json_dumps(payload: Any) -> str:
         return json.dumps(payload, ensure_ascii=False, default=str)
+
+    async def _expire_stale_processing_records(
+        self,
+        db: AsyncSession,
+        records: list[MoviePilotCompletionRecord],
+    ) -> None:
+        now = beijing_now()
+        changed = False
+        for record in records:
+            if record.status != "processing":
+                continue
+            if not self._is_processing_stale(record, now=now):
+                continue
+            record.status = "failed"
+            record.error_message = self._stale_processing_message()
+            record.updated_at = now
+            changed = True
+        if changed:
+            await db.commit()
+
+    @classmethod
+    def _is_protected_record(
+        cls,
+        record: MoviePilotCompletionRecord,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        if record.status in cls.terminal_statuses:
+            return True
+        if record.status in cls.active_statuses:
+            return not cls._is_processing_stale(record, now=now)
+        return False
+
+    @classmethod
+    def _is_processing_stale(
+        cls,
+        record: MoviePilotCompletionRecord,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        updated_at = record.updated_at or record.created_at
+        if updated_at is None:
+            return True
+        current = now or beijing_now()
+        if updated_at.tzinfo is None and current.tzinfo is not None:
+            updated_at = updated_at.replace(tzinfo=current.tzinfo)
+        elif updated_at.tzinfo is not None and current.tzinfo is None:
+            current = current.replace(tzinfo=updated_at.tzinfo)
+        return current - updated_at >= cls.processing_timeout
+
+    @classmethod
+    def _stale_processing_message(cls) -> str:
+        minutes = int(cls.processing_timeout.total_seconds() // 60)
+        return f"MoviePilot 补缺任务超过 {minutes} 分钟未完成，已自动允许重试"
 
     @staticmethod
     def _record_payload(record: MoviePilotCompletionRecord) -> dict[str, Any]:
