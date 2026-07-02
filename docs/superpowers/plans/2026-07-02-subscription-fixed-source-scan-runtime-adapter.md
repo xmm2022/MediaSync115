@@ -100,8 +100,11 @@ def _dependencies(**overrides: Any) -> FixedSourceScanRuntimeDependencies:
     async def create_step_log(_db: Any, **kwargs: Any) -> None:
         _ = kwargs
 
-    async def run_scan_fixed_sources_for_subscription(**kwargs: Any) -> dict[str, Any]:
-        return {"runner": kwargs}
+    async def run_scan_fixed_sources_for_subscription(
+        *args: Any,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return {"runner": {"args": args, "kwargs": kwargs}}
 
     values: dict[str, Any] = {
         "manual_source_type": "manual_pan115_test",
@@ -142,7 +145,11 @@ async def test_runtime_adapter_builds_core_dependencies_and_forwards_arguments()
     async def create_step_log(current_db: Any, **kwargs: Any) -> None:
         events.append(("step", current_db, kwargs))
 
-    async def run_scan_fixed_sources_for_subscription(**kwargs: Any) -> dict[str, Any]:
+    async def run_scan_fixed_sources_for_subscription(
+        db_arg: Any,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        kwargs["db"] = db_arg
         runner_calls.append(kwargs)
         lower_dependencies = kwargs["dependencies"]
         assert isinstance(lower_dependencies, FixedSourceScanDependencies)
@@ -212,7 +219,10 @@ async def test_runtime_adapter_builds_core_dependencies_and_forwards_arguments()
 
 @pytest.mark.asyncio
 async def test_runtime_adapter_parent_folder_defaults_to_zero() -> None:
-    async def run_scan_fixed_sources_for_subscription(**kwargs: Any) -> dict[str, Any]:
+    async def run_scan_fixed_sources_for_subscription(
+        _db_arg: Any,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         lower_dependencies = kwargs["dependencies"]
         assert lower_dependencies.get_parent_folder_id() == "0"
         return {"saved": 0, "failed": 0, "checked": 0}
