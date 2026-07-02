@@ -8,6 +8,9 @@ import pytest
 from app.models.models import MediaType
 from app.services import subscription_service as subscription_service_module
 from app.services.subscription_service import SubscriptionService
+from app.services.subscriptions import (
+    manual_resource_fetch_runtime_adapter as manual_fetch_runtime_module,
+)
 from app.services.subscriptions.manual_resource_fetch_runtime_adapter import (
     ManualResourceFetchRuntimeDependencies,
     build_default_manual_resource_fetch_runtime_dependencies,
@@ -125,8 +128,104 @@ def test_default_dependencies_bind_snapshot_media_types_and_fetch_callback() -> 
     assert dependencies.fetch_resources is fetch_resources
 
 
+def test_default_dependencies_bind_runtime_fetch_helper_without_service_callback() -> None:
+    dependencies = build_default_manual_resource_fetch_runtime_dependencies()
+
+    assert dependencies.snapshot_class is SubscriptionSnapshot
+    assert dependencies.tv_media_type is MediaType.TV
+    assert dependencies.movie_media_type is MediaType.MOVIE
+    assert dependencies.fetch_resources is (
+        manual_fetch_runtime_module.fetch_resources_with_default_runtime_dependencies
+    )
+
+
+def test_default_dependencies_preserve_falsy_fetch_resource_injection() -> None:
+    class FalsyAsyncCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        async def __call__(self, *_args: Any, **_kwargs: Any) -> Any:
+            return [], [], {}
+
+    fetch_resources = FalsyAsyncCallable()
+
+    dependencies = build_default_manual_resource_fetch_runtime_dependencies(
+        fetch_resources=fetch_resources,
+    )
+
+    assert dependencies.fetch_resources is fetch_resources
+
+
 @pytest.mark.asyncio
-async def test_subscription_service_wrapper_passes_public_arguments_and_fetch_callback(
+async def test_default_fetch_helper_builds_resource_resolver_runtime_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sub = SubscriptionSnapshot(
+        id=0,
+        tmdb_id=1001,
+        douban_id="db1",
+        title="剧名",
+        media_type=MediaType.TV,
+        year="2026",
+        auto_download=False,
+        tv_scope="all",
+        tv_season_number=2,
+        tv_episode_start=None,
+        tv_episode_end=None,
+        tv_follow_mode="missing",
+        tv_include_specials=False,
+        has_successful_transfer=False,
+    )
+    dependencies_marker = object()
+    marker = ([{"name": "资源"}], [{"trace": "ok"}], {"summary": "ok"})
+    calls: list[dict[str, Any]] = []
+
+    def fake_builder() -> object:
+        calls.append({"builder": True})
+        return dependencies_marker
+
+    async def fake_fetch_subscription_resources_with_runtime_adapter(
+        **kwargs: Any,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+        calls.append({"fetch": kwargs})
+        return marker
+
+    monkeypatch.setattr(
+        manual_fetch_runtime_module,
+        "build_default_resource_resolver_runtime_dependencies",
+        fake_builder,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        manual_fetch_runtime_module,
+        "fetch_subscription_resources_with_runtime_adapter",
+        fake_fetch_subscription_resources_with_runtime_adapter,
+        raising=False,
+    )
+
+    result = await manual_fetch_runtime_module.fetch_resources_with_default_runtime_dependencies(
+        "all",
+        sub,
+    )
+
+    assert result is marker
+    assert calls == [
+        {"builder": True},
+        {
+            "fetch": {
+                "channel": "all",
+                "sub": sub,
+                "dependencies": dependencies_marker,
+                "hdhive_unlock_context": None,
+                "source_order": None,
+                "exclude_urls": None,
+            }
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_subscription_service_wrapper_passes_public_arguments_without_fetch_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SubscriptionService()
@@ -175,9 +274,7 @@ async def test_subscription_service_wrapper_passes_public_arguments_and_fetch_ca
         "season_number": 2,
         "dependencies": dependencies_marker,
     }
-    fetch_callback = builder_kwargs["fetch_resources"]
-    assert fetch_callback.__self__ is service
-    assert fetch_callback.__func__ is service._fetch_resources.__func__
+    assert builder_kwargs == {}
 
 
 def test_manual_resource_fetch_runtime_adapter_module_boundary() -> None:

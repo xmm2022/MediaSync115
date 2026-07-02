@@ -400,9 +400,7 @@ class SubscriptionService:
             title=title,
             year=year,
             season_number=season_number,
-            dependencies=build_default_manual_resource_fetch_runtime_dependencies(
-                fetch_resources=self._fetch_resources,
-            ),
+            dependencies=build_default_manual_resource_fetch_runtime_dependencies(),
         )
 
 

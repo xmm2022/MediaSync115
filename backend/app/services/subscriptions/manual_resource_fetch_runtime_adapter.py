@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.models.models import MediaType
+from app.services.subscriptions.resource_resolver_runtime_adapter import (
+    build_default_resource_resolver_runtime_dependencies,
+    fetch_subscription_resources_with_runtime_adapter,
+)
 from app.services.subscriptions.snapshot import SubscriptionSnapshot
 
 
@@ -24,15 +28,33 @@ class ManualResourceFetchRuntimeDependencies:
     fetch_resources: FetchResources
 
 
+async def fetch_resources_with_default_runtime_dependencies(
+    channel: str,
+    sub: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    return await fetch_subscription_resources_with_runtime_adapter(
+        channel=channel,
+        sub=sub,
+        dependencies=build_default_resource_resolver_runtime_dependencies(),
+        hdhive_unlock_context=None,
+        source_order=None,
+        exclude_urls=None,
+    )
+
+
 def build_default_manual_resource_fetch_runtime_dependencies(
     *,
-    fetch_resources: FetchResources,
+    fetch_resources: FetchResources | None = None,
 ) -> ManualResourceFetchRuntimeDependencies:
     return ManualResourceFetchRuntimeDependencies(
         snapshot_class=SubscriptionSnapshot,
         tv_media_type=MediaType.TV,
         movie_media_type=MediaType.MOVIE,
-        fetch_resources=fetch_resources,
+        fetch_resources=(
+            fetch_resources
+            if fetch_resources is not None
+            else fetch_resources_with_default_runtime_dependencies
+        ),
     )
 
 
