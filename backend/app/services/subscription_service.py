@@ -28,9 +28,6 @@ from app.services.subscriptions.resource_fetcher_runtime_adapter import (
     fetch_from_tg_with_runtime_adapter,
     fetch_offline_magnets_with_runtime_adapter,
 )
-from app.services.subscriptions.source_attempts import (
-    build_source_attempt_summary,
-)
 from app.services.subscriptions.snapshot import SubscriptionSnapshot
 from app.services.subscriptions.execution_logs import (
     create_execution_log as create_subscription_execution_log,
@@ -78,11 +75,6 @@ from app.services.subscriptions.resource_storage_runtime_adapter import (
 from app.services.subscriptions.auto_save_resources_runtime_adapter import (
     auto_save_resources_with_runtime_adapter,
     build_default_auto_save_resources_runtime_dependencies,
-)
-from app.services.subscriptions.hdhive_unlock import (
-    allow_unlock_by_threshold,
-    safe_int,
-    should_stop_unlocking_on_message,
 )
 from app.services.subscriptions.hdhive_unlock_runtime_adapter import (
     build_hdhive_unlock_context_with_runtime_adapter,
@@ -282,12 +274,6 @@ class SubscriptionService:
             exclude_urls=exclude_urls,
         )
 
-    def _build_source_attempt_summary(
-        self, attempts: list[dict[str, Any]], source_order: list[str]
-    ) -> str:
-        """构建来源尝试链路的中文摘要"""
-        return build_source_attempt_summary(attempts, source_order)
-
     def _resolve_source_order(self, channel: str) -> list[str]:
         return resolve_source_order_with_runtime_adapter(channel)
 
@@ -326,20 +312,6 @@ class SubscriptionService:
             context,
             traces,
         )
-
-    @staticmethod
-    def _allow_unlock_by_threshold(
-        unlock_points: int, threshold: int, inclusive: bool
-    ) -> bool:
-        return allow_unlock_by_threshold(unlock_points, threshold, inclusive)
-
-    @staticmethod
-    def _safe_int(value: Any, default: int = 0) -> int:
-        return safe_int(value, default=default)
-
-    @staticmethod
-    def _should_stop_unlocking_on_message(message: str) -> bool:
-        return should_stop_unlocking_on_message(message)
 
     async def _store_new_resources(
         self,
