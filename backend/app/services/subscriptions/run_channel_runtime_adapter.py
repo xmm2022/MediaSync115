@@ -29,6 +29,13 @@ from app.services.subscriptions.run_start_flow import (
     start_subscription_run,
 )
 from app.services.subscriptions.run_summary import normalize_subscription_channel
+from app.services.subscriptions.resource_resolver_runtime_adapter import (
+    build_default_resource_resolver_runtime_dependencies,
+    fetch_subscription_resources_with_runtime_adapter,
+)
+from app.services.subscriptions.resource_storage_runtime_adapter import (
+    store_new_resources_with_runtime_adapter,
+)
 
 
 LogBackgroundEvent = Callable[..., Awaitable[None]]
@@ -97,6 +104,24 @@ class RunChannelRuntimeDependencies:
     finalize_run: FinalizeRun
 
 
+async def fetch_resources_with_default_runtime_dependencies(
+    channel: str,
+    sub: Any,
+    hdhive_unlock_context: dict[str, Any] | None = None,
+    *,
+    source_order: list[str] | None = None,
+    exclude_urls: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    return await fetch_subscription_resources_with_runtime_adapter(
+        channel=channel,
+        sub=sub,
+        dependencies=build_default_resource_resolver_runtime_dependencies(),
+        hdhive_unlock_context=hdhive_unlock_context,
+        source_order=source_order,
+        exclude_urls=exclude_urls,
+    )
+
+
 def build_default_run_channel_runtime_dependencies(
     *,
     create_execution_log: CreateExecutionLog,
@@ -105,8 +130,8 @@ def build_default_run_channel_runtime_dependencies(
     build_hdhive_unlock_context: BuildHdhiveUnlockContext,
     resolve_source_order: ResolveSourceOrder,
     evaluate_pre_scan_cleanup: EvaluatePreScanCleanup,
-    fetch_resources: FetchResources,
-    store_new_resources: StoreNewResources,
+    fetch_resources: FetchResources | None = None,
+    store_new_resources: StoreNewResources | None = None,
     load_retryable_records: LoadRetryableRecords,
     load_force_retry_records: LoadForceRetryRecords,
     auto_save_records_with_link_fallback: AutoSaveRecordsWithLinkFallback,
@@ -124,8 +149,16 @@ def build_default_run_channel_runtime_dependencies(
         resolve_source_order=resolve_source_order,
         session_factory=async_session_maker,
         evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
-        fetch_resources=fetch_resources,
-        store_new_resources=store_new_resources,
+        fetch_resources=(
+            fetch_resources
+            if fetch_resources is not None
+            else fetch_resources_with_default_runtime_dependencies
+        ),
+        store_new_resources=(
+            store_new_resources
+            if store_new_resources is not None
+            else store_new_resources_with_runtime_adapter
+        ),
         load_retryable_records=load_retryable_records,
         load_force_retry_records=load_force_retry_records,
         auto_save_records_with_link_fallback=(

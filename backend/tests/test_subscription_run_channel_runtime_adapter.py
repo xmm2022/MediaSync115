@@ -14,9 +14,15 @@ from app.models.models import ExecutionStatus, MediaType
 from app.services.operation_log_service import operation_log_service
 from app.services import subscription_service as subscription_service_module
 from app.services.subscription_service import SubscriptionService
+from app.services.subscriptions import (
+    run_channel_runtime_adapter as run_channel_runtime_module,
+)
 from app.services.subscriptions.item_processing_run_flow import (
     SubscriptionItemProcessingDependencies,
     process_subscription_item,
+)
+from app.services.subscriptions.resource_storage_runtime_adapter import (
+    store_new_resources_with_runtime_adapter,
 )
 from app.services.subscriptions.run_channel_runtime_adapter import (
     RunChannelRuntimeDependencies,
@@ -371,8 +377,6 @@ async def test_subscription_service_wrapper_passes_callbacks_and_concurrency(
         "build_hdhive_unlock_context": "_build_hdhive_unlock_context",
         "resolve_source_order": "_resolve_source_order",
         "evaluate_pre_scan_cleanup": "_evaluate_pre_scan_cleanup",
-        "fetch_resources": "_fetch_resources",
-        "store_new_resources": "_store_new_resources",
         "load_retryable_records": "_load_retryable_records",
         "load_force_retry_records": "_load_force_retry_records",
         "auto_save_records_with_link_fallback": (
@@ -385,6 +389,8 @@ async def test_subscription_service_wrapper_passes_callbacks_and_concurrency(
         "delete_subscription_with_records": "_delete_subscription_with_records",
     }.items():
         _assert_bound_method(builder_kwargs[key], service, name)
+    assert "fetch_resources" not in builder_kwargs
+    assert "store_new_resources" not in builder_kwargs
 
 
 def test_default_runtime_dependencies_bind_existing_services_and_runners() -> None:
@@ -504,6 +510,210 @@ def test_default_runtime_dependencies_bind_existing_services_and_runners() -> No
     assert dependencies.dispatch_checks is dispatch_subscription_checks
     assert dependencies.process_item is process_subscription_item
     assert dependencies.finalize_run is finalize_subscription_run
+
+
+def test_default_runtime_dependencies_bind_resource_io_defaults_without_service_callbacks() -> None:
+    async def create_execution_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def prune_step_logs(_db: Any) -> None:
+        return None
+
+    def build_hdhive_unlock_context() -> dict[str, Any]:
+        return {}
+
+    def resolve_source_order(_channel: str) -> list[str]:
+        return ["hdhive"]
+
+    async def evaluate_pre_scan_cleanup(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"deleted": False}
+
+    async def load_retryable_records(*_args: Any, **_kwargs: Any) -> list[Any]:
+        return []
+
+    async def load_force_retry_records(*_args: Any, **_kwargs: Any) -> list[Any]:
+        return []
+
+    async def auto_save_records_with_link_fallback(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    def should_scan_fixed_sources(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    async def scan_fixed_sources_for_subscription(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    async def delete_subscription_with_records(
+        _db: Any,
+        _subscription_id: int,
+    ) -> None:
+        return None
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        create_execution_log=create_execution_log,
+        create_step_log=create_step_log,
+        prune_step_logs=prune_step_logs,
+        build_hdhive_unlock_context=build_hdhive_unlock_context,
+        resolve_source_order=resolve_source_order,
+        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        load_retryable_records=load_retryable_records,
+        load_force_retry_records=load_force_retry_records,
+        auto_save_records_with_link_fallback=(
+            auto_save_records_with_link_fallback
+        ),
+        should_scan_fixed_sources=should_scan_fixed_sources,
+        scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert dependencies.fetch_resources is (
+        run_channel_runtime_module.fetch_resources_with_default_runtime_dependencies
+    )
+    assert dependencies.store_new_resources is store_new_resources_with_runtime_adapter
+
+
+def test_default_runtime_dependencies_preserve_falsy_resource_io_injections() -> None:
+    class FalsyAsyncCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        async def __call__(self, *_args: Any, **_kwargs: Any) -> Any:
+            return {}
+
+    async def create_execution_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def prune_step_logs(_db: Any) -> None:
+        return None
+
+    def build_hdhive_unlock_context() -> dict[str, Any]:
+        return {}
+
+    def resolve_source_order(_channel: str) -> list[str]:
+        return ["hdhive"]
+
+    async def evaluate_pre_scan_cleanup(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"deleted": False}
+
+    async def load_retryable_records(*_args: Any, **_kwargs: Any) -> list[Any]:
+        return []
+
+    async def load_force_retry_records(*_args: Any, **_kwargs: Any) -> list[Any]:
+        return []
+
+    async def auto_save_records_with_link_fallback(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    def should_scan_fixed_sources(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    async def scan_fixed_sources_for_subscription(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    async def delete_subscription_with_records(
+        _db: Any,
+        _subscription_id: int,
+    ) -> None:
+        return None
+
+    fetch_resources = FalsyAsyncCallable()
+    store_new_resources = FalsyAsyncCallable()
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        create_execution_log=create_execution_log,
+        create_step_log=create_step_log,
+        prune_step_logs=prune_step_logs,
+        build_hdhive_unlock_context=build_hdhive_unlock_context,
+        resolve_source_order=resolve_source_order,
+        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        fetch_resources=fetch_resources,
+        store_new_resources=store_new_resources,
+        load_retryable_records=load_retryable_records,
+        load_force_retry_records=load_force_retry_records,
+        auto_save_records_with_link_fallback=(
+            auto_save_records_with_link_fallback
+        ),
+        should_scan_fixed_sources=should_scan_fixed_sources,
+        scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert dependencies.fetch_resources is fetch_resources
+    assert dependencies.store_new_resources is store_new_resources
+
+
+@pytest.mark.asyncio
+async def test_default_resource_fetch_helper_builds_resource_resolver_runtime_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sub = SimpleNamespace(id=1, title="示例订阅")
+    dependencies_marker = object()
+    marker = ([{"name": "资源"}], [{"trace": "ok"}], {"summary": "ok"})
+    calls: list[dict[str, Any]] = []
+
+    def fake_builder() -> object:
+        calls.append({"builder": True})
+        return dependencies_marker
+
+    async def fake_fetch_subscription_resources_with_runtime_adapter(
+        **kwargs: Any,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+        calls.append({"fetch": kwargs})
+        return marker
+
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "build_default_resource_resolver_runtime_dependencies",
+        fake_builder,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "fetch_subscription_resources_with_runtime_adapter",
+        fake_fetch_subscription_resources_with_runtime_adapter,
+        raising=False,
+    )
+
+    result = await run_channel_runtime_module.fetch_resources_with_default_runtime_dependencies(
+        "all",
+        sub,
+        {"enabled": True},
+        source_order=["hdhive"],
+        exclude_urls={"https://115.com/s/old"},
+    )
+
+    assert result is marker
+    assert calls == [
+        {"builder": True},
+        {
+            "fetch": {
+                "channel": "all",
+                "sub": sub,
+                "dependencies": dependencies_marker,
+                "hdhive_unlock_context": {"enabled": True},
+                "source_order": ["hdhive"],
+                "exclude_urls": {"https://115.com/s/old"},
+            }
+        },
+    ]
 
 
 def test_run_channel_runtime_adapter_module_boundary() -> None:

@@ -57,9 +57,6 @@ from app.services.subscriptions.resource_resolver_runtime_adapter import (
     build_default_resource_resolver_runtime_dependencies,
     fetch_subscription_resources_with_runtime_adapter,
 )
-from app.services.subscriptions.resource_storage_runtime_adapter import (
-    store_new_resources_with_runtime_adapter,
-)
 from app.services.subscriptions.auto_save_resources_runtime_adapter import (
     auto_save_resources_with_runtime_adapter,
     build_default_auto_save_resources_runtime_dependencies,
@@ -100,8 +97,6 @@ class SubscriptionService:
                 build_hdhive_unlock_context=self._build_hdhive_unlock_context,
                 resolve_source_order=self._resolve_source_order,
                 evaluate_pre_scan_cleanup=self._evaluate_pre_scan_cleanup,
-                fetch_resources=self._fetch_resources,
-                store_new_resources=self._store_new_resources,
                 load_retryable_records=self._load_retryable_records,
                 load_force_retry_records=self._load_force_retry_records,
                 auto_save_records_with_link_fallback=(
@@ -248,18 +243,6 @@ class SubscriptionService:
             resources,
             context,
             traces,
-        )
-
-    async def _store_new_resources(
-        self,
-        db: AsyncSession,
-        subscription_id: int,
-        resources: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        return await store_new_resources_with_runtime_adapter(
-            db,
-            subscription_id,
-            resources,
         )
 
     async def _load_retryable_records(
