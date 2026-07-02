@@ -10,12 +10,9 @@ from app.models.models import (
     DownloadRecord,
     ExecutionStatus,
 )
-from app.services.subscriptions.link_fallback_flow import (
-    auto_save_records_with_link_fallback as auto_save_records_with_link_fallback_flow,
-)
-from app.services.subscriptions.link_fallback_adapter import (
-    LinkFallbackAdapterDependencies,
-    auto_save_records_with_link_fallback_with_adapter,
+from app.services.subscriptions.link_fallback_runtime_adapter import (
+    auto_save_records_with_link_fallback_with_runtime_adapter,
+    build_default_link_fallback_runtime_dependencies,
 )
 from app.services.subscriptions.auto_transfer_record_loaders_db_adapter import (
     load_force_retry_records_with_db_adapter,
@@ -85,8 +82,6 @@ from app.services.subscription_delete_service import subscription_delete_service
 
 logger = logging.getLogger(__name__)
 
-# 单轮订阅内，链接失效后最多补充搜索并转存的轮次
-MAX_AUTO_TRANSFER_LINK_FALLBACK_ROUNDS = 6
 _SUBSCRIPTION_SCAN_CONCURRENCY = 3
 
 
@@ -321,26 +316,18 @@ class SubscriptionService:
         enable_link_refetch: bool = True,
     ) -> dict[str, Any]:
         """转存资源；当前批链接均失败或剧集仍缺集时，自动补充搜索下一条链接直至成功。"""
-        return await auto_save_records_with_link_fallback_with_adapter(
+        return await auto_save_records_with_link_fallback_with_runtime_adapter(
             db=db,
             run_id=run_id,
             channel=channel,
             sub=sub,
             records=records,
             transfer_source=transfer_source,
-            dependencies=LinkFallbackAdapterDependencies(
-                create_step_log=self._create_step_log,
-                auto_save_resources=self._auto_save_resources,
-                load_subscription_resource_urls=self._load_subscription_resource_urls,
-                fetch_resources=self._fetch_resources,
-                store_new_resources=self._store_new_resources,
-                run_link_fallback=auto_save_records_with_link_fallback_flow,
-            ),
+            dependencies=build_default_link_fallback_runtime_dependencies(),
             tv_missing_snapshot=tv_missing_snapshot,
             hdhive_unlock_context=hdhive_unlock_context,
             source_order=source_order,
             enable_link_refetch=enable_link_refetch,
-            max_rounds=MAX_AUTO_TRANSFER_LINK_FALLBACK_ROUNDS,
         )
 
     def _should_scan_fixed_sources(
