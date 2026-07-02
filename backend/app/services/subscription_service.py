@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.timezone_utils import beijing_now
@@ -29,9 +28,10 @@ from app.services.subscriptions.link_fallback_adapter import (
     LinkFallbackAdapterDependencies,
     auto_save_records_with_link_fallback_with_adapter,
 )
-from app.services.subscriptions.record_selection import (
-    dedupe_records_by_resource_url,
-    select_retryable_records,
+from app.services.subscriptions.auto_transfer_record_loaders_db_adapter import (
+    load_force_retry_records_with_db_adapter,
+    load_retryable_records_with_db_adapter,
+    load_subscription_resource_urls_with_db_adapter,
 )
 from app.services.subscriptions.resource_fetcher_runtime_adapter import (
     fetch_from_hdhive_with_runtime_adapter,
@@ -543,32 +543,7 @@ class SubscriptionService:
     async def _load_retryable_records(
         self, db: AsyncSession, subscription_id: int
     ) -> list[DownloadRecord]:
-        from app.models.models import MediaStatus
-
-        with db.no_autoflush:
-            failed_result = await db.execute(
-                select(DownloadRecord)
-                .where(
-                    DownloadRecord.subscription_id == subscription_id,
-                    DownloadRecord.status == MediaStatus.FAILED,
-                )
-                .order_by(DownloadRecord.created_at.desc())
-                .limit(8)
-            )
-            pending_result = await db.execute(
-                select(DownloadRecord)
-                .where(
-                    DownloadRecord.subscription_id == subscription_id,
-                    DownloadRecord.status.in_((MediaStatus.PENDING, MediaStatus.MATCHED)),
-                )
-                .order_by(DownloadRecord.created_at.desc())
-                .limit(5)
-            )
-
-        failed_rows = list(failed_result.scalars().all())
-        pending_rows = list(pending_result.scalars().all())
-
-        return select_retryable_records(failed_rows, pending_rows)
+        return await load_retryable_records_with_db_adapter(db, subscription_id)
 
     async def _load_force_retry_records(
         self,
@@ -576,42 +551,19 @@ class SubscriptionService:
         subscription_id: int,
         duplicate_urls: list[str],
     ) -> list[DownloadRecord]:
-        from app.models.models import MediaStatus
-
-        url_values = [
-            str(item or "").strip()
-            for item in duplicate_urls
-            if str(item or "").strip()
-        ]
-        if not url_values:
-            return []
-
-        with db.no_autoflush:
-            rows_result = await db.execute(
-                select(DownloadRecord)
-                .where(
-                    DownloadRecord.subscription_id == subscription_id,
-                    DownloadRecord.resource_url.in_(url_values),
-                    DownloadRecord.status.in_(
-                        (MediaStatus.FAILED, MediaStatus.PENDING, MediaStatus.MATCHED)
-                    ),
-                )
-                .order_by(DownloadRecord.created_at.desc())
-            )
-
-        return dedupe_records_by_resource_url(rows_result.scalars().all())
+        return await load_force_retry_records_with_db_adapter(
+            db,
+            subscription_id,
+            duplicate_urls,
+        )
 
     async def _load_subscription_resource_urls(
         self, db: AsyncSession, subscription_id: int
     ) -> set[str]:
-        """获取订阅下已记录过的资源 URL，用于跳过失效/已尝试链接。"""
-        with db.no_autoflush:
-            result = await db.execute(
-                select(DownloadRecord.resource_url).where(
-                    DownloadRecord.subscription_id == subscription_id
-                )
+        return await load_subscription_resource_urls_with_db_adapter(
+            db,
+            subscription_id,
         )
-        return {str(row[0]).strip() for row in result.all() if row and row[0]}
 
     async def _auto_save_records_with_link_fallback(
         self,
