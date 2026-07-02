@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.timezone_utils import beijing_now
@@ -16,14 +16,12 @@ from app.models.models import (
     MediaStatus,
     MediaType,
     Subscription,
-    SubscriptionSource,
 )
 from app.core.database import async_session_maker
 from app.services.operation_log_service import operation_log_service
 from app.services.emby_service import emby_service
 from app.services.feiniu_service import feiniu_service
 from app.services.feiniu_sync_index_service import feiniu_sync_index_service
-from app.services.pan115_service import Pan115Service
 from app.services.subscriptions.link_fallback_flow import (
     auto_save_records_with_link_fallback as auto_save_records_with_link_fallback_flow,
 )
@@ -63,9 +61,11 @@ from app.services.subscriptions.postprocess_status_runtime_adapter import (
     apply_precise_transfer_postprocess_status_with_runtime_adapter,
 )
 from app.services.subscriptions.fixed_source_scan import (
-    FixedSourceScanDependencies,
-    scan_fixed_sources_for_subscription as scan_fixed_sources_flow,
     should_scan_fixed_sources as should_scan_fixed_sources_policy,
+)
+from app.services.subscriptions.fixed_source_scan_runtime_adapter import (
+    build_default_fixed_source_scan_runtime_dependencies,
+    scan_fixed_sources_with_runtime_adapter,
 )
 from app.services.subscriptions.runtime_preferences_adapter import (
     resolve_source_order_with_runtime_adapter,
@@ -119,10 +119,6 @@ from app.services.subscriptions.transfer_notification_runtime_adapter import (
     notify_transfer_success_with_runtime_adapter,
 )
 from app.services.runtime_settings_service import runtime_settings_service
-from app.services.subscription_source_service import (
-    MANUAL_PAN115_SOURCE,
-    subscription_source_service,
-)
 from app.services.subscription_delete_service import subscription_delete_service
 from app.services.subscription_cleanup_policy import (
     has_upcoming_episodes_in_subscription_scope,
@@ -675,64 +671,17 @@ class SubscriptionService:
         tv_missing_snapshot: dict[str, Any] | None = None,
         force_auto_download: bool = False,
     ) -> dict[str, Any]:
-        async def list_enabled_manual_sources(
-            current_db: AsyncSession,
-            subscription_id: int,
-        ) -> list[SubscriptionSource]:
-            result = await current_db.execute(
-                select(SubscriptionSource).where(
-                    SubscriptionSource.subscription_id == subscription_id,
-                    SubscriptionSource.enabled.is_(True),
-                    SubscriptionSource.source_type == MANUAL_PAN115_SOURCE,
-                )
-            )
-            return list(result.scalars().all())
-
-        def create_pan_service() -> Pan115Service:
-            return Pan115Service(runtime_settings_service.get_pan115_cookie())
-
-        def get_parent_folder_id() -> str:
-            default_folder = runtime_settings_service.get_pan115_default_folder() or {}
-            return str(default_folder.get("folder_id") or "0")
-
-        async def get_tv_missing_status(
-            tmdb_id: int,
-            **kwargs: Any,
-        ) -> dict[str, Any]:
-            return await tv_missing_service.get_tv_missing_status(tmdb_id, **kwargs)
-
-        async def scan_manual_source(
-            current_db: AsyncSession,
-            **kwargs: Any,
-        ) -> dict[str, Any]:
-            return await subscription_source_service.scan_manual_pan115_source(
-                current_db,
-                **kwargs,
-            )
-
-        async def create_step_log(
-            current_db: AsyncSession,
-            **kwargs: Any,
-        ) -> None:
-            await self._create_step_log(current_db, **kwargs)
-
-        dependencies = FixedSourceScanDependencies(
-            list_enabled_manual_sources=list_enabled_manual_sources,
-            create_pan_service=create_pan_service,
-            get_parent_folder_id=get_parent_folder_id,
-            resolve_quality_filter=self._resolve_subscription_quality_filter,
-            get_tv_missing_status=get_tv_missing_status,
-            scan_manual_source=scan_manual_source,
-            create_step_log=create_step_log,
-        )
-        return await scan_fixed_sources_flow(
-            db,
+        return await scan_fixed_sources_with_runtime_adapter(
+            db=db,
             run_id=run_id,
             channel=channel,
             sub=sub,
+            dependencies=build_default_fixed_source_scan_runtime_dependencies(
+                resolve_quality_filter=self._resolve_subscription_quality_filter,
+                create_step_log=self._create_step_log,
+            ),
             tv_missing_snapshot=tv_missing_snapshot,
             force_auto_download=force_auto_download,
-            dependencies=dependencies,
         )
 
     async def _auto_save_resources(
