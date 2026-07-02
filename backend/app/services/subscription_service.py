@@ -6,10 +6,7 @@ from typing import Any, Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import (
-    DownloadRecord,
-    ExecutionStatus,
-)
+from app.models.models import ExecutionStatus
 from app.services.subscriptions.snapshot import SubscriptionSnapshot
 from app.services.subscriptions.execution_logs import (
     create_execution_log as create_subscription_execution_log,
@@ -42,10 +39,6 @@ from app.services.subscriptions.run_channel_runtime_adapter import (
 from app.services.subscriptions.manual_resource_fetch_runtime_adapter import (
     build_default_manual_resource_fetch_runtime_dependencies,
     fetch_resources_for_media_with_runtime_adapter,
-)
-from app.services.subscriptions.auto_save_resources_runtime_adapter import (
-    auto_save_resources_with_runtime_adapter,
-    build_default_auto_save_resources_runtime_dependencies,
 )
 from app.services.subscriptions.feiniu_status_runtime_adapter import (
     check_feiniu_movie_status_with_runtime_adapter,
@@ -217,27 +210,6 @@ class SubscriptionService:
             ),
             tv_missing_snapshot=tv_missing_snapshot,
             force_auto_download=force_auto_download,
-        )
-
-    async def _auto_save_resources(
-        self,
-        db: AsyncSession,
-        run_id: str,
-        channel: str,
-        sub: "SubscriptionSnapshot",
-        records: list[DownloadRecord],
-        source: str,
-        tv_missing_snapshot: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return await auto_save_resources_with_runtime_adapter(
-            db=db,
-            run_id=run_id,
-            channel=channel,
-            sub=sub,
-            records=records,
-            source=source,
-            dependencies=build_default_auto_save_resources_runtime_dependencies(),
-            tv_missing_snapshot=tv_missing_snapshot,
         )
 
     async def _create_execution_log(

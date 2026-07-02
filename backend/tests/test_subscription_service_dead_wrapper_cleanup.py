@@ -57,3 +57,15 @@ def test_subscription_service_drops_link_fallback_wrapper() -> None:
         "build_default_link_fallback_runtime_dependencies",
     ):
         assert name not in source
+
+
+def test_subscription_service_drops_auto_save_resources_wrapper() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_auto_save_resources",
+        "auto_save_resources_with_runtime_adapter",
+        "build_default_auto_save_resources_runtime_dependencies",
+        "DownloadRecord",
+    ):
+        assert name not in source
