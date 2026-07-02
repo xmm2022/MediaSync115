@@ -362,13 +362,15 @@ Run:
 
 ```bash
 git diff --check
-rg -n "fetch_resources=self\\._fetch_resources|store_new_resources=self\\._store_new_resources|async def _store_new_resources|store_new_resources_with_runtime_adapter" backend/app/services/subscription_service.py
+sed -n '80,115p' backend/app/services/subscription_service.py | rg "fetch_resources=self\\._fetch_resources|store_new_resources=self\\._store_new_resources"
+rg -n "store_new_resources=self\\._store_new_resources|async def _store_new_resources|store_new_resources_with_runtime_adapter" backend/app/services/subscription_service.py
 ```
 
 Expected:
 
 - `git diff --check` exits 0.
-- `rg` exits 1 with no matches for the removed service-level resource IO wiring/imports.
+- The run channel snippet `rg` exits 1 with no matches for removed resource IO callback wiring.
+- The full-file `rg` exits 1 with no matches for removed store wrapper wiring/imports.
 
 - [ ] **Step 3: Commit implementation**
 
