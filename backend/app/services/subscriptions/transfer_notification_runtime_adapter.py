@@ -48,8 +48,8 @@ async def notify_transfer_success_with_runtime_adapter(
     resource_name: str,
     source: str,
     method: str,
-    *,
     poster_path: str | None = None,
+    *,
     dependencies: TransferNotificationRuntimeDependencies | None = None,
 ) -> None:
     current_dependencies = (

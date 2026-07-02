@@ -20,7 +20,19 @@ from app.services.subscriptions.auto_transfer_batch import (
     AutoTransferBatchStatuses,
     auto_save_resources_batch,
 )
+from app.services.subscriptions.execution_logs import (
+    create_step_log as create_subscription_step_log,
+)
+from app.services.subscriptions.postprocess_status_runtime_adapter import (
+    apply_precise_transfer_postprocess_status_with_runtime_adapter,
+)
 from app.services.subscriptions.resource_metadata import is_video_filename
+from app.services.subscriptions.runtime_preferences_adapter import (
+    resolve_subscription_quality_filter_with_runtime_adapter,
+)
+from app.services.subscriptions.transfer_notification_runtime_adapter import (
+    notify_transfer_success_with_runtime_adapter,
+)
 from app.services.subscriptions.tv_episode_selection import (
     select_missing_episode_files as select_tv_missing_episode_files,
 )
@@ -65,23 +77,41 @@ def emit_transfer_success_event(subscription_id: int, data: dict[str, Any]) -> N
 
 def build_default_auto_save_resources_runtime_dependencies(
     *,
-    resolve_quality_filter: Callable[[Any], dict[str, Any]],
-    create_step_log: Callable[..., Awaitable[None]],
-    apply_precise_postprocess_status: Callable[[Any], Awaitable[dict[str, Any]]],
-    notify_transfer_success: Callable[..., Awaitable[None]],
+    resolve_quality_filter: Callable[[Any], dict[str, Any]] | None = None,
+    create_step_log: Callable[..., Awaitable[None]] | None = None,
+    apply_precise_postprocess_status: (
+        Callable[[Any], Awaitable[dict[str, Any]]] | None
+    ) = None,
+    notify_transfer_success: Callable[..., Awaitable[None]] | None = None,
 ) -> AutoSaveResourcesRuntimeDependencies:
     return AutoSaveResourcesRuntimeDependencies(
         get_pan115_cookie=runtime_settings_service.get_pan115_cookie,
         create_pan_service=Pan115Service,
         get_pan115_default_folder=runtime_settings_service.get_pan115_default_folder,
         get_pan115_offline_folder=runtime_settings_service.get_pan115_offline_folder,
-        resolve_quality_filter=resolve_quality_filter,
+        resolve_quality_filter=(
+            resolve_quality_filter
+            if resolve_quality_filter is not None
+            else resolve_subscription_quality_filter_with_runtime_adapter
+        ),
         get_tv_missing_status=tv_missing_service.get_tv_missing_status,
-        create_step_log=create_step_log,
+        create_step_log=(
+            create_step_log
+            if create_step_log is not None
+            else create_subscription_step_log
+        ),
         emit_transfer_success_event=emit_transfer_success_event,
         select_tv_missing_episode_files=select_tv_missing_episode_files,
-        apply_precise_postprocess_status=apply_precise_postprocess_status,
-        notify_transfer_success=notify_transfer_success,
+        apply_precise_postprocess_status=(
+            apply_precise_postprocess_status
+            if apply_precise_postprocess_status is not None
+            else apply_precise_transfer_postprocess_status_with_runtime_adapter
+        ),
+        notify_transfer_success=(
+            notify_transfer_success
+            if notify_transfer_success is not None
+            else notify_transfer_success_with_runtime_adapter
+        ),
         trigger_archive_after_transfer=(
             media_postprocess_service.trigger_archive_after_transfer
         ),

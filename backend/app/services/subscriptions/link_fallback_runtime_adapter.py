@@ -21,21 +21,12 @@ from app.services.subscriptions.link_fallback_adapter import (
 from app.services.subscriptions.link_fallback_flow import (
     auto_save_records_with_link_fallback,
 )
-from app.services.subscriptions.postprocess_status_runtime_adapter import (
-    apply_precise_transfer_postprocess_status_with_runtime_adapter,
-)
 from app.services.subscriptions.resource_resolver_runtime_adapter import (
     build_default_resource_resolver_runtime_dependencies,
     fetch_subscription_resources_with_runtime_adapter,
 )
 from app.services.subscriptions.resource_storage_runtime_adapter import (
     store_new_resources_with_runtime_adapter,
-)
-from app.services.subscriptions.runtime_preferences_adapter import (
-    resolve_subscription_quality_filter_with_runtime_adapter,
-)
-from app.services.subscriptions.transfer_notification_runtime_adapter import (
-    notify_transfer_success_with_runtime_adapter,
 )
 
 
@@ -80,14 +71,7 @@ async def auto_save_resources_with_default_runtime_dependencies(
         sub=sub,
         records=records,
         source=source,
-        dependencies=build_default_auto_save_resources_runtime_dependencies(
-            resolve_quality_filter=resolve_subscription_quality_filter_with_runtime_adapter,
-            create_step_log=create_subscription_step_log,
-            apply_precise_postprocess_status=(
-                apply_precise_transfer_postprocess_status_with_runtime_adapter
-            ),
-            notify_transfer_success=notify_transfer_success_with_runtime_adapter,
-        ),
+        dependencies=build_default_auto_save_resources_runtime_dependencies(),
         tv_missing_snapshot=tv_missing_snapshot,
     )
 

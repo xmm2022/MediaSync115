@@ -34,9 +34,6 @@ from app.services.subscriptions.pre_scan_cleanup_runtime_adapter import (
     build_default_pre_scan_cleanup_runtime_dependencies,
     evaluate_pre_scan_cleanup_with_runtime_adapter,
 )
-from app.services.subscriptions.postprocess_status_runtime_adapter import (
-    apply_precise_transfer_postprocess_status_with_runtime_adapter,
-)
 from app.services.subscriptions.fixed_source_scan import (
     should_scan_fixed_sources as should_scan_fixed_sources_policy,
 )
@@ -70,9 +67,6 @@ from app.services.subscriptions.auto_save_resources_runtime_adapter import (
 from app.services.subscriptions.hdhive_unlock_runtime_adapter import (
     build_hdhive_unlock_context_with_runtime_adapter,
     prepare_hdhive_locked_resources_with_runtime_adapter,
-)
-from app.services.subscriptions.transfer_notification_runtime_adapter import (
-    notify_transfer_success_with_runtime_adapter,
 )
 from app.services.subscriptions.feiniu_status_runtime_adapter import (
     check_feiniu_movie_status_with_runtime_adapter,
@@ -178,14 +172,6 @@ class SubscriptionService:
         await subscription_delete_service.delete_local_subscriptions(
             db,
             [subscription_id],
-        )
-
-    async def _apply_precise_transfer_postprocess_status(
-        self,
-        record: DownloadRecord,
-    ) -> dict[str, Any]:
-        return await apply_precise_transfer_postprocess_status_with_runtime_adapter(
-            record,
         )
 
     async def cleanup_completed_subscriptions(
@@ -381,14 +367,7 @@ class SubscriptionService:
             sub=sub,
             records=records,
             source=source,
-            dependencies=build_default_auto_save_resources_runtime_dependencies(
-                resolve_quality_filter=self._resolve_subscription_quality_filter,
-                create_step_log=self._create_step_log,
-                apply_precise_postprocess_status=(
-                    self._apply_precise_transfer_postprocess_status
-                ),
-                notify_transfer_success=self._notify_transfer_success,
-            ),
+            dependencies=build_default_auto_save_resources_runtime_dependencies(),
             tv_missing_snapshot=tv_missing_snapshot,
         )
 
@@ -420,22 +399,6 @@ class SubscriptionService:
 
     def _resolve_subscription_quality_filter(self, sub: "SubscriptionSnapshot") -> dict[str, Any]:
         return resolve_subscription_quality_filter_with_runtime_adapter(sub)
-
-    @staticmethod
-    async def _notify_transfer_success(
-        sub_title: str,
-        resource_name: str,
-        source: str,
-        method: str,
-        poster_path: str | None = None,
-    ) -> None:
-        await notify_transfer_success_with_runtime_adapter(
-            sub_title,
-            resource_name,
-            source,
-            method,
-            poster_path=poster_path,
-        )
 
     async def fetch_resources_for_media(
         self,

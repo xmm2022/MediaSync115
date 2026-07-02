@@ -22,6 +22,22 @@ from app.services.subscriptions.auto_transfer_batch import (
     AutoTransferBatchStatuses,
     auto_save_resources_batch,
 )
+from app.services.subscriptions.execution_logs import (
+    create_step_log as create_subscription_step_log,
+)
+from app.services.subscriptions.postprocess_status_runtime_adapter import (
+    apply_precise_transfer_postprocess_status_with_runtime_adapter,
+)
+from app.services.subscriptions.runtime_preferences_adapter import (
+    resolve_subscription_quality_filter_with_runtime_adapter,
+)
+from app.services.subscriptions.transfer_notification_runtime_adapter import (
+    TransferNotificationRuntimeDependencies,
+    notify_transfer_success_with_runtime_adapter,
+)
+from app.services.subscriptions.transfer_notifications import (
+    TransferNotificationDependencies,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -304,6 +320,96 @@ def test_default_runtime_dependencies_use_existing_statuses_and_runners() -> Non
         is apply_precise_postprocess_status
     )
     assert dependencies.notify_transfer_success is notify_transfer_success
+
+
+def test_default_runtime_dependencies_bind_runtime_helpers_without_service_callbacks() -> None:
+    dependencies = build_default_auto_save_resources_runtime_dependencies()
+
+    assert dependencies.resolve_quality_filter is (
+        resolve_subscription_quality_filter_with_runtime_adapter
+    )
+    assert dependencies.create_step_log is create_subscription_step_log
+    assert dependencies.apply_precise_postprocess_status is (
+        apply_precise_transfer_postprocess_status_with_runtime_adapter
+    )
+    assert dependencies.notify_transfer_success is (
+        notify_transfer_success_with_runtime_adapter
+    )
+    assert dependencies.run_adapter is auto_save_resources_with_adapter
+    assert dependencies.run_batch is auto_save_resources_batch
+
+
+@pytest.mark.asyncio
+async def test_default_runtime_notify_callback_accepts_downstream_positional_poster() -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def notify(message: str, *, poster_path: str | None = None) -> None:
+        calls.append({"message": message, "poster_path": poster_path})
+
+    def log_warning(message: str, **kwargs: Any) -> None:
+        calls.append({"warning": message, "kwargs": kwargs})
+
+    async def run_notify_transfer_success(
+        sub_title: str,
+        resource_name: str,
+        source: str,
+        method: str,
+        *,
+        poster_path: str | None = None,
+        dependencies: Any,
+    ) -> None:
+        calls.append(
+            {
+                "sub_title": sub_title,
+                "resource_name": resource_name,
+                "source": source,
+                "method": method,
+                "poster_path": poster_path,
+                "dependencies": dependencies,
+            }
+        )
+
+    dependencies = build_default_auto_save_resources_runtime_dependencies()
+
+    await dependencies.notify_transfer_success(
+        "订阅 A",
+        "资源 B",
+        "hdhive",
+        "分享转存",
+        "/poster.jpg",
+        dependencies=TransferNotificationRuntimeDependencies(
+            notify=notify,
+            log_warning=log_warning,
+            run_notify_transfer_success=run_notify_transfer_success,
+        ),
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["sub_title"] == "订阅 A"
+    assert calls[0]["resource_name"] == "资源 B"
+    assert calls[0]["source"] == "hdhive"
+    assert calls[0]["method"] == "分享转存"
+    assert calls[0]["poster_path"] == "/poster.jpg"
+    assert isinstance(calls[0]["dependencies"], TransferNotificationDependencies)
+    assert calls[0]["dependencies"].notify is notify
+    assert calls[0]["dependencies"].log_warning is log_warning
+
+
+def test_default_runtime_dependencies_preserve_falsy_explicit_injections() -> None:
+    class FalsyCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        def __call__(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {}
+
+    resolve_quality_filter = FalsyCallable()
+
+    dependencies = build_default_auto_save_resources_runtime_dependencies(
+        resolve_quality_filter=resolve_quality_filter,
+    )
+
+    assert dependencies.resolve_quality_filter is resolve_quality_filter
 
 
 def test_emit_transfer_success_event_respects_kafka_enabled(monkeypatch: Any) -> None:

@@ -4,7 +4,9 @@ from app.models.models import DownloadRecord, MediaStatus
 from app.services.subscriptions import (
     postprocess_status_runtime_adapter as postprocess_runtime_adapter_module,
 )
-from app.services.subscription_service import subscription_service
+from app.services.subscriptions.postprocess_status_runtime_adapter import (
+    apply_precise_transfer_postprocess_status_with_runtime_adapter,
+)
 
 
 def _download_record() -> DownloadRecord:
@@ -32,7 +34,9 @@ async def test_precise_transfer_marks_completed_when_archive_not_triggered(
     )
 
     record = _download_record()
-    result = await subscription_service._apply_precise_transfer_postprocess_status(record)
+    result = await apply_precise_transfer_postprocess_status_with_runtime_adapter(
+        record,
+    )
 
     assert result == {"triggered": False, "reason": "archive_disabled"}
     assert record.status == MediaStatus.COMPLETED
@@ -55,7 +59,9 @@ async def test_precise_transfer_keeps_archiving_when_archive_triggered(
     )
 
     record = _download_record()
-    result = await subscription_service._apply_precise_transfer_postprocess_status(record)
+    result = await apply_precise_transfer_postprocess_status_with_runtime_adapter(
+        record,
+    )
 
     assert result == {"triggered": True, "result": {"task_id": "archive-1"}}
     assert record.status == MediaStatus.ARCHIVING

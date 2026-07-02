@@ -208,18 +208,7 @@ async def test_default_auto_save_helper_builds_auto_save_runtime_dependencies(
     )
 
     assert result == {"saved": 1}
-    assert calls[0]["builder"]["resolve_quality_filter"] is (
-        runtime_module.resolve_subscription_quality_filter_with_runtime_adapter
-    )
-    assert calls[0]["builder"]["create_step_log"] is (
-        runtime_module.create_subscription_step_log
-    )
-    assert calls[0]["builder"]["apply_precise_postprocess_status"] is (
-        runtime_module.apply_precise_transfer_postprocess_status_with_runtime_adapter
-    )
-    assert calls[0]["builder"]["notify_transfer_success"] is (
-        runtime_module.notify_transfer_success_with_runtime_adapter
-    )
+    assert calls[0]["builder"] == {}
     assert calls[1]["runner"]["dependencies"] is dependencies_marker
 
 
