@@ -21,9 +21,10 @@
 ## 方案比较
 
 推荐方案：在 `run_channel_runtime_adapter.py` 新增
-`scan_fixed_sources_for_subscription_with_default_runtime_dependencies()` helper，并让
-`build_default_run_channel_runtime_dependencies()` 的
-`scan_fixed_sources_for_subscription` 参数变为可选。未显式传入时，默认绑定该 helper。
+`build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies()`
+factory，并让 `build_default_run_channel_runtime_dependencies()` 的
+`scan_fixed_sources_for_subscription` 参数变为可选。未显式传入时，factory 使用
+`create_step_log` 生成一个与 transfer phase callback 签名兼容的默认 scan callback。
 
 优点：
 
@@ -48,13 +49,13 @@
 - `backend/app/services/subscriptions/run_channel_runtime_adapter.py`
   - import `scan_fixed_sources_with_runtime_adapter`。
   - import `build_default_fixed_source_scan_runtime_dependencies`。
-  - 新增默认 helper：
-    `scan_fixed_sources_for_subscription_with_default_runtime_dependencies()`。
-  - helper 签名兼容 transfer phase 传入的 callback 参数，内部调用 fixed source scan
-    runtime adapter，并用传入的 `create_step_log` 构建默认依赖。
+  - 新增默认 callback factory：
+    `build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies(create_step_log)`。
+  - factory 返回的 callback 签名兼容 transfer phase 传入的参数，内部调用 fixed source scan
+    runtime adapter，并用已绑定的 `create_step_log` 构建默认依赖。
   - `build_default_run_channel_runtime_dependencies()` 的
     `scan_fixed_sources_for_subscription` 参数改为可选。
-  - 未显式传入时默认绑定该 helper。
+  - 未显式传入时默认绑定 factory 返回的 callback。
   - 使用 `is not None` 判断默认值，保留 falsy callable 显式注入能力。
 
 - `backend/app/services/subscription_service.py`
@@ -68,9 +69,10 @@
 - `backend/tests/test_subscription_run_channel_runtime_adapter.py`
   - 更新 service wrapper 测试，断言 builder 不再收到
     `scan_fixed_sources_for_subscription`。
-  - 新增默认依赖测试，断言未显式传入时绑定 run channel runtime module 中的默认 helper。
-  - 新增 falsy callable 显式注入测试，断言 falsy callback 不被默认 helper 覆盖。
-  - 新增默认 helper 转发测试，确认它构建 fixed source scan runtime dependencies 并调用
+  - 新增默认依赖测试，断言未显式传入时 builder 使用 run channel runtime module 中的默认
+    factory，并把 `create_step_log` 绑定进 scan callback。
+  - 新增 falsy callable 显式注入测试，断言 falsy callback 不被默认 callback 覆盖。
+  - 新增默认 callback 转发测试，确认它构建 fixed source scan runtime dependencies 并调用
     fixed source scan runtime adapter，且参数形状不变。
 
 - `backend/tests/test_subscription_service_dead_wrapper_cleanup.py`
@@ -92,13 +94,13 @@
 
 红测：
 
-- `scripts/verify-backend.sh -- tests/test_subscription_run_channel_runtime_adapter.py::test_subscription_service_wrapper_passes_callbacks_and_concurrency tests/test_subscription_run_channel_runtime_adapter.py::test_default_runtime_dependencies_bind_fixed_source_scan_default_without_service_callback tests/test_subscription_run_channel_runtime_adapter.py::test_default_runtime_dependencies_preserve_falsy_fixed_source_scan_injection tests/test_subscription_run_channel_runtime_adapter.py::test_default_fixed_source_scan_helper_builds_fixed_source_runtime_dependencies tests/test_subscription_service_dead_wrapper_cleanup.py -q`
+- `scripts/verify-backend.sh -- tests/test_subscription_run_channel_runtime_adapter.py::test_subscription_service_wrapper_passes_callbacks_and_concurrency tests/test_subscription_run_channel_runtime_adapter.py::test_default_runtime_dependencies_bind_fixed_source_scan_default_without_service_callback tests/test_subscription_run_channel_runtime_adapter.py::test_default_runtime_dependencies_preserve_falsy_fixed_source_scan_injection tests/test_subscription_run_channel_runtime_adapter.py::test_default_fixed_source_scan_callback_builds_fixed_source_runtime_dependencies tests/test_subscription_service_dead_wrapper_cleanup.py -q`
 
 实现前预期失败：
 
 - service wrapper 测试会发现 builder 仍收到 `scan_fixed_sources_for_subscription`。
 - 新默认依赖测试会因为 builder 仍要求 scan callback 参数而失败。
-- 默认 helper 测试会因为 helper 尚不存在而失败。
+- 默认 callback 测试会因为 factory 尚不存在而失败。
 - service 静态测试会发现 wrapper/import 仍存在。
 
 实现后 targeted tests：
@@ -118,6 +120,6 @@
 ## 自检
 
 - 设计只移动默认依赖装配并删除无业务逻辑 wrapper。
-- 显式注入、falsy callable 和 helper 转发边界都有测试覆盖。
+- 显式注入、falsy callable 和默认 callback 转发边界都有测试覆盖。
 - 范围足够小，可由一个实施计划完成。
 - 没有占位符、未定项或跨块依赖。
