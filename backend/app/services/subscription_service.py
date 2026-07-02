@@ -12,7 +12,6 @@ from app.core.timezone_utils import beijing_now
 from app.models.models import (
     DownloadRecord,
     ExecutionStatus,
-    MediaStatus,
     MediaType,
     Subscription,
 )
@@ -77,12 +76,8 @@ from app.services.subscriptions.resource_resolver_runtime_adapter import (
     build_default_resource_resolver_runtime_dependencies,
     fetch_subscription_resources_with_runtime_adapter,
 )
-from app.services.subscriptions.resource_storage import (
-    store_new_resources as store_new_resources_flow,
-)
-from app.services.subscriptions.resource_storage_db_adapter import (
-    ResourceStorageDbAdapterDependencies,
-    store_new_resources_with_db_adapter,
+from app.services.subscriptions.resource_storage_runtime_adapter import (
+    store_new_resources_with_runtime_adapter,
 )
 from app.services.subscriptions.run_summary import (
     normalize_subscription_channel,
@@ -439,17 +434,10 @@ class SubscriptionService:
         subscription_id: int,
         resources: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        return await store_new_resources_with_db_adapter(
+        return await store_new_resources_with_runtime_adapter(
             db,
             subscription_id,
             resources,
-            dependencies=ResourceStorageDbAdapterDependencies(
-                offline_transfer_enabled=(
-                    runtime_settings_service.get_subscription_offline_transfer_enabled
-                ),
-                record_status_matched=MediaStatus.MATCHED,
-                run_store_new_resources=store_new_resources_flow,
-            ),
         )
 
     async def _load_retryable_records(
