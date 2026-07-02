@@ -64,6 +64,10 @@ from app.services.subscriptions.run_channel_runtime_adapter import (
     build_default_run_channel_runtime_dependencies,
     run_channel_check_with_runtime_adapter,
 )
+from app.services.subscriptions.manual_resource_fetch_runtime_adapter import (
+    build_default_manual_resource_fetch_runtime_dependencies,
+    fetch_resources_for_media_with_runtime_adapter,
+)
 from app.services.subscriptions.resource_resolver_runtime_adapter import (
     build_default_resource_resolver_runtime_dependencies,
     fetch_subscription_resources_with_runtime_adapter,
@@ -531,26 +535,17 @@ class SubscriptionService:
         season_number: int | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
         """供手动转存等场景调用的统一资源获取入口，复用 _fetch_resources 管道。"""
-        from app.models.models import MediaType
-
-        mt = MediaType.TV if media_type == "tv" else MediaType.MOVIE
-        snapshot = SubscriptionSnapshot(
-            id=0,
+        return await fetch_resources_for_media_with_runtime_adapter(
+            media_type=media_type,
             tmdb_id=tmdb_id,
             douban_id=douban_id,
-            title=title or "",
-            media_type=mt,
+            title=title,
             year=year,
-            auto_download=False,
-            tv_scope="all",
-            tv_season_number=season_number,
-            tv_episode_start=None,
-            tv_episode_end=None,
-            tv_follow_mode="missing",
-            tv_include_specials=False,
-            has_successful_transfer=False,
+            season_number=season_number,
+            dependencies=build_default_manual_resource_fetch_runtime_dependencies(
+                fetch_resources=self._fetch_resources,
+            ),
         )
-        return await self._fetch_resources(channel="all", sub=snapshot)
 
 
 subscription_service = SubscriptionService()
