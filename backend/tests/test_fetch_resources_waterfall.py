@@ -5,11 +5,11 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 from app.models.models import MediaType
-from app.services.subscription_service import SubscriptionService, SubscriptionSnapshot
 from app.services.subscriptions.resource_resolver import (
     ResourceResolverDependencies,
     resolve_subscription_resources,
 )
+from app.services.subscriptions.snapshot import SubscriptionSnapshot
 from app.services.subscriptions import (
     resource_resolver_runtime_adapter as resolver_runtime_module,
 )
@@ -236,7 +236,6 @@ class TestFetchResourcesWaterfall:
     def test_fetch_resources_stops_after_first_source_hit(
         self, monkeypatch: Any
     ) -> None:
-        service = SubscriptionService()
         sub = SubscriptionSnapshot(
             id=0,
             tmdb_id=123,
@@ -318,9 +317,12 @@ class TestFetchResourcesWaterfall:
         )
 
         resources, _traces, meta = asyncio.run(
-            service._fetch_resources(
+            resolver_runtime_module.fetch_subscription_resources_with_runtime_adapter(
                 channel="all",
                 sub=sub,
+                dependencies=(
+                    resolver_runtime_module.build_default_resource_resolver_runtime_dependencies()
+                ),
                 source_order=["pansou", "hdhive", "tg"],
             )
         )
@@ -336,7 +338,6 @@ class TestFetchResourcesWaterfall:
     def test_fetch_resources_falls_back_when_first_source_exhausted(
         self, monkeypatch: Any
     ) -> None:
-        service = SubscriptionService()
         sub = SubscriptionSnapshot(
             id=0,
             tmdb_id=456,
@@ -425,9 +426,12 @@ class TestFetchResourcesWaterfall:
         )
 
         resources, _traces, meta = asyncio.run(
-            service._fetch_resources(
+            resolver_runtime_module.fetch_subscription_resources_with_runtime_adapter(
                 channel="all",
                 sub=sub,
+                dependencies=(
+                    resolver_runtime_module.build_default_resource_resolver_runtime_dependencies()
+                ),
                 source_order=["pansou", "hdhive"],
                 exclude_urls={"https://115.com/s/used"},
             )

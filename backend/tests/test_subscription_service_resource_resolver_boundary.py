@@ -25,10 +25,11 @@ def test_subscription_service_drops_resource_resolver_default_dependency_wrapper
         assert name not in source
 
 
-def test_subscription_service_keeps_fetch_resources_and_used_hdhive_wrappers() -> None:
+def test_subscription_service_drops_fetch_resources_wrapper_and_keeps_hdhive_wrappers() -> None:
     source = SERVICE.read_text(encoding="utf-8")
 
-    assert "async def _fetch_resources" in source
-    assert "build_default_resource_resolver_runtime_dependencies()" in source
+    assert "async def _fetch_resources" not in source
+    assert "build_default_resource_resolver_runtime_dependencies" not in source
+    assert "fetch_subscription_resources_with_runtime_adapter" not in source
     assert "_build_hdhive_unlock_context" in source
     assert "_prepare_hdhive_locked_resources" in source

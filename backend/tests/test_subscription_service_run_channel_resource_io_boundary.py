@@ -21,7 +21,7 @@ def test_run_channel_drops_resource_io_callback_assembly() -> None:
     assert "async def _store_new_resources" not in source
 
 
-def test_fetch_resources_wrapper_stays_for_existing_callers() -> None:
+def test_fetch_resources_wrapper_is_removed_after_runtime_defaults_take_over() -> None:
     source = SERVICE.read_text(encoding="utf-8")
 
-    assert "async def _fetch_resources" in source
+    assert "async def _fetch_resources" not in source

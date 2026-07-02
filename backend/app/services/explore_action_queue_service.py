@@ -16,6 +16,18 @@ from app.services.media_postprocess_service import media_postprocess_service
 from app.services.operation_log_service import operation_log_service
 from app.services.pan115_service import pan115_service
 from app.services.runtime_settings_service import runtime_settings_service
+from app.services.subscriptions.resource_candidates import (
+    extract_offline_url,
+    extract_resource_url,
+)
+from app.services.subscriptions.resource_resolver_runtime_adapter import (
+    build_default_resource_resolver_runtime_dependencies,
+    fetch_subscription_resources_with_runtime_adapter,
+)
+from app.services.subscriptions.runtime_preferences_adapter import (
+    resolve_source_order_with_runtime_adapter,
+)
+from app.services.subscriptions.snapshot import SubscriptionSnapshot
 from app.core.timezone_utils import beijing_now
 
 logger = logging.getLogger(__name__)
@@ -806,11 +818,6 @@ class ExploreActionQueueService:
         tmdb_id = int(route_info["tmdb_id"])
         douban_id = str(route_info.get("douban_id") or "").strip()
 
-        from app.services.subscription_service import (
-            SubscriptionSnapshot,
-            subscription_service,
-        )
-
         title = (
             str(payload.get("title") or payload.get("name") or "").strip()
             or f"TMDB {tmdb_id}"
@@ -835,7 +842,7 @@ class ExploreActionQueueService:
             has_successful_transfer=False,
         )
 
-        source_order = subscription_service._resolve_source_order("all")
+        source_order = resolve_source_order_with_runtime_adapter("all")
         source_attempts: list[dict[str, Any]] = []
         transfer_attempts: list[dict[str, Any]] = []
 
@@ -843,9 +850,10 @@ class ExploreActionQueueService:
         folder_id = str(folder.get("folder_id") or "0").strip() or "0"
 
         for source in source_order:
-            primary_resources, _traces, meta = await subscription_service._fetch_resources(
+            primary_resources, _traces, meta = await fetch_subscription_resources_with_runtime_adapter(
                 channel="all",
                 sub=snapshot,
+                dependencies=build_default_resource_resolver_runtime_dependencies(),
                 source_order=[source],
             )
             source_attempts.extend(list(meta.get("attempts") or []))
@@ -853,7 +861,7 @@ class ExploreActionQueueService:
                 continue
 
             for resource in primary_resources:
-                share_link = subscription_service._extract_resource_url(resource)
+                share_link = extract_resource_url(resource)
                 if share_link:
                     receive_code = self._extract_receive_code(share_link)
                     try:
@@ -930,7 +938,7 @@ class ExploreActionQueueService:
                         else "已提交转存任务",
                     }
 
-                offline_url = subscription_service._extract_offline_url(resource)
+                offline_url = extract_offline_url(resource)
                 if offline_url:
                     try:
                         offline_folder_id = str(

@@ -53,10 +53,6 @@ from app.services.subscriptions.manual_resource_fetch_runtime_adapter import (
     build_default_manual_resource_fetch_runtime_dependencies,
     fetch_resources_for_media_with_runtime_adapter,
 )
-from app.services.subscriptions.resource_resolver_runtime_adapter import (
-    build_default_resource_resolver_runtime_dependencies,
-    fetch_subscription_resources_with_runtime_adapter,
-)
 from app.services.subscriptions.auto_save_resources_runtime_adapter import (
     auto_save_resources_with_runtime_adapter,
     build_default_auto_save_resources_runtime_dependencies,
@@ -208,23 +204,6 @@ class SubscriptionService:
                 ),
                 check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
-        )
-
-    async def _fetch_resources(
-        self,
-        channel: str,
-        sub: "SubscriptionSnapshot",
-        hdhive_unlock_context: dict[str, Any] | None = None,
-        source_order: list[str] | None = None,
-        exclude_urls: set[str] | None = None,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-        return await fetch_subscription_resources_with_runtime_adapter(
-            channel=channel,
-            sub=sub,
-            dependencies=build_default_resource_resolver_runtime_dependencies(),
-            hdhive_unlock_context=hdhive_unlock_context,
-            source_order=source_order,
-            exclude_urls=exclude_urls,
         )
 
     def _resolve_source_order(self, channel: str) -> list[str]:
@@ -392,7 +371,7 @@ class SubscriptionService:
         year: str | None = None,
         season_number: int | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-        """供手动转存等场景调用的统一资源获取入口，复用 _fetch_resources 管道。"""
+        """供手动转存等场景调用的统一资源获取入口，复用资源解析 runtime adapter。"""
         return await fetch_resources_for_media_with_runtime_adapter(
             media_type=media_type,
             tmdb_id=tmdb_id,

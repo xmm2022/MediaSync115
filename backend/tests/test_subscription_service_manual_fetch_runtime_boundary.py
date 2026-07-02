@@ -16,7 +16,7 @@ def test_manual_fetch_drops_fetch_resource_callback_assembly() -> None:
     assert "fetch_resources=self._fetch_resources" not in public_fetch_source
 
 
-def test_fetch_resources_wrapper_stays_for_existing_callers() -> None:
+def test_fetch_resources_wrapper_is_removed_after_manual_defaults_take_over() -> None:
     source = SERVICE.read_text(encoding="utf-8")
 
-    assert "async def _fetch_resources" in source
+    assert "async def _fetch_resources" not in source
