@@ -15,6 +15,9 @@ from app.services.subscriptions.auto_transfer_record_loaders_db_adapter import (
     load_force_retry_records_with_db_adapter,
     load_retryable_records_with_db_adapter,
 )
+from app.services.subscriptions.fixed_source_scan import (
+    should_scan_fixed_sources as should_scan_fixed_sources_policy,
+)
 from app.services.subscriptions.item_processing_run_flow import (
     SubscriptionItemProcessingDependencies,
     process_subscription_item,
@@ -179,7 +182,7 @@ def build_default_run_channel_runtime_dependencies(
     auto_save_records_with_link_fallback: (
         AutoSaveRecordsWithLinkFallback | None
     ) = None,
-    should_scan_fixed_sources: ShouldScanFixedSources,
+    should_scan_fixed_sources: ShouldScanFixedSources | None = None,
     scan_fixed_sources_for_subscription: ScanFixedSourcesForSubscription,
     delete_subscription_with_records: DeleteSubscriptionWithRecords,
 ) -> RunChannelRuntimeDependencies:
@@ -226,7 +229,11 @@ def build_default_run_channel_runtime_dependencies(
             if auto_save_records_with_link_fallback is not None
             else auto_save_records_with_link_fallback_with_default_runtime_dependencies
         ),
-        should_scan_fixed_sources=should_scan_fixed_sources,
+        should_scan_fixed_sources=(
+            should_scan_fixed_sources
+            if should_scan_fixed_sources is not None
+            else should_scan_fixed_sources_policy
+        ),
         scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
         delete_subscription_with_records=delete_subscription_with_records,
         now=beijing_now,

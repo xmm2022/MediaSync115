@@ -79,3 +79,13 @@ def test_subscription_service_drops_quality_filter_wrapper() -> None:
         "resolve_subscription_quality_filter_with_runtime_adapter",
     ):
         assert name not in source
+
+
+def test_subscription_service_drops_fixed_source_policy_wrapper() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_should_scan_fixed_sources",
+        "should_scan_fixed_sources_policy",
+    ):
+        assert name not in source

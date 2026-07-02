@@ -22,9 +22,6 @@ from app.services.subscriptions.pre_scan_cleanup_runtime_adapter import (
     build_default_pre_scan_cleanup_runtime_dependencies,
     evaluate_pre_scan_cleanup_with_runtime_adapter,
 )
-from app.services.subscriptions.fixed_source_scan import (
-    should_scan_fixed_sources as should_scan_fixed_sources_policy,
-)
 from app.services.subscriptions.fixed_source_scan_runtime_adapter import (
     build_default_fixed_source_scan_runtime_dependencies,
     scan_fixed_sources_with_runtime_adapter,
@@ -67,7 +64,6 @@ class SubscriptionService:
                 create_step_log=self._create_step_log,
                 prune_step_logs=self._prune_step_logs,
                 evaluate_pre_scan_cleanup=self._evaluate_pre_scan_cleanup,
-                should_scan_fixed_sources=self._should_scan_fixed_sources,
                 scan_fixed_sources_for_subscription=(
                     self._scan_fixed_sources_for_subscription
                 ),
@@ -173,17 +169,6 @@ class SubscriptionService:
                 ),
                 check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
-        )
-
-    def _should_scan_fixed_sources(
-        self,
-        sub: "SubscriptionSnapshot",
-        *,
-        force_auto_download: bool = False,
-    ) -> bool:
-        return should_scan_fixed_sources_policy(
-            sub,
-            force_auto_download=force_auto_download,
         )
 
     async def _scan_fixed_sources_for_subscription(
