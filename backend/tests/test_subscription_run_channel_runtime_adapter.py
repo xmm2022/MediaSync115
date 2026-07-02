@@ -375,9 +375,6 @@ async def test_subscription_service_wrapper_passes_callbacks_and_concurrency(
         "create_step_log": "_create_step_log",
         "prune_step_logs": "_prune_step_logs",
         "evaluate_pre_scan_cleanup": "_evaluate_pre_scan_cleanup",
-        "auto_save_records_with_link_fallback": (
-            "_auto_save_records_with_link_fallback"
-        ),
         "should_scan_fixed_sources": "_should_scan_fixed_sources",
         "scan_fixed_sources_for_subscription": (
             "_scan_fixed_sources_for_subscription"
@@ -391,6 +388,7 @@ async def test_subscription_service_wrapper_passes_callbacks_and_concurrency(
     assert "store_new_resources" not in builder_kwargs
     assert "load_retryable_records" not in builder_kwargs
     assert "load_force_retry_records" not in builder_kwargs
+    assert "auto_save_records_with_link_fallback" not in builder_kwargs
 
 
 def test_default_runtime_dependencies_bind_existing_services_and_runners() -> None:
@@ -699,6 +697,105 @@ def test_default_runtime_dependencies_bind_record_loader_defaults_without_servic
     )
 
 
+def test_default_runtime_dependencies_bind_link_fallback_default_without_service_callback() -> None:
+    async def create_execution_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def prune_step_logs(_db: Any) -> None:
+        return None
+
+    async def evaluate_pre_scan_cleanup(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"deleted": False}
+
+    def should_scan_fixed_sources(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    async def scan_fixed_sources_for_subscription(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    async def delete_subscription_with_records(
+        _db: Any,
+        _subscription_id: int,
+    ) -> None:
+        return None
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        create_execution_log=create_execution_log,
+        create_step_log=create_step_log,
+        prune_step_logs=prune_step_logs,
+        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        should_scan_fixed_sources=should_scan_fixed_sources,
+        scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert dependencies.auto_save_records_with_link_fallback is (
+        run_channel_runtime_module.auto_save_records_with_link_fallback_with_default_runtime_dependencies
+    )
+
+
+def test_default_runtime_dependencies_preserve_falsy_link_fallback_injection() -> None:
+    class FalsyAsyncCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        async def __call__(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {}
+
+    async def create_execution_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def prune_step_logs(_db: Any) -> None:
+        return None
+
+    async def evaluate_pre_scan_cleanup(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"deleted": False}
+
+    def should_scan_fixed_sources(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    async def scan_fixed_sources_for_subscription(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    async def delete_subscription_with_records(
+        _db: Any,
+        _subscription_id: int,
+    ) -> None:
+        return None
+
+    auto_save_records_with_link_fallback = FalsyAsyncCallable()
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        create_execution_log=create_execution_log,
+        create_step_log=create_step_log,
+        prune_step_logs=prune_step_logs,
+        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        auto_save_records_with_link_fallback=(
+            auto_save_records_with_link_fallback
+        ),
+        should_scan_fixed_sources=should_scan_fixed_sources,
+        scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert (
+        dependencies.auto_save_records_with_link_fallback
+        is auto_save_records_with_link_fallback
+    )
+
+
 def test_default_runtime_dependencies_preserve_falsy_record_loader_injections() -> None:
     class FalsyAsyncCallable:
         def __bool__(self) -> bool:
@@ -760,6 +857,66 @@ def test_default_runtime_dependencies_preserve_falsy_record_loader_injections() 
 
     assert dependencies.load_retryable_records is load_retryable_records
     assert dependencies.load_force_retry_records is load_force_retry_records
+
+
+async def test_default_link_fallback_helper_builds_link_fallback_runtime_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = object()
+    sub = object()
+    records = [object()]
+    runtime_dependencies = object()
+    adapter_kwargs: dict[str, Any] = {}
+
+    def fake_build_default_link_fallback_runtime_dependencies() -> object:
+        return runtime_dependencies
+
+    async def fake_auto_save_records_with_link_fallback_with_runtime_adapter(
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        adapter_kwargs.update(kwargs)
+        return {"saved": 1}
+
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "build_default_link_fallback_runtime_dependencies",
+        fake_build_default_link_fallback_runtime_dependencies,
+    )
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "auto_save_records_with_link_fallback_with_runtime_adapter",
+        fake_auto_save_records_with_link_fallback_with_runtime_adapter,
+    )
+
+    result = await (
+        run_channel_runtime_module.auto_save_records_with_link_fallback_with_default_runtime_dependencies(
+            db=db,
+            run_id="run-1",
+            channel="movie",
+            sub=sub,
+            records=records,
+            transfer_source="retry",
+            tv_missing_snapshot={"missing_count": 2},
+            hdhive_unlock_context={"enabled": True},
+            source_order=["hdhive", "tg"],
+            enable_link_refetch=False,
+        )
+    )
+
+    assert result == {"saved": 1}
+    assert adapter_kwargs == {
+        "db": db,
+        "run_id": "run-1",
+        "channel": "movie",
+        "sub": sub,
+        "records": records,
+        "transfer_source": "retry",
+        "dependencies": runtime_dependencies,
+        "tv_missing_snapshot": {"missing_count": 2},
+        "hdhive_unlock_context": {"enabled": True},
+        "source_order": ["hdhive", "tg"],
+        "enable_link_refetch": False,
+    }
 
 
 def test_default_runtime_dependencies_preserve_falsy_resource_io_injections() -> None:

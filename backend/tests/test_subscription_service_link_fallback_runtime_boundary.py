@@ -19,9 +19,12 @@ def test_subscription_service_drops_link_fallback_adapter_assembly() -> None:
         assert name not in source
 
 
-def test_subscription_service_uses_link_fallback_runtime_adapter() -> None:
+def test_subscription_service_drops_link_fallback_runtime_wrapper() -> None:
     source = SERVICE.read_text(encoding="utf-8")
 
-    assert "async def _auto_save_records_with_link_fallback" in source
-    assert "auto_save_records_with_link_fallback_with_runtime_adapter" in source
-    assert "build_default_link_fallback_runtime_dependencies()" in source
+    for name in (
+        "async def _auto_save_records_with_link_fallback",
+        "auto_save_records_with_link_fallback_with_runtime_adapter",
+        "build_default_link_fallback_runtime_dependencies",
+    ):
+        assert name not in source

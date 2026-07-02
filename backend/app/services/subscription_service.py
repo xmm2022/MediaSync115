@@ -10,10 +10,6 @@ from app.models.models import (
     DownloadRecord,
     ExecutionStatus,
 )
-from app.services.subscriptions.link_fallback_runtime_adapter import (
-    auto_save_records_with_link_fallback_with_runtime_adapter,
-    build_default_link_fallback_runtime_dependencies,
-)
 from app.services.subscriptions.snapshot import SubscriptionSnapshot
 from app.services.subscriptions.execution_logs import (
     create_execution_log as create_subscription_execution_log,
@@ -81,9 +77,6 @@ class SubscriptionService:
                 create_step_log=self._create_step_log,
                 prune_step_logs=self._prune_step_logs,
                 evaluate_pre_scan_cleanup=self._evaluate_pre_scan_cleanup,
-                auto_save_records_with_link_fallback=(
-                    self._auto_save_records_with_link_fallback
-                ),
                 should_scan_fixed_sources=self._should_scan_fixed_sources,
                 scan_fixed_sources_for_subscription=(
                     self._scan_fixed_sources_for_subscription
@@ -190,35 +183,6 @@ class SubscriptionService:
                 ),
                 check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
-        )
-
-    async def _auto_save_records_with_link_fallback(
-        self,
-        db: AsyncSession,
-        run_id: str,
-        channel: str,
-        sub: "SubscriptionSnapshot",
-        records: list[DownloadRecord],
-        *,
-        transfer_source: str,
-        tv_missing_snapshot: dict[str, Any] | None = None,
-        hdhive_unlock_context: dict[str, Any] | None = None,
-        source_order: list[str] | None = None,
-        enable_link_refetch: bool = True,
-    ) -> dict[str, Any]:
-        """转存资源；当前批链接均失败或剧集仍缺集时，自动补充搜索下一条链接直至成功。"""
-        return await auto_save_records_with_link_fallback_with_runtime_adapter(
-            db=db,
-            run_id=run_id,
-            channel=channel,
-            sub=sub,
-            records=records,
-            transfer_source=transfer_source,
-            dependencies=build_default_link_fallback_runtime_dependencies(),
-            tv_missing_snapshot=tv_missing_snapshot,
-            hdhive_unlock_context=hdhive_unlock_context,
-            source_order=source_order,
-            enable_link_refetch=enable_link_refetch,
         )
 
     def _should_scan_fixed_sources(

@@ -46,3 +46,14 @@ def test_subscription_service_drops_record_loader_wrappers() -> None:
         "load_subscription_resource_urls_with_db_adapter",
     ):
         assert name not in source
+
+
+def test_subscription_service_drops_link_fallback_wrapper() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_auto_save_records_with_link_fallback",
+        "auto_save_records_with_link_fallback_with_runtime_adapter",
+        "build_default_link_fallback_runtime_dependencies",
+    ):
+        assert name not in source

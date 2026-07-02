@@ -19,6 +19,10 @@ from app.services.subscriptions.item_processing_run_flow import (
     SubscriptionItemProcessingDependencies,
     process_subscription_item,
 )
+from app.services.subscriptions.link_fallback_runtime_adapter import (
+    auto_save_records_with_link_fallback_with_runtime_adapter,
+    build_default_link_fallback_runtime_dependencies,
+)
 from app.services.subscriptions.run_dispatch_flow import (
     SubscriptionRunDispatchDependencies,
     dispatch_subscription_checks,
@@ -132,6 +136,34 @@ async def fetch_resources_with_default_runtime_dependencies(
     )
 
 
+async def auto_save_records_with_link_fallback_with_default_runtime_dependencies(
+    *,
+    db: Any,
+    run_id: str,
+    channel: str,
+    sub: Any,
+    records: list[Any],
+    transfer_source: str,
+    tv_missing_snapshot: dict[str, Any] | None = None,
+    hdhive_unlock_context: dict[str, Any] | None = None,
+    source_order: list[str] | None = None,
+    enable_link_refetch: bool = True,
+) -> dict[str, Any]:
+    return await auto_save_records_with_link_fallback_with_runtime_adapter(
+        db=db,
+        run_id=run_id,
+        channel=channel,
+        sub=sub,
+        records=records,
+        transfer_source=transfer_source,
+        dependencies=build_default_link_fallback_runtime_dependencies(),
+        tv_missing_snapshot=tv_missing_snapshot,
+        hdhive_unlock_context=hdhive_unlock_context,
+        source_order=source_order,
+        enable_link_refetch=enable_link_refetch,
+    )
+
+
 def build_default_run_channel_runtime_dependencies(
     *,
     create_execution_log: CreateExecutionLog,
@@ -144,7 +176,9 @@ def build_default_run_channel_runtime_dependencies(
     resolve_source_order: ResolveSourceOrder | None = None,
     load_retryable_records: LoadRetryableRecords | None = None,
     load_force_retry_records: LoadForceRetryRecords | None = None,
-    auto_save_records_with_link_fallback: AutoSaveRecordsWithLinkFallback,
+    auto_save_records_with_link_fallback: (
+        AutoSaveRecordsWithLinkFallback | None
+    ) = None,
     should_scan_fixed_sources: ShouldScanFixedSources,
     scan_fixed_sources_for_subscription: ScanFixedSourcesForSubscription,
     delete_subscription_with_records: DeleteSubscriptionWithRecords,
@@ -189,6 +223,8 @@ def build_default_run_channel_runtime_dependencies(
         ),
         auto_save_records_with_link_fallback=(
             auto_save_records_with_link_fallback
+            if auto_save_records_with_link_fallback is not None
+            else auto_save_records_with_link_fallback_with_default_runtime_dependencies
         ),
         should_scan_fixed_sources=should_scan_fixed_sources,
         scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
