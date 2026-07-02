@@ -60,6 +60,7 @@ async def test_subscription_check_scans_enabled_manual_pan115_sources(monkeypatc
 
     service = SubscriptionService()
     scan_calls = []
+    fetch_calls = []
 
     async def fake_cleanup(*_args, **_kwargs):
         sub = _kwargs.get("sub")
@@ -75,6 +76,7 @@ async def test_subscription_check_scans_enabled_manual_pan115_sources(monkeypatc
         }
 
     async def fake_fetch_resources(*_args, **_kwargs):
+        fetch_calls.append({"args": _args, "kwargs": _kwargs})
         return [], [], {"summary": "no resources", "source_order": [], "attempts": []}
 
     async def fake_scan_manual_pan115_source(
@@ -124,6 +126,10 @@ async def test_subscription_check_scans_enabled_manual_pan115_sources(monkeypatc
             result = await service.run_channel_check(db, "all")
 
         assert scan_calls == [source_id]
+        assert len(fetch_calls) == 1
+        assert fetch_calls[0]["args"][0] == "all"
+        assert fetch_calls[0]["args"][1].id == sub_id
+        assert isinstance(fetch_calls[0]["kwargs"].get("source_order"), list)
         assert result["checked_count"] >= 1
         assert result["failed_count"] == 0
         assert result["auto_saved_count"] == 2
@@ -195,6 +201,7 @@ async def test_subscription_check_skips_manual_pan115_source_without_auto_downlo
         await db.commit()
 
     service = SubscriptionService()
+    fetch_calls = []
 
     async def fake_cleanup(*_args, **_kwargs):
         sub = _kwargs.get("sub")
@@ -210,6 +217,7 @@ async def test_subscription_check_skips_manual_pan115_source_without_auto_downlo
         }
 
     async def fake_fetch_resources(*_args, **_kwargs):
+        fetch_calls.append({"args": _args, "kwargs": _kwargs})
         return [], [], {"summary": "no resources", "source_order": [], "attempts": []}
 
     async def fail_if_called(*_args, **_kwargs):
@@ -235,6 +243,10 @@ async def test_subscription_check_skips_manual_pan115_source_without_auto_downlo
         assert result["failed_count"] == 0
         assert result["auto_saved_count"] == 0
         assert result["auto_failed_count"] == 0
+        assert len(fetch_calls) == 1
+        assert fetch_calls[0]["args"][0] == "all"
+        assert fetch_calls[0]["args"][1].id == sub_id
+        assert isinstance(fetch_calls[0]["kwargs"].get("source_order"), list)
     finally:
         async with async_session_maker() as db:
             await db.execute(

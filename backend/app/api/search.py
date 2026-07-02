@@ -3470,7 +3470,7 @@ async def get_media_resources(
     refresh: bool = Query(False, description="是否绕过缓存"),
     season: int | None = Query(None, description="季数（TV时使用）"),
 ):
-    """统一资源获取端点，复用订阅的 _fetch_resources 管道，按优先级搜索全部来源。"""
+    """统一资源获取端点，复用订阅资源解析 runtime adapter，按优先级搜索全部来源。"""
     normalized_media_type = str(media_type or "").strip().lower()
     if normalized_media_type not in {"movie", "tv"}:
         raise HTTPException(status_code=400, detail="media_type must be movie or tv")
