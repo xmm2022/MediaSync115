@@ -36,6 +36,12 @@ from app.services.subscriptions.resource_resolver_runtime_adapter import (
 from app.services.subscriptions.resource_storage_runtime_adapter import (
     store_new_resources_with_runtime_adapter,
 )
+from app.services.subscriptions.hdhive_unlock_runtime_adapter import (
+    build_hdhive_unlock_context_with_runtime_adapter,
+)
+from app.services.subscriptions.runtime_preferences_adapter import (
+    resolve_source_order_with_runtime_adapter,
+)
 
 
 LogBackgroundEvent = Callable[..., Awaitable[None]]
@@ -127,11 +133,11 @@ def build_default_run_channel_runtime_dependencies(
     create_execution_log: CreateExecutionLog,
     create_step_log: CreateStepLog,
     prune_step_logs: PruneStepLogs,
-    build_hdhive_unlock_context: BuildHdhiveUnlockContext,
-    resolve_source_order: ResolveSourceOrder,
     evaluate_pre_scan_cleanup: EvaluatePreScanCleanup,
     fetch_resources: FetchResources | None = None,
     store_new_resources: StoreNewResources | None = None,
+    build_hdhive_unlock_context: BuildHdhiveUnlockContext | None = None,
+    resolve_source_order: ResolveSourceOrder | None = None,
     load_retryable_records: LoadRetryableRecords,
     load_force_retry_records: LoadForceRetryRecords,
     auto_save_records_with_link_fallback: AutoSaveRecordsWithLinkFallback,
@@ -145,8 +151,16 @@ def build_default_run_channel_runtime_dependencies(
         create_step_log=create_step_log,
         prune_step_logs=prune_step_logs,
         load_active_subscriptions=load_active_subscription_snapshots,
-        build_hdhive_unlock_context=build_hdhive_unlock_context,
-        resolve_source_order=resolve_source_order,
+        build_hdhive_unlock_context=(
+            build_hdhive_unlock_context
+            if build_hdhive_unlock_context is not None
+            else build_hdhive_unlock_context_with_runtime_adapter
+        ),
+        resolve_source_order=(
+            resolve_source_order
+            if resolve_source_order is not None
+            else resolve_source_order_with_runtime_adapter
+        ),
         session_factory=async_session_maker,
         evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
         fetch_resources=(

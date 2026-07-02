@@ -42,7 +42,6 @@ from app.services.subscriptions.fixed_source_scan_runtime_adapter import (
     scan_fixed_sources_with_runtime_adapter,
 )
 from app.services.subscriptions.runtime_preferences_adapter import (
-    resolve_source_order_with_runtime_adapter,
     resolve_subscription_quality_filter_with_runtime_adapter,
 )
 from app.services.subscriptions.run_channel_runtime_adapter import (
@@ -58,7 +57,6 @@ from app.services.subscriptions.auto_save_resources_runtime_adapter import (
     build_default_auto_save_resources_runtime_dependencies,
 )
 from app.services.subscriptions.hdhive_unlock_runtime_adapter import (
-    build_hdhive_unlock_context_with_runtime_adapter,
     prepare_hdhive_locked_resources_with_runtime_adapter,
 )
 from app.services.subscriptions.feiniu_status_runtime_adapter import (
@@ -90,8 +88,6 @@ class SubscriptionService:
                 create_execution_log=self._create_execution_log,
                 create_step_log=self._create_step_log,
                 prune_step_logs=self._prune_step_logs,
-                build_hdhive_unlock_context=self._build_hdhive_unlock_context,
-                resolve_source_order=self._resolve_source_order,
                 evaluate_pre_scan_cleanup=self._evaluate_pre_scan_cleanup,
                 load_retryable_records=self._load_retryable_records,
                 load_force_retry_records=self._load_force_retry_records,
@@ -205,12 +201,6 @@ class SubscriptionService:
                 check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
         )
-
-    def _resolve_source_order(self, channel: str) -> list[str]:
-        return resolve_source_order_with_runtime_adapter(channel)
-
-    def _build_hdhive_unlock_context(self) -> dict[str, Any]:
-        return build_hdhive_unlock_context_with_runtime_adapter()
 
     async def _prepare_hdhive_locked_resources(
         self,

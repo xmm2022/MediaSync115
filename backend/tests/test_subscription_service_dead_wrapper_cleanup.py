@@ -23,10 +23,12 @@ def test_subscription_service_drops_unreferenced_private_wrappers() -> None:
         assert name not in source
 
 
-def test_subscription_service_keeps_used_hdhive_runtime_wrappers() -> None:
+def test_subscription_service_drops_run_start_default_wrappers() -> None:
     source = SERVICE.read_text(encoding="utf-8")
 
-    assert "_build_hdhive_unlock_context" in source
+    assert "_build_hdhive_unlock_context" not in source
+    assert "_resolve_source_order" not in source
+    assert "build_hdhive_unlock_context_with_runtime_adapter" not in source
+    assert "resolve_source_order_with_runtime_adapter" not in source
     assert "_prepare_hdhive_locked_resources" in source
-    assert "build_hdhive_unlock_context_with_runtime_adapter" in source
     assert "prepare_hdhive_locked_resources_with_runtime_adapter" in source
