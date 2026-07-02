@@ -17,7 +17,6 @@ from app.models.models import (
 )
 from app.core.database import async_session_maker
 from app.services.operation_log_service import operation_log_service
-from app.services.emby_service import emby_service
 from app.services.subscriptions.link_fallback_flow import (
     auto_save_records_with_link_fallback as auto_save_records_with_link_fallback_flow,
 )
@@ -45,10 +44,10 @@ from app.services.subscriptions.execution_logs import (
     create_step_log as create_subscription_step_log,
     prune_step_logs as prune_subscription_step_logs,
 )
-from app.services.subscriptions.completed_cleanup import (
-    CompletedCleanupDependencies,
-    cleanup_completed_subscriptions as cleanup_completed_subscriptions_flow,
-    cleanup_single_subscription as cleanup_single_subscription_flow,
+from app.services.subscriptions.completed_cleanup_runtime_adapter import (
+    build_default_completed_cleanup_runtime_dependencies,
+    cleanup_completed_subscriptions_with_runtime_adapter,
+    cleanup_single_subscription_with_runtime_adapter,
 )
 from app.services.subscriptions.pre_scan_cleanup_runtime_adapter import (
     build_default_pre_scan_cleanup_runtime_dependencies,
@@ -117,10 +116,6 @@ from app.services.subscriptions.feiniu_status_runtime_adapter import (
 )
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.subscription_delete_service import subscription_delete_service
-from app.services.subscription_cleanup_policy import (
-    has_upcoming_episodes_in_subscription_scope,
-)
-from app.services.tv_missing_service import tv_missing_service
 
 logger = logging.getLogger(__name__)
 
@@ -291,24 +286,18 @@ class SubscriptionService:
             record,
         )
 
-    def _completed_cleanup_dependencies(self) -> CompletedCleanupDependencies:
-        return CompletedCleanupDependencies(
-            delete_subscription_with_records=self._delete_subscription_with_records,
-            log_background_event=operation_log_service.log_background_event,
-            get_movie_status_by_tmdb=emby_service.get_movie_status_by_tmdb,
-            check_feiniu_movie_status=self._check_feiniu_movie_status,
-            get_tv_missing_status=tv_missing_service.get_tv_missing_status,
-            has_upcoming_episodes=has_upcoming_episodes_in_subscription_scope,
-            sleep=asyncio.sleep,
-        )
-
     async def cleanup_completed_subscriptions(
         self, db: AsyncSession
     ) -> dict[str, Any]:
         """离线下载完成后检查并清理已完成的订阅（电影已转存或剧集不缺集）"""
-        return await cleanup_completed_subscriptions_flow(
+        return await cleanup_completed_subscriptions_with_runtime_adapter(
             db,
-            dependencies=self._completed_cleanup_dependencies(),
+            dependencies=build_default_completed_cleanup_runtime_dependencies(
+                delete_subscription_with_records=(
+                    self._delete_subscription_with_records
+                ),
+                check_feiniu_movie_status=self._check_feiniu_movie_status,
+            ),
         )
 
     async def _check_feiniu_movie_status(
@@ -327,10 +316,15 @@ class SubscriptionService:
         self, db: AsyncSession, subscription_id: int
     ) -> dict[str, Any]:
         """检查并清理单个订阅（电影已转存/已在库 或 剧集不缺集）"""
-        return await cleanup_single_subscription_flow(
+        return await cleanup_single_subscription_with_runtime_adapter(
             db,
             subscription_id,
-            dependencies=self._completed_cleanup_dependencies(),
+            dependencies=build_default_completed_cleanup_runtime_dependencies(
+                delete_subscription_with_records=(
+                    self._delete_subscription_with_records
+                ),
+                check_feiniu_movie_status=self._check_feiniu_movie_status,
+            ),
         )
 
     async def _fetch_resources(
