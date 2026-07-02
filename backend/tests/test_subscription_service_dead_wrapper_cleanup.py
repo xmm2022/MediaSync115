@@ -123,3 +123,17 @@ def test_subscription_service_drops_pre_scan_cleanup_wrapper() -> None:
         "build_default_pre_scan_cleanup_runtime_dependencies",
     ):
         assert name not in source
+
+
+def test_subscription_service_drops_execution_log_wrappers() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_create_execution_log",
+        "_create_step_log",
+        "_prune_step_logs",
+        "create_subscription_execution_log",
+        "create_subscription_step_log",
+        "prune_subscription_step_logs",
+    ):
+        assert name not in source

@@ -34,6 +34,11 @@ from app.services.subscriptions.pre_scan_cleanup_runtime_adapter import (
     build_default_pre_scan_cleanup_runtime_dependencies,
     evaluate_pre_scan_cleanup_with_runtime_adapter,
 )
+from app.services.subscriptions.execution_logs import (
+    create_execution_log as create_subscription_execution_log,
+    create_step_log as create_subscription_step_log,
+    prune_step_logs as prune_subscription_step_logs,
+)
 from app.services.subscriptions.run_dispatch_flow import (
     SubscriptionRunDispatchDependencies,
     dispatch_subscription_checks,
@@ -229,9 +234,9 @@ def build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies(
 
 def build_default_run_channel_runtime_dependencies(
     *,
-    create_execution_log: CreateExecutionLog,
-    create_step_log: CreateStepLog,
-    prune_step_logs: PruneStepLogs,
+    create_execution_log: CreateExecutionLog | None = None,
+    create_step_log: CreateStepLog | None = None,
+    prune_step_logs: PruneStepLogs | None = None,
     evaluate_pre_scan_cleanup: EvaluatePreScanCleanup | None = None,
     fetch_resources: FetchResources | None = None,
     store_new_resources: StoreNewResources | None = None,
@@ -248,11 +253,27 @@ def build_default_run_channel_runtime_dependencies(
     ) = None,
     delete_subscription_with_records: DeleteSubscriptionWithRecords,
 ) -> RunChannelRuntimeDependencies:
+    resolved_create_execution_log = (
+        create_execution_log
+        if create_execution_log is not None
+        else create_subscription_execution_log
+    )
+    resolved_create_step_log = (
+        create_step_log
+        if create_step_log is not None
+        else create_subscription_step_log
+    )
+    resolved_prune_step_logs = (
+        prune_step_logs
+        if prune_step_logs is not None
+        else prune_subscription_step_logs
+    )
+
     return RunChannelRuntimeDependencies(
         log_background_event=operation_log_service.log_background_event,
-        create_execution_log=create_execution_log,
-        create_step_log=create_step_log,
-        prune_step_logs=prune_step_logs,
+        create_execution_log=resolved_create_execution_log,
+        create_step_log=resolved_create_step_log,
+        prune_step_logs=resolved_prune_step_logs,
         load_active_subscriptions=load_active_subscription_snapshots,
         build_hdhive_unlock_context=(
             build_hdhive_unlock_context
@@ -270,7 +291,7 @@ def build_default_run_channel_runtime_dependencies(
             if evaluate_pre_scan_cleanup is not None
             else build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies(
                 delete_subscription_with_records,
-                create_step_log,
+                resolved_create_step_log,
             )
         ),
         fetch_resources=(
@@ -307,7 +328,7 @@ def build_default_run_channel_runtime_dependencies(
             scan_fixed_sources_for_subscription
             if scan_fixed_sources_for_subscription is not None
             else build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies(
-                create_step_log
+                resolved_create_step_log
             )
         ),
         delete_subscription_with_records=delete_subscription_with_records,
