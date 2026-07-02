@@ -30,10 +30,6 @@ from app.services.subscriptions.manual_resource_fetch_runtime_adapter import (
     build_default_manual_resource_fetch_runtime_dependencies,
     fetch_resources_for_media_with_runtime_adapter,
 )
-from app.services.subscriptions.feiniu_status_runtime_adapter import (
-    check_feiniu_movie_status_with_runtime_adapter,
-    check_feiniu_tv_missing_status_with_runtime_adapter,
-)
 from app.services.subscription_delete_service import subscription_delete_service
 
 logger = logging.getLogger(__name__)
@@ -111,7 +107,6 @@ class SubscriptionService:
                     self._delete_subscription_with_records
                 ),
                 create_step_log=self._create_step_log,
-                check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
         )
 
@@ -133,21 +128,8 @@ class SubscriptionService:
                 delete_subscription_with_records=(
                     self._delete_subscription_with_records
                 ),
-                check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
         )
-
-    async def _check_feiniu_movie_status(
-        self, tmdb_id: int
-    ) -> dict[str, Any]:
-        """检查电影在飞牛中是否已存在，返回 {"checked": bool, "exists": bool, "item_ids": list}"""
-        return await check_feiniu_movie_status_with_runtime_adapter(tmdb_id)
-
-    async def _check_feiniu_tv_missing_status(
-        self, tmdb_id: int
-    ) -> dict[str, Any]:
-        """检查剧集在飞牛中的缺集状态，返回 {"checked": bool, "missing_count": int}"""
-        return await check_feiniu_tv_missing_status_with_runtime_adapter(tmdb_id)
 
     async def cleanup_single_subscription(
         self, db: AsyncSession, subscription_id: int
@@ -160,7 +142,6 @@ class SubscriptionService:
                 delete_subscription_with_records=(
                     self._delete_subscription_with_records
                 ),
-                check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
         )
 

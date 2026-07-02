@@ -13,6 +13,9 @@ from app.services.subscriptions.pre_scan_cleanup import (
     PreScanCleanupDependencies,
     evaluate_pre_scan_cleanup as evaluate_pre_scan_cleanup_flow,
 )
+from app.services.subscriptions.feiniu_status_runtime_adapter import (
+    check_feiniu_movie_status_with_runtime_adapter,
+)
 from app.services.tv_missing_service import tv_missing_service
 
 
@@ -42,12 +45,16 @@ def build_default_pre_scan_cleanup_runtime_dependencies(
     *,
     delete_subscription_with_records: DeleteSubscriptionWithRecords,
     create_step_log: CreateStepLog,
-    check_feiniu_movie_status: CheckFeiniuMovieStatus,
+    check_feiniu_movie_status: CheckFeiniuMovieStatus | None = None,
 ) -> PreScanCleanupRuntimeDependencies:
     return PreScanCleanupRuntimeDependencies(
         delete_subscription_with_records=delete_subscription_with_records,
         create_step_log=create_step_log,
-        check_feiniu_movie_status=check_feiniu_movie_status,
+        check_feiniu_movie_status=(
+            check_feiniu_movie_status
+            if check_feiniu_movie_status is not None
+            else check_feiniu_movie_status_with_runtime_adapter
+        ),
         log_background_event=operation_log_service.log_background_event,
         get_movie_status_by_tmdb=emby_service.get_movie_status_by_tmdb,
         get_tv_missing_status=tv_missing_service.get_tv_missing_status,

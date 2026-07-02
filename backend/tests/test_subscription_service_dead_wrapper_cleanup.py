@@ -100,3 +100,15 @@ def test_subscription_service_drops_fixed_source_scan_wrapper() -> None:
         "build_default_fixed_source_scan_runtime_dependencies",
     ):
         assert name not in source
+
+
+def test_subscription_service_drops_feiniu_status_wrappers() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_check_feiniu_movie_status",
+        "_check_feiniu_tv_missing_status",
+        "check_feiniu_movie_status_with_runtime_adapter",
+        "check_feiniu_tv_missing_status_with_runtime_adapter",
+    ):
+        assert name not in source

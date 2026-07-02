@@ -15,6 +15,9 @@ from app.services.subscriptions.completed_cleanup import (
     cleanup_completed_subscriptions as cleanup_completed_subscriptions_flow,
     cleanup_single_subscription as cleanup_single_subscription_flow,
 )
+from app.services.subscriptions.feiniu_status_runtime_adapter import (
+    check_feiniu_movie_status_with_runtime_adapter,
+)
 from app.services.tv_missing_service import tv_missing_service
 
 
@@ -45,11 +48,15 @@ class CompletedCleanupRuntimeDependencies:
 def build_default_completed_cleanup_runtime_dependencies(
     *,
     delete_subscription_with_records: DeleteSubscriptionWithRecords,
-    check_feiniu_movie_status: CheckFeiniuMovieStatus,
+    check_feiniu_movie_status: CheckFeiniuMovieStatus | None = None,
 ) -> CompletedCleanupRuntimeDependencies:
     return CompletedCleanupRuntimeDependencies(
         delete_subscription_with_records=delete_subscription_with_records,
-        check_feiniu_movie_status=check_feiniu_movie_status,
+        check_feiniu_movie_status=(
+            check_feiniu_movie_status
+            if check_feiniu_movie_status is not None
+            else check_feiniu_movie_status_with_runtime_adapter
+        ),
         log_background_event=operation_log_service.log_background_event,
         get_movie_status_by_tmdb=emby_service.get_movie_status_by_tmdb,
         get_tv_missing_status=tv_missing_service.get_tv_missing_status,

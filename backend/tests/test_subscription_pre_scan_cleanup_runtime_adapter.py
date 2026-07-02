@@ -15,6 +15,9 @@ from app.services.subscriptions.pre_scan_cleanup import (
     PreScanCleanupDependencies,
     evaluate_pre_scan_cleanup as evaluate_pre_scan_cleanup_flow,
 )
+from app.services.subscriptions.feiniu_status_runtime_adapter import (
+    check_feiniu_movie_status_with_runtime_adapter,
+)
 from app.services.subscriptions.pre_scan_cleanup_runtime_adapter import (
     PreScanCleanupRuntimeDependencies,
     build_default_pre_scan_cleanup_runtime_dependencies,
@@ -173,13 +176,9 @@ def test_default_runtime_dependencies_bind_existing_services_and_runner() -> Non
     async def create_step_log(_db: Any, **_kwargs: Any) -> None:
         return None
 
-    async def check_feiniu_movie_status(_tmdb_id: int) -> dict[str, Any]:
-        return {"checked": False}
-
     dependencies = build_default_pre_scan_cleanup_runtime_dependencies(
         delete_subscription_with_records=delete_subscription_with_records,
         create_step_log=create_step_log,
-        check_feiniu_movie_status=check_feiniu_movie_status,
     )
 
     assert (
@@ -187,7 +186,10 @@ def test_default_runtime_dependencies_bind_existing_services_and_runner() -> Non
         is delete_subscription_with_records
     )
     assert dependencies.create_step_log is create_step_log
-    assert dependencies.check_feiniu_movie_status is check_feiniu_movie_status
+    assert (
+        dependencies.check_feiniu_movie_status
+        is check_feiniu_movie_status_with_runtime_adapter
+    )
     assert dependencies.log_background_event.__self__ is operation_log_service
     assert (
         dependencies.log_background_event.__func__
@@ -208,6 +210,31 @@ def test_default_runtime_dependencies_bind_existing_services_and_runner() -> Non
         is has_upcoming_episodes_in_subscription_scope
     )
     assert dependencies.run_evaluate_pre_scan_cleanup is evaluate_pre_scan_cleanup_flow
+
+
+def test_default_runtime_dependencies_preserve_falsy_feiniu_movie_status_injection() -> None:
+    class FalsyAsyncCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        async def __call__(self, _tmdb_id: int) -> dict[str, Any]:
+            return {"checked": True}
+
+    async def delete_subscription_with_records(_db: Any, _subscription_id: int) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    check_feiniu_movie_status = FalsyAsyncCallable()
+
+    dependencies = build_default_pre_scan_cleanup_runtime_dependencies(
+        delete_subscription_with_records=delete_subscription_with_records,
+        create_step_log=create_step_log,
+        check_feiniu_movie_status=check_feiniu_movie_status,
+    )
+
+    assert dependencies.check_feiniu_movie_status is check_feiniu_movie_status
 
 
 def test_pre_scan_cleanup_runtime_adapter_module_boundary() -> None:
