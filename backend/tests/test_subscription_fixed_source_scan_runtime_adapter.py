@@ -23,6 +23,9 @@ from app.services.subscriptions.fixed_source_scan_runtime_adapter import (
     build_default_fixed_source_scan_runtime_dependencies,
     scan_fixed_sources_with_runtime_adapter,
 )
+from app.services.subscriptions.runtime_preferences_adapter import (
+    resolve_subscription_quality_filter_with_runtime_adapter,
+)
 from app.services.tv_missing_service import tv_missing_service
 
 
@@ -210,7 +213,6 @@ def test_default_runtime_dependencies_bind_existing_runtime_services() -> None:
         return None
 
     dependencies = build_default_fixed_source_scan_runtime_dependencies(
-        resolve_quality_filter=lambda _sub: {},
         create_step_log=create_step_log,
     )
 
@@ -230,9 +232,33 @@ def test_default_runtime_dependencies_bind_existing_runtime_services() -> None:
     assert dependencies.get_tv_missing_status.__self__ is tv_missing_service
     assert dependencies.scan_manual_source.__self__ is subscription_source_service
     assert dependencies.create_step_log is create_step_log
+    assert dependencies.resolve_quality_filter is (
+        resolve_subscription_quality_filter_with_runtime_adapter
+    )
     assert dependencies.run_scan_fixed_sources_for_subscription is (
         scan_fixed_sources_for_subscription
     )
+
+
+def test_default_runtime_dependencies_preserve_falsy_quality_filter_injection() -> None:
+    class FalsyCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        def __call__(self, _sub: Any) -> dict[str, Any]:
+            return {"quality": "explicit"}
+
+    async def create_step_log(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    resolve_quality_filter = FalsyCallable()
+
+    dependencies = build_default_fixed_source_scan_runtime_dependencies(
+        resolve_quality_filter=resolve_quality_filter,
+        create_step_log=create_step_log,
+    )
+
+    assert dependencies.resolve_quality_filter is resolve_quality_filter
 
 
 def test_fixed_source_scan_runtime_adapter_module_boundary() -> None:

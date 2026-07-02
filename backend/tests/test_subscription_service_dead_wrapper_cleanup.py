@@ -69,3 +69,13 @@ def test_subscription_service_drops_auto_save_resources_wrapper() -> None:
         "DownloadRecord",
     ):
         assert name not in source
+
+
+def test_subscription_service_drops_quality_filter_wrapper() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_resolve_subscription_quality_filter",
+        "resolve_subscription_quality_filter_with_runtime_adapter",
+    ):
+        assert name not in source

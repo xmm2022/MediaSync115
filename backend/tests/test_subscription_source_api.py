@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from sqlalchemy import delete, select
 
@@ -7,6 +9,18 @@ from app.models.models import (
     SubscriptionSource,
     SubscriptionSourceFile,
 )
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_subscription_source_api_does_not_call_service_quality_filter_wrapper():
+    source = (ROOT / "backend/app/api/subscriptions.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "subscription_service._resolve_subscription_quality_filter" not in source
+    assert "resolve_subscription_quality_filter_with_runtime_adapter" in source
 
 
 async def _delete_sources_by_ids(db, source_ids: list[int]) -> None:

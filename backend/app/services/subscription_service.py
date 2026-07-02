@@ -29,9 +29,6 @@ from app.services.subscriptions.fixed_source_scan_runtime_adapter import (
     build_default_fixed_source_scan_runtime_dependencies,
     scan_fixed_sources_with_runtime_adapter,
 )
-from app.services.subscriptions.runtime_preferences_adapter import (
-    resolve_subscription_quality_filter_with_runtime_adapter,
-)
 from app.services.subscriptions.run_channel_runtime_adapter import (
     build_default_run_channel_runtime_dependencies,
     run_channel_check_with_runtime_adapter,
@@ -205,7 +202,6 @@ class SubscriptionService:
             channel=channel,
             sub=sub,
             dependencies=build_default_fixed_source_scan_runtime_dependencies(
-                resolve_quality_filter=self._resolve_subscription_quality_filter,
                 create_step_log=self._create_step_log,
             ),
             tv_missing_snapshot=tv_missing_snapshot,
@@ -237,9 +233,6 @@ class SubscriptionService:
             started_at=started_at,
             finished_at=finished_at,
         )
-
-    def _resolve_subscription_quality_filter(self, sub: "SubscriptionSnapshot") -> dict[str, Any]:
-        return resolve_subscription_quality_filter_with_runtime_adapter(sub)
 
     async def fetch_resources_for_media(
         self,

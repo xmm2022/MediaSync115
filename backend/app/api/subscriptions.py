@@ -32,6 +32,9 @@ from app.services.subscription_source_service import (
 from app.services.subscription_run_task_service import subscription_run_task_service
 from app.services.tmdb_service import tmdb_service
 from app.services.tv_missing_service import tv_missing_service
+from app.services.subscriptions.runtime_preferences_adapter import (
+    resolve_subscription_quality_filter_with_runtime_adapter,
+)
 from pydantic import BaseModel
 from typing import Any, Optional, List
 from datetime import datetime
@@ -1019,7 +1022,7 @@ async def scan_subscription_source(
             pan_service=pan_service,
             parent_folder_id=parent_folder_id,
             missing_episodes=missing_episodes,
-            quality_filter=subscription_service._resolve_subscription_quality_filter(
+            quality_filter=resolve_subscription_quality_filter_with_runtime_adapter(
                 snapshot
             ),
         )

@@ -17,6 +17,9 @@ from app.services.subscriptions.fixed_source_scan import (
     FixedSourceScanDependencies,
     scan_fixed_sources_for_subscription,
 )
+from app.services.subscriptions.runtime_preferences_adapter import (
+    resolve_subscription_quality_filter_with_runtime_adapter,
+)
 from app.services.tv_missing_service import tv_missing_service
 
 
@@ -40,7 +43,7 @@ class FixedSourceScanRuntimeDependencies:
 
 def build_default_fixed_source_scan_runtime_dependencies(
     *,
-    resolve_quality_filter: Callable[[Any], dict[str, Any]],
+    resolve_quality_filter: Callable[[Any], dict[str, Any]] | None = None,
     create_step_log: Callable[..., Awaitable[None]],
 ) -> FixedSourceScanRuntimeDependencies:
     return FixedSourceScanRuntimeDependencies(
@@ -52,7 +55,11 @@ def build_default_fixed_source_scan_runtime_dependencies(
         get_pan115_default_folder=(
             runtime_settings_service.get_pan115_default_folder
         ),
-        resolve_quality_filter=resolve_quality_filter,
+        resolve_quality_filter=(
+            resolve_quality_filter
+            if resolve_quality_filter is not None
+            else resolve_subscription_quality_filter_with_runtime_adapter
+        ),
         get_tv_missing_status=tv_missing_service.get_tv_missing_status,
         scan_manual_source=subscription_source_service.scan_manual_pan115_source,
         create_step_log=create_step_log,
