@@ -11,7 +11,7 @@ def test_run_channel_drops_resource_io_callback_assembly() -> None:
     source = SERVICE.read_text(encoding="utf-8")
     run_channel_start = source.index("    async def run_channel_check")
     run_channel_end = source.index(
-        "    async def _delete_subscription_with_records",
+        "    async def cleanup_completed_subscriptions",
         run_channel_start,
     )
     run_channel_source = source[run_channel_start:run_channel_end]

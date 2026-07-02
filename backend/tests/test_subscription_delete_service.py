@@ -10,6 +10,7 @@ from app.models.models import (
     SubscriptionSource,
     SubscriptionSourceFile,
 )
+from app.services import subscription_delete_service as delete_service_module
 from app.services.subscription_delete_service import subscription_delete_service
 
 
@@ -18,6 +19,37 @@ async def _count(db, model, *where_clauses) -> int:
     if where_clauses:
         query = query.where(*where_clauses)
     return int((await db.execute(query)).scalar_one())
+
+
+@pytest.mark.asyncio
+async def test_delete_subscription_with_records_helper_wraps_single_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = object()
+    calls: list[tuple[object, list[int]]] = []
+
+    async def fake_delete_local_subscriptions(
+        current_db: object,
+        subscription_ids: list[int],
+    ) -> int:
+        calls.append((current_db, subscription_ids))
+        return 1
+
+    monkeypatch.setattr(
+        subscription_delete_service,
+        "delete_local_subscriptions",
+        fake_delete_local_subscriptions,
+    )
+
+    result = await (
+        delete_service_module.delete_subscription_with_records_with_default_service(
+            db,
+            42,
+        )
+    )
+
+    assert result == 1
+    assert calls == [(db, [42])]
 
 
 @pytest.mark.asyncio

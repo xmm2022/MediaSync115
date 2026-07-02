@@ -19,7 +19,6 @@ from app.services.subscriptions.manual_resource_fetch_runtime_adapter import (
     build_default_manual_resource_fetch_runtime_dependencies,
     fetch_resources_for_media_with_runtime_adapter,
 )
-from app.services.subscription_delete_service import subscription_delete_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,19 +39,7 @@ class SubscriptionService:
             force_auto_download=force_auto_download,
             progress_callback=progress_callback,
             concurrency=_SUBSCRIPTION_SCAN_CONCURRENCY,
-            dependencies=build_default_run_channel_runtime_dependencies(
-                delete_subscription_with_records=(
-                    self._delete_subscription_with_records
-                ),
-            ),
-        )
-
-    async def _delete_subscription_with_records(
-        self, db: AsyncSession, subscription_id: int
-    ) -> None:
-        await subscription_delete_service.delete_local_subscriptions(
-            db,
-            [subscription_id],
+            dependencies=build_default_run_channel_runtime_dependencies(),
         )
 
     async def cleanup_completed_subscriptions(
@@ -61,11 +48,7 @@ class SubscriptionService:
         """离线下载完成后检查并清理已完成的订阅（电影已转存或剧集不缺集）"""
         return await cleanup_completed_subscriptions_with_runtime_adapter(
             db,
-            dependencies=build_default_completed_cleanup_runtime_dependencies(
-                delete_subscription_with_records=(
-                    self._delete_subscription_with_records
-                ),
-            ),
+            dependencies=build_default_completed_cleanup_runtime_dependencies(),
         )
 
     async def cleanup_single_subscription(
@@ -75,11 +58,7 @@ class SubscriptionService:
         return await cleanup_single_subscription_with_runtime_adapter(
             db,
             subscription_id,
-            dependencies=build_default_completed_cleanup_runtime_dependencies(
-                delete_subscription_with_records=(
-                    self._delete_subscription_with_records
-                ),
-            ),
+            dependencies=build_default_completed_cleanup_runtime_dependencies(),
         )
 
     async def fetch_resources_for_media(

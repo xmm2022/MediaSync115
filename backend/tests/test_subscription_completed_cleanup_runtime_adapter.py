@@ -8,6 +8,7 @@ import pytest
 
 from app.services.emby_service import emby_service
 from app.services.operation_log_service import operation_log_service
+from app.services import subscription_delete_service as delete_service_module
 from app.services.subscription_cleanup_policy import (
     has_upcoming_episodes_in_subscription_scope,
 )
@@ -224,19 +225,10 @@ def test_build_completed_cleanup_dependencies_exposes_runtime_callbacks() -> Non
 
 
 def test_default_runtime_dependencies_bind_existing_services_sleep_and_runners() -> None:
-    async def delete_subscription_with_records(
-        _db: Any,
-        _subscription_id: int,
-    ) -> None:
-        return None
+    dependencies = build_default_completed_cleanup_runtime_dependencies()
 
-    dependencies = build_default_completed_cleanup_runtime_dependencies(
-        delete_subscription_with_records=delete_subscription_with_records,
-    )
-
-    assert (
-        dependencies.delete_subscription_with_records
-        is delete_subscription_with_records
+    assert dependencies.delete_subscription_with_records is (
+        delete_service_module.delete_subscription_with_records_with_default_service
     )
     assert (
         dependencies.check_feiniu_movie_status
@@ -267,6 +259,26 @@ def test_default_runtime_dependencies_bind_existing_services_sleep_and_runners()
     )
     assert dependencies.run_cleanup_single_subscription is (
         cleanup_single_subscription_flow
+    )
+
+
+def test_default_runtime_dependencies_preserve_falsy_delete_injection() -> None:
+    class FalsyAsyncCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        async def __call__(self, *_args: Any, **_kwargs: Any) -> None:
+            return None
+
+    delete_subscription_with_records = FalsyAsyncCallable()
+
+    dependencies = build_default_completed_cleanup_runtime_dependencies(
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert (
+        dependencies.delete_subscription_with_records
+        is delete_subscription_with_records
     )
 
 

@@ -137,3 +137,13 @@ def test_subscription_service_drops_execution_log_wrappers() -> None:
         "prune_subscription_step_logs",
     ):
         assert name not in source
+
+
+def test_subscription_service_drops_delete_wrapper() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_delete_subscription_with_records",
+        "subscription_delete_service",
+    ):
+        assert name not in source

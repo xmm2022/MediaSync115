@@ -11,6 +11,9 @@ from app.core.database import async_session_maker
 from app.core.timezone_utils import beijing_now
 from app.models.models import ExecutionStatus, MediaType
 from app.services.operation_log_service import operation_log_service
+from app.services.subscription_delete_service import (
+    delete_subscription_with_records_with_default_service,
+)
 from app.services.subscriptions.auto_transfer_record_loaders_db_adapter import (
     load_force_retry_records_with_db_adapter,
     load_retryable_records_with_db_adapter,
@@ -251,7 +254,7 @@ def build_default_run_channel_runtime_dependencies(
     scan_fixed_sources_for_subscription: (
         ScanFixedSourcesForSubscription | None
     ) = None,
-    delete_subscription_with_records: DeleteSubscriptionWithRecords,
+    delete_subscription_with_records: DeleteSubscriptionWithRecords | None = None,
 ) -> RunChannelRuntimeDependencies:
     resolved_create_execution_log = (
         create_execution_log
@@ -267,6 +270,11 @@ def build_default_run_channel_runtime_dependencies(
         prune_step_logs
         if prune_step_logs is not None
         else prune_subscription_step_logs
+    )
+    resolved_delete_subscription_with_records = (
+        delete_subscription_with_records
+        if delete_subscription_with_records is not None
+        else delete_subscription_with_records_with_default_service
     )
 
     return RunChannelRuntimeDependencies(
@@ -290,7 +298,7 @@ def build_default_run_channel_runtime_dependencies(
             evaluate_pre_scan_cleanup
             if evaluate_pre_scan_cleanup is not None
             else build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies(
-                delete_subscription_with_records,
+                resolved_delete_subscription_with_records,
                 resolved_create_step_log,
             )
         ),
@@ -331,7 +339,7 @@ def build_default_run_channel_runtime_dependencies(
                 resolved_create_step_log
             )
         ),
-        delete_subscription_with_records=delete_subscription_with_records,
+        delete_subscription_with_records=resolved_delete_subscription_with_records,
         now=beijing_now,
         make_run_id=lambda: uuid4().hex,
         make_result_lock=asyncio.Lock,

@@ -7,6 +7,9 @@ from typing import Any
 
 from app.services.emby_service import emby_service
 from app.services.operation_log_service import operation_log_service
+from app.services.subscription_delete_service import (
+    delete_subscription_with_records_with_default_service,
+)
 from app.services.subscription_cleanup_policy import (
     has_upcoming_episodes_in_subscription_scope,
 )
@@ -47,11 +50,15 @@ class CompletedCleanupRuntimeDependencies:
 
 def build_default_completed_cleanup_runtime_dependencies(
     *,
-    delete_subscription_with_records: DeleteSubscriptionWithRecords,
+    delete_subscription_with_records: DeleteSubscriptionWithRecords | None = None,
     check_feiniu_movie_status: CheckFeiniuMovieStatus | None = None,
 ) -> CompletedCleanupRuntimeDependencies:
     return CompletedCleanupRuntimeDependencies(
-        delete_subscription_with_records=delete_subscription_with_records,
+        delete_subscription_with_records=(
+            delete_subscription_with_records
+            if delete_subscription_with_records is not None
+            else delete_subscription_with_records_with_default_service
+        ),
         check_feiniu_movie_status=(
             check_feiniu_movie_status
             if check_feiniu_movie_status is not None

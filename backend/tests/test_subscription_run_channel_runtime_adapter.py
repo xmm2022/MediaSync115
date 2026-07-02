@@ -13,6 +13,7 @@ from app.core.timezone_utils import beijing_now
 from app.models.models import ExecutionStatus, MediaType
 from app.services.operation_log_service import operation_log_service
 from app.services import subscription_service as subscription_service_module
+from app.services import subscription_delete_service as delete_service_module
 from app.services.subscription_service import SubscriptionService
 from app.services.subscriptions import (
     execution_logs as execution_logs_module,
@@ -371,11 +372,7 @@ async def test_subscription_service_wrapper_passes_callbacks_and_concurrency(
         "dependencies": dependencies_marker,
     }
 
-    _assert_bound_method(
-        builder_kwargs["delete_subscription_with_records"],
-        service,
-        "_delete_subscription_with_records",
-    )
+    assert "delete_subscription_with_records" not in builder_kwargs
     assert "create_execution_log" not in builder_kwargs
     assert "create_step_log" not in builder_kwargs
     assert "prune_step_logs" not in builder_kwargs
@@ -538,6 +535,105 @@ def test_default_runtime_dependencies_bind_execution_log_defaults_without_servic
     )
     assert dependencies.create_step_log is execution_logs_module.create_step_log
     assert dependencies.prune_step_logs is execution_logs_module.prune_step_logs
+
+
+def test_default_runtime_dependencies_bind_delete_default_without_service_callback() -> None:
+    async def evaluate_pre_scan_cleanup(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"deleted": False}
+
+    async def scan_fixed_sources_for_subscription(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
+    )
+
+    assert dependencies.delete_subscription_with_records is (
+        delete_service_module.delete_subscription_with_records_with_default_service
+    )
+
+
+def test_default_runtime_dependencies_pass_default_delete_to_pre_scan_cleanup_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def default_evaluate_pre_scan_cleanup(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {"deleted": False}
+
+    async def scan_fixed_sources_for_subscription(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    factory_calls: list[tuple[Any, Any]] = []
+
+    def fake_build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies(
+        callback_delete_subscription_with_records: Any,
+        callback_create_step_log: Any,
+    ) -> Any:
+        factory_calls.append(
+            (
+                callback_delete_subscription_with_records,
+                callback_create_step_log,
+            )
+        )
+        return default_evaluate_pre_scan_cleanup
+
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies",
+        fake_build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies,
+    )
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
+    )
+
+    assert dependencies.evaluate_pre_scan_cleanup is default_evaluate_pre_scan_cleanup
+    assert factory_calls == [
+        (
+            delete_service_module.delete_subscription_with_records_with_default_service,
+            execution_logs_module.create_step_log,
+        )
+    ]
+
+
+def test_default_runtime_dependencies_preserve_falsy_delete_injection() -> None:
+    class FalsyAsyncCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        async def __call__(self, *_args: Any, **_kwargs: Any) -> None:
+            return None
+
+    async def evaluate_pre_scan_cleanup(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"deleted": False}
+
+    async def scan_fixed_sources_for_subscription(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    delete_subscription_with_records = FalsyAsyncCallable()
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert (
+        dependencies.delete_subscription_with_records
+        is delete_subscription_with_records
+    )
 
 
 def test_default_runtime_dependencies_pass_default_step_log_to_pre_scan_cleanup_factory(

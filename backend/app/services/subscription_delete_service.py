@@ -50,4 +50,14 @@ class SubscriptionDeleteService:
         return len(ids)
 
 
+async def delete_subscription_with_records_with_default_service(
+    db: AsyncSession,
+    subscription_id: int,
+) -> int:
+    return await subscription_delete_service.delete_local_subscriptions(
+        db,
+        [subscription_id],
+    )
+
+
 subscription_delete_service = SubscriptionDeleteService()
