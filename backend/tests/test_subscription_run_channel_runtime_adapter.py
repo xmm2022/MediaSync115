@@ -374,7 +374,6 @@ async def test_subscription_service_wrapper_passes_callbacks_and_concurrency(
         "create_execution_log": "_create_execution_log",
         "create_step_log": "_create_step_log",
         "prune_step_logs": "_prune_step_logs",
-        "evaluate_pre_scan_cleanup": "_evaluate_pre_scan_cleanup",
         "delete_subscription_with_records": "_delete_subscription_with_records",
     }.items():
         _assert_bound_method(builder_kwargs[key], service, name)
@@ -387,6 +386,7 @@ async def test_subscription_service_wrapper_passes_callbacks_and_concurrency(
     assert "auto_save_records_with_link_fallback" not in builder_kwargs
     assert "should_scan_fixed_sources" not in builder_kwargs
     assert "scan_fixed_sources_for_subscription" not in builder_kwargs
+    assert "evaluate_pre_scan_cleanup" not in builder_kwargs
 
 
 def test_default_runtime_dependencies_bind_existing_services_and_runners() -> None:
@@ -834,6 +834,64 @@ def test_default_runtime_dependencies_bind_fixed_source_scan_default_without_ser
     assert factory_calls == [create_step_log]
 
 
+def test_default_runtime_dependencies_bind_pre_scan_cleanup_default_without_service_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def create_execution_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def prune_step_logs(_db: Any) -> None:
+        return None
+
+    async def delete_subscription_with_records(
+        _db: Any,
+        _subscription_id: int,
+    ) -> None:
+        return None
+
+    async def default_evaluate_pre_scan_cleanup(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {"deleted": False}
+
+    factory_calls: list[tuple[Any, Any]] = []
+
+    def fake_build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies(
+        callback_delete_subscription_with_records: Any,
+        callback_create_step_log: Any,
+    ) -> Any:
+        factory_calls.append(
+            (
+                callback_delete_subscription_with_records,
+                callback_create_step_log,
+            )
+        )
+        return default_evaluate_pre_scan_cleanup
+
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies",
+        fake_build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies,
+        raising=False,
+    )
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        create_execution_log=create_execution_log,
+        create_step_log=create_step_log,
+        prune_step_logs=prune_step_logs,
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert dependencies.evaluate_pre_scan_cleanup is default_evaluate_pre_scan_cleanup
+    assert factory_calls == [
+        (delete_subscription_with_records, create_step_log)
+    ]
+
+
 def test_default_runtime_dependencies_preserve_falsy_link_fallback_injection() -> None:
     class FalsyAsyncCallable:
         def __bool__(self) -> bool:
@@ -978,6 +1036,42 @@ def test_default_runtime_dependencies_preserve_falsy_fixed_source_scan_injection
         dependencies.scan_fixed_sources_for_subscription
         is scan_fixed_sources_for_subscription
     )
+
+
+def test_default_runtime_dependencies_preserve_falsy_pre_scan_cleanup_injection() -> None:
+    class FalsyAsyncCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        async def __call__(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {"deleted": False}
+
+    async def create_execution_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def prune_step_logs(_db: Any) -> None:
+        return None
+
+    async def delete_subscription_with_records(
+        _db: Any,
+        _subscription_id: int,
+    ) -> None:
+        return None
+
+    evaluate_pre_scan_cleanup = FalsyAsyncCallable()
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        create_execution_log=create_execution_log,
+        create_step_log=create_step_log,
+        prune_step_logs=prune_step_logs,
+        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert dependencies.evaluate_pre_scan_cleanup is evaluate_pre_scan_cleanup
 
 
 def test_default_runtime_dependencies_preserve_falsy_record_loader_injections() -> None:
@@ -1166,6 +1260,100 @@ async def test_default_fixed_source_scan_callback_builds_fixed_source_runtime_de
         "tv_missing_snapshot": {"missing_count": 3},
         "force_auto_download": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_default_pre_scan_cleanup_callback_builds_pre_scan_runtime_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = object()
+    sub = object()
+    runtime_dependencies = object()
+    adapter_calls: list[dict[str, Any]] = []
+    builder_calls: list[dict[str, Any]] = []
+
+    async def delete_subscription_with_records(
+        _db: Any,
+        _subscription_id: int,
+    ) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    def fake_build_default_pre_scan_cleanup_runtime_dependencies(
+        *,
+        delete_subscription_with_records: Any,
+        create_step_log: Any,
+    ) -> object:
+        builder_calls.append(
+            {
+                "delete_subscription_with_records": delete_subscription_with_records,
+                "create_step_log": create_step_log,
+            }
+        )
+        return runtime_dependencies
+
+    async def fake_evaluate_pre_scan_cleanup_with_runtime_adapter(
+        current_db: Any,
+        *,
+        run_id: str,
+        channel: str,
+        sub: Any,
+        dependencies: Any,
+    ) -> dict[str, Any]:
+        adapter_calls.append(
+            {
+                "db": current_db,
+                "run_id": run_id,
+                "channel": channel,
+                "sub": sub,
+                "dependencies": dependencies,
+            }
+        )
+        return {"deleted": False, "tv_missing_snapshot": None}
+
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "build_default_pre_scan_cleanup_runtime_dependencies",
+        fake_build_default_pre_scan_cleanup_runtime_dependencies,
+    )
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "evaluate_pre_scan_cleanup_with_runtime_adapter",
+        fake_evaluate_pre_scan_cleanup_with_runtime_adapter,
+    )
+
+    evaluate_pre_scan_cleanup = (
+        run_channel_runtime_module.build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies(
+            delete_subscription_with_records,
+            create_step_log,
+        )
+    )
+
+    result = await evaluate_pre_scan_cleanup(
+        db,
+        run_id="run-1",
+        channel="all",
+        sub=sub,
+    )
+
+    assert result == {"deleted": False, "tv_missing_snapshot": None}
+    assert builder_calls == [
+        {
+            "delete_subscription_with_records": delete_subscription_with_records,
+            "create_step_log": create_step_log,
+        }
+    ]
+    assert adapter_calls == [
+        {
+            "db": db,
+            "run_id": "run-1",
+            "channel": "all",
+            "sub": sub,
+            "dependencies": runtime_dependencies,
+        }
+    ]
 
 
 def test_default_runtime_dependencies_preserve_falsy_resource_io_injections() -> None:

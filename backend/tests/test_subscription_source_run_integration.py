@@ -99,7 +99,11 @@ async def test_subscription_check_scans_enabled_manual_pan115_sources(monkeypatc
         assert isinstance(quality_filter, dict)
         return {"status": "success", "selected_count": 2, "transferred_count": 2}
 
-    monkeypatch.setattr(service, "_evaluate_pre_scan_cleanup", fake_cleanup)
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies",
+        lambda *_args: fake_cleanup,
+    )
     monkeypatch.setattr(
         run_channel_runtime_module,
         "fetch_resources_with_default_runtime_dependencies",
@@ -223,7 +227,11 @@ async def test_subscription_check_skips_manual_pan115_source_without_auto_downlo
     async def fail_if_called(*_args, **_kwargs):
         raise AssertionError("fixed source scan requires auto_download or force mode")
 
-    monkeypatch.setattr(service, "_evaluate_pre_scan_cleanup", fake_cleanup)
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies",
+        lambda *_args: fake_cleanup,
+    )
     monkeypatch.setattr(
         run_channel_runtime_module,
         "fetch_resources_with_default_runtime_dependencies",

@@ -6,13 +6,9 @@ from typing import Any
 import pytest
 
 from app.models.models import MediaType
-from app.services.subscription_service import SubscriptionService
 from app.services.subscriptions.pre_scan_cleanup import (
     PreScanCleanupDependencies,
     evaluate_pre_scan_cleanup,
-)
-from app.services.subscriptions import (
-    pre_scan_cleanup_runtime_adapter as pre_scan_runtime_module,
 )
 
 
@@ -249,48 +245,3 @@ def test_pre_scan_cleanup_module_keeps_runtime_dependencies_injected() -> None:
     assert "emby_service" not in imported_names
     assert "tv_missing_service" not in imported_names
     assert "AsyncSession" not in imported_names
-
-
-@pytest.mark.asyncio
-async def test_subscription_service_wrapper_injects_dependencies_for_snapshots(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = SubscriptionService()
-    deleted: list[int] = []
-    step_logs: list[dict[str, Any]] = []
-    events: list[dict[str, Any]] = []
-
-    async def fake_delete_subscription_with_records(
-        db: object, subscription_id: int
-    ) -> None:
-        deleted.append(subscription_id)
-
-    async def fake_create_step_log(db: object, **kwargs: Any) -> None:
-        step_logs.append(kwargs)
-
-    async def fake_log_background_event(**kwargs: Any) -> None:
-        events.append(kwargs)
-
-    monkeypatch.setattr(
-        service,
-        "_delete_subscription_with_records",
-        fake_delete_subscription_with_records,
-    )
-    monkeypatch.setattr(service, "_create_step_log", fake_create_step_log)
-    monkeypatch.setattr(
-        pre_scan_runtime_module.operation_log_service,
-        "log_background_event",
-        fake_log_background_event,
-    )
-
-    result = await service._evaluate_pre_scan_cleanup(
-        object(),
-        run_id="run-1",
-        channel="rss",
-        sub=make_sub(media_type=MediaType.MOVIE, has_successful_transfer=True),
-    )
-
-    assert result == {"deleted": True}
-    assert deleted == [42]
-    assert step_logs[0]["step"] == "subscription_cleanup_movie_transferred"
-    assert events[0]["extra"]["reason"] == "successful_transfer"

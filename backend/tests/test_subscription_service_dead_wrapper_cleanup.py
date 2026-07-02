@@ -112,3 +112,14 @@ def test_subscription_service_drops_feiniu_status_wrappers() -> None:
         "check_feiniu_tv_missing_status_with_runtime_adapter",
     ):
         assert name not in source
+
+
+def test_subscription_service_drops_pre_scan_cleanup_wrapper() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_evaluate_pre_scan_cleanup",
+        "evaluate_pre_scan_cleanup_with_runtime_adapter",
+        "build_default_pre_scan_cleanup_runtime_dependencies",
+    ):
+        assert name not in source

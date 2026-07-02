@@ -30,6 +30,10 @@ from app.services.subscriptions.link_fallback_runtime_adapter import (
     auto_save_records_with_link_fallback_with_runtime_adapter,
     build_default_link_fallback_runtime_dependencies,
 )
+from app.services.subscriptions.pre_scan_cleanup_runtime_adapter import (
+    build_default_pre_scan_cleanup_runtime_dependencies,
+    evaluate_pre_scan_cleanup_with_runtime_adapter,
+)
 from app.services.subscriptions.run_dispatch_flow import (
     SubscriptionRunDispatchDependencies,
     dispatch_subscription_checks,
@@ -171,6 +175,31 @@ async def auto_save_records_with_link_fallback_with_default_runtime_dependencies
     )
 
 
+def build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies(
+    delete_subscription_with_records: DeleteSubscriptionWithRecords,
+    create_step_log: CreateStepLog,
+) -> EvaluatePreScanCleanup:
+    async def evaluate_pre_scan_cleanup(
+        db: Any,
+        *,
+        run_id: str,
+        channel: str,
+        sub: Any,
+    ) -> dict[str, Any]:
+        return await evaluate_pre_scan_cleanup_with_runtime_adapter(
+            db,
+            run_id=run_id,
+            channel=channel,
+            sub=sub,
+            dependencies=build_default_pre_scan_cleanup_runtime_dependencies(
+                delete_subscription_with_records=delete_subscription_with_records,
+                create_step_log=create_step_log,
+            ),
+        )
+
+    return evaluate_pre_scan_cleanup
+
+
 def build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies(
     create_step_log: CreateStepLog,
 ) -> ScanFixedSourcesForSubscription:
@@ -203,7 +232,7 @@ def build_default_run_channel_runtime_dependencies(
     create_execution_log: CreateExecutionLog,
     create_step_log: CreateStepLog,
     prune_step_logs: PruneStepLogs,
-    evaluate_pre_scan_cleanup: EvaluatePreScanCleanup,
+    evaluate_pre_scan_cleanup: EvaluatePreScanCleanup | None = None,
     fetch_resources: FetchResources | None = None,
     store_new_resources: StoreNewResources | None = None,
     build_hdhive_unlock_context: BuildHdhiveUnlockContext | None = None,
@@ -236,7 +265,14 @@ def build_default_run_channel_runtime_dependencies(
             else resolve_source_order_with_runtime_adapter
         ),
         session_factory=async_session_maker,
-        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        evaluate_pre_scan_cleanup=(
+            evaluate_pre_scan_cleanup
+            if evaluate_pre_scan_cleanup is not None
+            else build_evaluate_pre_scan_cleanup_with_default_runtime_dependencies(
+                delete_subscription_with_records,
+                create_step_log,
+            )
+        ),
         fetch_resources=(
             fetch_resources
             if fetch_resources is not None

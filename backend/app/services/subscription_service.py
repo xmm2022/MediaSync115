@@ -18,10 +18,6 @@ from app.services.subscriptions.completed_cleanup_runtime_adapter import (
     cleanup_completed_subscriptions_with_runtime_adapter,
     cleanup_single_subscription_with_runtime_adapter,
 )
-from app.services.subscriptions.pre_scan_cleanup_runtime_adapter import (
-    build_default_pre_scan_cleanup_runtime_dependencies,
-    evaluate_pre_scan_cleanup_with_runtime_adapter,
-)
 from app.services.subscriptions.run_channel_runtime_adapter import (
     build_default_run_channel_runtime_dependencies,
     run_channel_check_with_runtime_adapter,
@@ -55,7 +51,6 @@ class SubscriptionService:
                 create_execution_log=self._create_execution_log,
                 create_step_log=self._create_step_log,
                 prune_step_logs=self._prune_step_logs,
-                evaluate_pre_scan_cleanup=self._evaluate_pre_scan_cleanup,
                 delete_subscription_with_records=(
                     self._delete_subscription_with_records
                 ),
@@ -88,27 +83,6 @@ class SubscriptionService:
 
     async def _prune_step_logs(self, db: AsyncSession) -> None:
         await prune_subscription_step_logs(db)
-
-    async def _evaluate_pre_scan_cleanup(
-        self,
-        db: AsyncSession,
-        *,
-        run_id: str,
-        channel: str,
-        sub: "SubscriptionSnapshot",
-    ) -> dict[str, Any]:
-        return await evaluate_pre_scan_cleanup_with_runtime_adapter(
-            db,
-            run_id=run_id,
-            channel=channel,
-            sub=sub,
-            dependencies=build_default_pre_scan_cleanup_runtime_dependencies(
-                delete_subscription_with_records=(
-                    self._delete_subscription_with_records
-                ),
-                create_step_log=self._create_step_log,
-            ),
-        )
 
     async def _delete_subscription_with_records(
         self, db: AsyncSession, subscription_id: int
