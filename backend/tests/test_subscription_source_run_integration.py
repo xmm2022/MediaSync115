@@ -11,6 +11,7 @@ async def test_subscription_check_scans_enabled_manual_pan115_sources(monkeypatc
     from app.services.subscription_source_service import subscription_source_service
     from app.services.subscriptions import (
         fixed_source_scan_runtime_adapter as fixed_source_runtime_module,
+        run_channel_runtime_adapter as run_channel_runtime_module,
     )
 
     await ensure_tables_exist(
@@ -97,7 +98,11 @@ async def test_subscription_check_scans_enabled_manual_pan115_sources(monkeypatc
         return {"status": "success", "selected_count": 2, "transferred_count": 2}
 
     monkeypatch.setattr(service, "_evaluate_pre_scan_cleanup", fake_cleanup)
-    monkeypatch.setattr(service, "_fetch_resources", fake_fetch_resources)
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "fetch_resources_with_default_runtime_dependencies",
+        fake_fetch_resources,
+    )
     monkeypatch.setattr(
         fixed_source_runtime_module.runtime_settings_service,
         "get_pan115_cookie",
@@ -143,6 +148,9 @@ async def test_subscription_check_skips_manual_pan115_source_without_auto_downlo
     from app.models.models import MediaType, Subscription, SubscriptionSource
     from app.services.subscription_service import SubscriptionService
     from app.services.subscription_source_service import subscription_source_service
+    from app.services.subscriptions import (
+        run_channel_runtime_adapter as run_channel_runtime_module,
+    )
 
     await ensure_tables_exist(
         "subscriptions",
@@ -208,7 +216,11 @@ async def test_subscription_check_skips_manual_pan115_source_without_auto_downlo
         raise AssertionError("fixed source scan requires auto_download or force mode")
 
     monkeypatch.setattr(service, "_evaluate_pre_scan_cleanup", fake_cleanup)
-    monkeypatch.setattr(service, "_fetch_resources", fake_fetch_resources)
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "fetch_resources_with_default_runtime_dependencies",
+        fake_fetch_resources,
+    )
     monkeypatch.setattr(
         subscription_source_service,
         "scan_manual_pan115_source",
