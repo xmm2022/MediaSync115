@@ -28,7 +28,7 @@ def test_subscription_service_drops_run_start_default_wrappers() -> None:
 
     assert "_build_hdhive_unlock_context" not in source
     assert "_resolve_source_order" not in source
+    assert "_prepare_hdhive_locked_resources" not in source
     assert "build_hdhive_unlock_context_with_runtime_adapter" not in source
     assert "resolve_source_order_with_runtime_adapter" not in source
-    assert "_prepare_hdhive_locked_resources" in source
-    assert "prepare_hdhive_locked_resources_with_runtime_adapter" in source
+    assert "prepare_hdhive_locked_resources_with_runtime_adapter" not in source

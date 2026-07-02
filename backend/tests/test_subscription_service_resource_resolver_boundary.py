@@ -33,4 +33,4 @@ def test_subscription_service_drops_fetch_resources_wrapper_and_keeps_hdhive_wra
     assert "fetch_subscription_resources_with_runtime_adapter" not in source
     assert "_build_hdhive_unlock_context" not in source
     assert "_resolve_source_order" not in source
-    assert "_prepare_hdhive_locked_resources" in source
+    assert "_prepare_hdhive_locked_resources" not in source

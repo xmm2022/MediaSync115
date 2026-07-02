@@ -1,7 +1,6 @@
 import asyncio
 from pathlib import Path
 
-from app.services.subscription_service import SubscriptionService
 from app.services.subscriptions.resource_candidates import extract_resource_url
 from app.services.subscriptions.hdhive_unlock import (
     build_hdhive_unlock_context,
@@ -137,7 +136,6 @@ class TestHDHiveUnlockPolicy:
         assert "app.api" not in source
 
     def test_prepare_hdhive_locked_resources_stops_after_first_success(self) -> None:
-        service = SubscriptionService()
         unlock_calls: list[str] = []
 
         async def fake_unlock(slug: str) -> dict:
@@ -201,7 +199,11 @@ class TestHDHiveUnlockPolicy:
             traces: list[dict] = []
 
             result = asyncio.run(
-                service._prepare_hdhive_locked_resources(resources, context, traces)
+                runtime_adapter_module.prepare_hdhive_locked_resources_with_runtime_adapter(
+                    resources,
+                    context,
+                    traces,
+                )
             )
         finally:
             runtime_adapter_module.hdhive_service.unlock_resource = original_unlock  # type: ignore[method-assign]

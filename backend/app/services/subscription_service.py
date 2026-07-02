@@ -56,9 +56,6 @@ from app.services.subscriptions.auto_save_resources_runtime_adapter import (
     auto_save_resources_with_runtime_adapter,
     build_default_auto_save_resources_runtime_dependencies,
 )
-from app.services.subscriptions.hdhive_unlock_runtime_adapter import (
-    prepare_hdhive_locked_resources_with_runtime_adapter,
-)
 from app.services.subscriptions.feiniu_status_runtime_adapter import (
     check_feiniu_movie_status_with_runtime_adapter,
     check_feiniu_tv_missing_status_with_runtime_adapter,
@@ -200,18 +197,6 @@ class SubscriptionService:
                 ),
                 check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
-        )
-
-    async def _prepare_hdhive_locked_resources(
-        self,
-        resources: list[dict[str, Any]],
-        context: dict[str, Any],
-        traces: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        return await prepare_hdhive_locked_resources_with_runtime_adapter(
-            resources,
-            context,
-            traces,
         )
 
     async def _load_retryable_records(
