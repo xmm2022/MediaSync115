@@ -22,10 +22,6 @@ from app.services.subscriptions.pre_scan_cleanup_runtime_adapter import (
     build_default_pre_scan_cleanup_runtime_dependencies,
     evaluate_pre_scan_cleanup_with_runtime_adapter,
 )
-from app.services.subscriptions.fixed_source_scan_runtime_adapter import (
-    build_default_fixed_source_scan_runtime_dependencies,
-    scan_fixed_sources_with_runtime_adapter,
-)
 from app.services.subscriptions.run_channel_runtime_adapter import (
     build_default_run_channel_runtime_dependencies,
     run_channel_check_with_runtime_adapter,
@@ -64,9 +60,6 @@ class SubscriptionService:
                 create_step_log=self._create_step_log,
                 prune_step_logs=self._prune_step_logs,
                 evaluate_pre_scan_cleanup=self._evaluate_pre_scan_cleanup,
-                scan_fixed_sources_for_subscription=(
-                    self._scan_fixed_sources_for_subscription
-                ),
                 delete_subscription_with_records=(
                     self._delete_subscription_with_records
                 ),
@@ -169,28 +162,6 @@ class SubscriptionService:
                 ),
                 check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
-        )
-
-    async def _scan_fixed_sources_for_subscription(
-        self,
-        db: AsyncSession,
-        *,
-        run_id: str,
-        channel: str,
-        sub: "SubscriptionSnapshot",
-        tv_missing_snapshot: dict[str, Any] | None = None,
-        force_auto_download: bool = False,
-    ) -> dict[str, Any]:
-        return await scan_fixed_sources_with_runtime_adapter(
-            db=db,
-            run_id=run_id,
-            channel=channel,
-            sub=sub,
-            dependencies=build_default_fixed_source_scan_runtime_dependencies(
-                create_step_log=self._create_step_log,
-            ),
-            tv_missing_snapshot=tv_missing_snapshot,
-            force_auto_download=force_auto_download,
         )
 
     async def _create_execution_log(

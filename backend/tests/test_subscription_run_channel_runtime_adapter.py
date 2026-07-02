@@ -375,9 +375,6 @@ async def test_subscription_service_wrapper_passes_callbacks_and_concurrency(
         "create_step_log": "_create_step_log",
         "prune_step_logs": "_prune_step_logs",
         "evaluate_pre_scan_cleanup": "_evaluate_pre_scan_cleanup",
-        "scan_fixed_sources_for_subscription": (
-            "_scan_fixed_sources_for_subscription"
-        ),
         "delete_subscription_with_records": "_delete_subscription_with_records",
     }.items():
         _assert_bound_method(builder_kwargs[key], service, name)
@@ -389,6 +386,7 @@ async def test_subscription_service_wrapper_passes_callbacks_and_concurrency(
     assert "load_force_retry_records" not in builder_kwargs
     assert "auto_save_records_with_link_fallback" not in builder_kwargs
     assert "should_scan_fixed_sources" not in builder_kwargs
+    assert "scan_fixed_sources_for_subscription" not in builder_kwargs
 
 
 def test_default_runtime_dependencies_bind_existing_services_and_runners() -> None:
@@ -779,6 +777,63 @@ def test_default_runtime_dependencies_bind_fixed_source_policy_default_without_s
     )
 
 
+def test_default_runtime_dependencies_bind_fixed_source_scan_default_without_service_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def create_execution_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def prune_step_logs(_db: Any) -> None:
+        return None
+
+    async def evaluate_pre_scan_cleanup(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"deleted": False}
+
+    async def delete_subscription_with_records(
+        _db: Any,
+        _subscription_id: int,
+    ) -> None:
+        return None
+
+    async def default_scan_fixed_sources_for_subscription(
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        return {}
+
+    factory_calls: list[Any] = []
+
+    def fake_build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies(
+        callback_create_step_log: Any,
+    ) -> Any:
+        factory_calls.append(callback_create_step_log)
+        return default_scan_fixed_sources_for_subscription
+
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies",
+        fake_build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies,
+        raising=False,
+    )
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        create_execution_log=create_execution_log,
+        create_step_log=create_step_log,
+        prune_step_logs=prune_step_logs,
+        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert (
+        dependencies.scan_fixed_sources_for_subscription
+        is default_scan_fixed_sources_for_subscription
+    )
+    assert factory_calls == [create_step_log]
+
+
 def test_default_runtime_dependencies_preserve_falsy_link_fallback_injection() -> None:
     class FalsyAsyncCallable:
         def __bool__(self) -> bool:
@@ -880,6 +935,49 @@ def test_default_runtime_dependencies_preserve_falsy_fixed_source_policy_injecti
     )
 
     assert dependencies.should_scan_fixed_sources is should_scan_fixed_sources
+
+
+def test_default_runtime_dependencies_preserve_falsy_fixed_source_scan_injection() -> None:
+    class FalsyAsyncCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        async def __call__(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {}
+
+    async def create_execution_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def prune_step_logs(_db: Any) -> None:
+        return None
+
+    async def evaluate_pre_scan_cleanup(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"deleted": False}
+
+    async def delete_subscription_with_records(
+        _db: Any,
+        _subscription_id: int,
+    ) -> None:
+        return None
+
+    scan_fixed_sources_for_subscription = FalsyAsyncCallable()
+
+    dependencies = build_default_run_channel_runtime_dependencies(
+        create_execution_log=create_execution_log,
+        create_step_log=create_step_log,
+        prune_step_logs=prune_step_logs,
+        evaluate_pre_scan_cleanup=evaluate_pre_scan_cleanup,
+        scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
+        delete_subscription_with_records=delete_subscription_with_records,
+    )
+
+    assert (
+        dependencies.scan_fixed_sources_for_subscription
+        is scan_fixed_sources_for_subscription
+    )
 
 
 def test_default_runtime_dependencies_preserve_falsy_record_loader_injections() -> None:
@@ -1002,6 +1100,71 @@ async def test_default_link_fallback_helper_builds_link_fallback_runtime_depende
         "hdhive_unlock_context": {"enabled": True},
         "source_order": ["hdhive", "tg"],
         "enable_link_refetch": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_default_fixed_source_scan_callback_builds_fixed_source_runtime_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = object()
+    sub = object()
+    runtime_dependencies = object()
+    adapter_kwargs: dict[str, Any] = {}
+    builder_calls: list[Any] = []
+
+    async def create_step_log(_db: Any, **_kwargs: Any) -> None:
+        return None
+
+    def fake_build_default_fixed_source_scan_runtime_dependencies(
+        *,
+        create_step_log: Any,
+    ) -> object:
+        builder_calls.append(create_step_log)
+        return runtime_dependencies
+
+    async def fake_scan_fixed_sources_with_runtime_adapter(
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        adapter_kwargs.update(kwargs)
+        return {"saved_count": 2, "failed_count": 1}
+
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "build_default_fixed_source_scan_runtime_dependencies",
+        fake_build_default_fixed_source_scan_runtime_dependencies,
+    )
+    monkeypatch.setattr(
+        run_channel_runtime_module,
+        "scan_fixed_sources_with_runtime_adapter",
+        fake_scan_fixed_sources_with_runtime_adapter,
+    )
+
+    scan_fixed_sources_for_subscription = (
+        run_channel_runtime_module.build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies(
+            create_step_log
+        )
+    )
+
+    result = await scan_fixed_sources_for_subscription(
+        db,
+        run_id="run-1",
+        channel="all",
+        sub=sub,
+        tv_missing_snapshot={"missing_count": 3},
+        force_auto_download=True,
+    )
+
+    assert result == {"saved_count": 2, "failed_count": 1}
+    assert builder_calls == [create_step_log]
+    assert adapter_kwargs == {
+        "db": db,
+        "run_id": "run-1",
+        "channel": "all",
+        "sub": sub,
+        "dependencies": runtime_dependencies,
+        "tv_missing_snapshot": {"missing_count": 3},
+        "force_auto_download": True,
     }
 
 

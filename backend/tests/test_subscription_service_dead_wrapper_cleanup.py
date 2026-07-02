@@ -89,3 +89,14 @@ def test_subscription_service_drops_fixed_source_policy_wrapper() -> None:
         "should_scan_fixed_sources_policy",
     ):
         assert name not in source
+
+
+def test_subscription_service_drops_fixed_source_scan_wrapper() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_scan_fixed_sources_for_subscription",
+        "scan_fixed_sources_with_runtime_adapter",
+        "build_default_fixed_source_scan_runtime_dependencies",
+    ):
+        assert name not in source

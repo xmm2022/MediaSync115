@@ -18,6 +18,10 @@ from app.services.subscriptions.auto_transfer_record_loaders_db_adapter import (
 from app.services.subscriptions.fixed_source_scan import (
     should_scan_fixed_sources as should_scan_fixed_sources_policy,
 )
+from app.services.subscriptions.fixed_source_scan_runtime_adapter import (
+    build_default_fixed_source_scan_runtime_dependencies,
+    scan_fixed_sources_with_runtime_adapter,
+)
 from app.services.subscriptions.item_processing_run_flow import (
     SubscriptionItemProcessingDependencies,
     process_subscription_item,
@@ -167,6 +171,33 @@ async def auto_save_records_with_link_fallback_with_default_runtime_dependencies
     )
 
 
+def build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies(
+    create_step_log: CreateStepLog,
+) -> ScanFixedSourcesForSubscription:
+    async def scan_fixed_sources_for_subscription(
+        db: Any,
+        *,
+        run_id: str,
+        channel: str,
+        sub: Any,
+        tv_missing_snapshot: dict[str, Any] | None = None,
+        force_auto_download: bool = False,
+    ) -> dict[str, Any]:
+        return await scan_fixed_sources_with_runtime_adapter(
+            db=db,
+            run_id=run_id,
+            channel=channel,
+            sub=sub,
+            dependencies=build_default_fixed_source_scan_runtime_dependencies(
+                create_step_log=create_step_log,
+            ),
+            tv_missing_snapshot=tv_missing_snapshot,
+            force_auto_download=force_auto_download,
+        )
+
+    return scan_fixed_sources_for_subscription
+
+
 def build_default_run_channel_runtime_dependencies(
     *,
     create_execution_log: CreateExecutionLog,
@@ -183,7 +214,9 @@ def build_default_run_channel_runtime_dependencies(
         AutoSaveRecordsWithLinkFallback | None
     ) = None,
     should_scan_fixed_sources: ShouldScanFixedSources | None = None,
-    scan_fixed_sources_for_subscription: ScanFixedSourcesForSubscription,
+    scan_fixed_sources_for_subscription: (
+        ScanFixedSourcesForSubscription | None
+    ) = None,
     delete_subscription_with_records: DeleteSubscriptionWithRecords,
 ) -> RunChannelRuntimeDependencies:
     return RunChannelRuntimeDependencies(
@@ -234,7 +267,13 @@ def build_default_run_channel_runtime_dependencies(
             if should_scan_fixed_sources is not None
             else should_scan_fixed_sources_policy
         ),
-        scan_fixed_sources_for_subscription=scan_fixed_sources_for_subscription,
+        scan_fixed_sources_for_subscription=(
+            scan_fixed_sources_for_subscription
+            if scan_fixed_sources_for_subscription is not None
+            else build_scan_fixed_sources_for_subscription_with_default_runtime_dependencies(
+                create_step_log
+            )
+        ),
         delete_subscription_with_records=delete_subscription_with_records,
         now=beijing_now,
         make_run_id=lambda: uuid4().hex,
