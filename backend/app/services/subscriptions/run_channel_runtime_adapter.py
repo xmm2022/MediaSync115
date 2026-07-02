@@ -11,6 +11,10 @@ from app.core.database import async_session_maker
 from app.core.timezone_utils import beijing_now
 from app.models.models import ExecutionStatus, MediaType
 from app.services.operation_log_service import operation_log_service
+from app.services.subscriptions.auto_transfer_record_loaders_db_adapter import (
+    load_force_retry_records_with_db_adapter,
+    load_retryable_records_with_db_adapter,
+)
 from app.services.subscriptions.item_processing_run_flow import (
     SubscriptionItemProcessingDependencies,
     process_subscription_item,
@@ -138,8 +142,8 @@ def build_default_run_channel_runtime_dependencies(
     store_new_resources: StoreNewResources | None = None,
     build_hdhive_unlock_context: BuildHdhiveUnlockContext | None = None,
     resolve_source_order: ResolveSourceOrder | None = None,
-    load_retryable_records: LoadRetryableRecords,
-    load_force_retry_records: LoadForceRetryRecords,
+    load_retryable_records: LoadRetryableRecords | None = None,
+    load_force_retry_records: LoadForceRetryRecords | None = None,
     auto_save_records_with_link_fallback: AutoSaveRecordsWithLinkFallback,
     should_scan_fixed_sources: ShouldScanFixedSources,
     scan_fixed_sources_for_subscription: ScanFixedSourcesForSubscription,
@@ -173,8 +177,16 @@ def build_default_run_channel_runtime_dependencies(
             if store_new_resources is not None
             else store_new_resources_with_runtime_adapter
         ),
-        load_retryable_records=load_retryable_records,
-        load_force_retry_records=load_force_retry_records,
+        load_retryable_records=(
+            load_retryable_records
+            if load_retryable_records is not None
+            else load_retryable_records_with_db_adapter
+        ),
+        load_force_retry_records=(
+            load_force_retry_records
+            if load_force_retry_records is not None
+            else load_force_retry_records_with_db_adapter
+        ),
         auto_save_records_with_link_fallback=(
             auto_save_records_with_link_fallback
         ),

@@ -14,11 +14,6 @@ from app.services.subscriptions.link_fallback_runtime_adapter import (
     auto_save_records_with_link_fallback_with_runtime_adapter,
     build_default_link_fallback_runtime_dependencies,
 )
-from app.services.subscriptions.auto_transfer_record_loaders_db_adapter import (
-    load_force_retry_records_with_db_adapter,
-    load_retryable_records_with_db_adapter,
-    load_subscription_resource_urls_with_db_adapter,
-)
 from app.services.subscriptions.snapshot import SubscriptionSnapshot
 from app.services.subscriptions.execution_logs import (
     create_execution_log as create_subscription_execution_log,
@@ -86,8 +81,6 @@ class SubscriptionService:
                 create_step_log=self._create_step_log,
                 prune_step_logs=self._prune_step_logs,
                 evaluate_pre_scan_cleanup=self._evaluate_pre_scan_cleanup,
-                load_retryable_records=self._load_retryable_records,
-                load_force_retry_records=self._load_force_retry_records,
                 auto_save_records_with_link_fallback=(
                     self._auto_save_records_with_link_fallback
                 ),
@@ -197,31 +190,6 @@ class SubscriptionService:
                 ),
                 check_feiniu_movie_status=self._check_feiniu_movie_status,
             ),
-        )
-
-    async def _load_retryable_records(
-        self, db: AsyncSession, subscription_id: int
-    ) -> list[DownloadRecord]:
-        return await load_retryable_records_with_db_adapter(db, subscription_id)
-
-    async def _load_force_retry_records(
-        self,
-        db: AsyncSession,
-        subscription_id: int,
-        duplicate_urls: list[str],
-    ) -> list[DownloadRecord]:
-        return await load_force_retry_records_with_db_adapter(
-            db,
-            subscription_id,
-            duplicate_urls,
-        )
-
-    async def _load_subscription_resource_urls(
-        self, db: AsyncSession, subscription_id: int
-    ) -> set[str]:
-        return await load_subscription_resource_urls_with_db_adapter(
-            db,
-            subscription_id,
         )
 
     async def _auto_save_records_with_link_fallback(

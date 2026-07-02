@@ -32,3 +32,17 @@ def test_subscription_service_drops_run_start_default_wrappers() -> None:
     assert "build_hdhive_unlock_context_with_runtime_adapter" not in source
     assert "resolve_source_order_with_runtime_adapter" not in source
     assert "prepare_hdhive_locked_resources_with_runtime_adapter" not in source
+
+
+def test_subscription_service_drops_record_loader_wrappers() -> None:
+    source = SERVICE.read_text(encoding="utf-8")
+
+    for name in (
+        "_load_retryable_records",
+        "_load_force_retry_records",
+        "_load_subscription_resource_urls",
+        "load_retryable_records_with_db_adapter",
+        "load_force_retry_records_with_db_adapter",
+        "load_subscription_resource_urls_with_db_adapter",
+    ):
+        assert name not in source
