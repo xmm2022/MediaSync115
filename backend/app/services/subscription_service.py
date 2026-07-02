@@ -50,9 +50,9 @@ from app.services.subscriptions.completed_cleanup import (
     cleanup_completed_subscriptions as cleanup_completed_subscriptions_flow,
     cleanup_single_subscription as cleanup_single_subscription_flow,
 )
-from app.services.subscriptions.pre_scan_cleanup import (
-    PreScanCleanupDependencies,
-    evaluate_pre_scan_cleanup as evaluate_pre_scan_cleanup_flow,
+from app.services.subscriptions.pre_scan_cleanup_runtime_adapter import (
+    build_default_pre_scan_cleanup_runtime_dependencies,
+    evaluate_pre_scan_cleanup_with_runtime_adapter,
 )
 from app.services.subscriptions.postprocess_status_runtime_adapter import (
     apply_precise_transfer_postprocess_status_with_runtime_adapter,
@@ -261,21 +261,18 @@ class SubscriptionService:
         channel: str,
         sub: "SubscriptionSnapshot",
     ) -> dict[str, Any]:
-        dependencies = PreScanCleanupDependencies(
-            delete_subscription_with_records=self._delete_subscription_with_records,
-            create_step_log=self._create_step_log,
-            log_background_event=operation_log_service.log_background_event,
-            get_movie_status_by_tmdb=emby_service.get_movie_status_by_tmdb,
-            check_feiniu_movie_status=self._check_feiniu_movie_status,
-            get_tv_missing_status=tv_missing_service.get_tv_missing_status,
-            has_upcoming_episodes=has_upcoming_episodes_in_subscription_scope,
-        )
-        return await evaluate_pre_scan_cleanup_flow(
+        return await evaluate_pre_scan_cleanup_with_runtime_adapter(
             db,
             run_id=run_id,
             channel=channel,
             sub=sub,
-            dependencies=dependencies,
+            dependencies=build_default_pre_scan_cleanup_runtime_dependencies(
+                delete_subscription_with_records=(
+                    self._delete_subscription_with_records
+                ),
+                create_step_log=self._create_step_log,
+                check_feiniu_movie_status=self._check_feiniu_movie_status,
+            ),
         )
 
     async def _delete_subscription_with_records(
