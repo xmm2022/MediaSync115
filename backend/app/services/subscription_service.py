@@ -22,12 +22,6 @@ from app.services.subscriptions.auto_transfer_record_loaders_db_adapter import (
     load_retryable_records_with_db_adapter,
     load_subscription_resource_urls_with_db_adapter,
 )
-from app.services.subscriptions.resource_fetcher_runtime_adapter import (
-    fetch_from_hdhive_with_runtime_adapter,
-    fetch_from_pansou_with_runtime_adapter,
-    fetch_from_tg_with_runtime_adapter,
-    fetch_offline_magnets_with_runtime_adapter,
-)
 from app.services.subscriptions.snapshot import SubscriptionSnapshot
 from app.services.subscriptions.execution_logs import (
     create_execution_log as create_subscription_execution_log,
@@ -87,7 +81,6 @@ from app.services.subscriptions.feiniu_status_runtime_adapter import (
     check_feiniu_movie_status_with_runtime_adapter,
     check_feiniu_tv_missing_status_with_runtime_adapter,
 )
-from app.services.runtime_settings_service import runtime_settings_service
 from app.services.subscription_delete_service import subscription_delete_service
 
 logger = logging.getLogger(__name__)
@@ -252,23 +245,7 @@ class SubscriptionService:
         return await fetch_subscription_resources_with_runtime_adapter(
             channel=channel,
             sub=sub,
-            dependencies=build_default_resource_resolver_runtime_dependencies(
-                fetch_from_hdhive=self._fetch_from_hdhive,
-                fetch_from_tg=self._fetch_from_tg,
-                fetch_from_pansou=self._fetch_from_pansou,
-                fetch_offline_magnets=self._fetch_offline_magnets,
-                resolve_source_order=self._resolve_source_order,
-                resolve_subscription_resolutions=(
-                    self._resolve_subscription_resolutions
-                ),
-                resolve_subscription_quality_filter=(
-                    self._resolve_subscription_quality_filter
-                ),
-                prepare_hdhive_locked_resources=(
-                    self._prepare_hdhive_locked_resources
-                ),
-                build_hdhive_unlock_context=self._build_hdhive_unlock_context,
-            ),
+            dependencies=build_default_resource_resolver_runtime_dependencies(),
             hdhive_unlock_context=hdhive_unlock_context,
             source_order=source_order,
             exclude_urls=exclude_urls,
@@ -276,27 +253,6 @@ class SubscriptionService:
 
     def _resolve_source_order(self, channel: str) -> list[str]:
         return resolve_source_order_with_runtime_adapter(channel)
-
-    async def _fetch_from_pansou(
-        self, sub: "SubscriptionSnapshot"
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_from_pansou_with_runtime_adapter(sub)
-
-    async def _fetch_from_hdhive(
-        self, sub: "SubscriptionSnapshot"
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_from_hdhive_with_runtime_adapter(sub)
-
-    async def _fetch_from_tg(
-        self, sub: "SubscriptionSnapshot"
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_from_tg_with_runtime_adapter(sub)
-
-    async def _fetch_offline_magnets(
-        self,
-        sub: "SubscriptionSnapshot",
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return await fetch_offline_magnets_with_runtime_adapter(sub)
 
     def _build_hdhive_unlock_context(self) -> dict[str, Any]:
         return build_hdhive_unlock_context_with_runtime_adapter()
@@ -474,9 +430,6 @@ class SubscriptionService:
             started_at=started_at,
             finished_at=finished_at,
         )
-
-    def _resolve_subscription_resolutions(self, sub: "SubscriptionSnapshot") -> list[str]:
-        return runtime_settings_service.get_resource_preferred_resolutions()
 
     def _resolve_subscription_quality_filter(self, sub: "SubscriptionSnapshot") -> dict[str, Any]:
         return resolve_subscription_quality_filter_with_runtime_adapter(sub)

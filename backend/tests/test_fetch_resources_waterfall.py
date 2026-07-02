@@ -233,7 +233,9 @@ class TestFetchResourcesWaterfall:
         assert "app.models" not in source
         assert "app.api" not in source
 
-    def test_fetch_resources_stops_after_first_source_hit(self) -> None:
+    def test_fetch_resources_stops_after_first_source_hit(
+        self, monkeypatch: Any
+    ) -> None:
         service = SubscriptionService()
         sub = SubscriptionSnapshot(
             id=0,
@@ -267,26 +269,61 @@ class TestFetchResourcesWaterfall:
         async def fake_hdhive(current_sub: SubscriptionSnapshot):
             raise AssertionError("不应在首个来源命中后继续请求 HDHive")
 
-        service._fetch_from_pansou = AsyncMock(side_effect=fake_pansou)  # type: ignore[method-assign]
-        service._fetch_from_hdhive = AsyncMock(side_effect=fake_hdhive)  # type: ignore[method-assign]
-        service._fetch_from_tg = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
-        service._fetch_offline_magnets = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
-        service._prepare_hdhive_locked_resources = AsyncMock(  # type: ignore[method-assign]
-            side_effect=lambda resources, *_args, **_kwargs: resources
+        pansou_mock = AsyncMock(side_effect=fake_pansou)
+        hdhive_mock = AsyncMock(side_effect=fake_hdhive)
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "fetch_from_pansou_with_runtime_adapter",
+            pansou_mock,
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "fetch_from_hdhive_with_runtime_adapter",
+            hdhive_mock,
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "fetch_from_tg_with_runtime_adapter",
+            AsyncMock(return_value=([], [])),
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "fetch_offline_magnets_with_runtime_adapter",
+            AsyncMock(return_value=([], [])),
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "prepare_hdhive_locked_resources_with_runtime_adapter",
+            AsyncMock(side_effect=lambda resources, *_args, **_kwargs: resources),
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "build_hdhive_unlock_context_with_runtime_adapter",
+            lambda: {"enabled": True},
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "resolve_subscription_resolutions_with_runtime_adapter",
+            lambda _sub: [],
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "resolve_subscription_quality_filter_with_runtime_adapter",
+            lambda _sub: {},
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module.operation_log_service,
+            "log_background_event",
+            AsyncMock(),
         )
 
-        original_log = resolver_runtime_module.operation_log_service.log_background_event
-        resolver_runtime_module.operation_log_service.log_background_event = AsyncMock()  # type: ignore[method-assign]
-        try:
-            resources, _traces, meta = asyncio.run(
-                service._fetch_resources(
-                    channel="all",
-                    sub=sub,
-                    source_order=["pansou", "hdhive", "tg"],
-                )
+        resources, _traces, meta = asyncio.run(
+            service._fetch_resources(
+                channel="all",
+                sub=sub,
+                source_order=["pansou", "hdhive", "tg"],
             )
-        finally:
-            resolver_runtime_module.operation_log_service.log_background_event = original_log  # type: ignore[method-assign]
+        )
 
         assert len(resources) == 1
         assert resources[0]["share_link"] == "https://115.com/s/pansou1"
@@ -294,9 +331,11 @@ class TestFetchResourcesWaterfall:
         assert meta["attempts"] == [
             {"source": "pansou", "status": "success", "count": 1}
         ]
-        service._fetch_from_hdhive.assert_not_called()
+        hdhive_mock.assert_not_called()
 
-    def test_fetch_resources_falls_back_when_first_source_exhausted(self) -> None:
+    def test_fetch_resources_falls_back_when_first_source_exhausted(
+        self, monkeypatch: Any
+    ) -> None:
         service = SubscriptionService()
         sub = SubscriptionSnapshot(
             id=0,
@@ -339,27 +378,60 @@ class TestFetchResourcesWaterfall:
                 [],
             )
 
-        service._fetch_from_pansou = AsyncMock(side_effect=fake_pansou)  # type: ignore[method-assign]
-        service._fetch_from_hdhive = AsyncMock(side_effect=fake_hdhive)  # type: ignore[method-assign]
-        service._fetch_from_tg = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
-        service._fetch_offline_magnets = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
-        service._prepare_hdhive_locked_resources = AsyncMock(  # type: ignore[method-assign]
-            side_effect=lambda resources, *_args, **_kwargs: resources
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "fetch_from_pansou_with_runtime_adapter",
+            AsyncMock(side_effect=fake_pansou),
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "fetch_from_hdhive_with_runtime_adapter",
+            AsyncMock(side_effect=fake_hdhive),
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "fetch_from_tg_with_runtime_adapter",
+            AsyncMock(return_value=([], [])),
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "fetch_offline_magnets_with_runtime_adapter",
+            AsyncMock(return_value=([], [])),
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "prepare_hdhive_locked_resources_with_runtime_adapter",
+            AsyncMock(side_effect=lambda resources, *_args, **_kwargs: resources),
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "build_hdhive_unlock_context_with_runtime_adapter",
+            lambda: {"enabled": True},
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "resolve_subscription_resolutions_with_runtime_adapter",
+            lambda _sub: [],
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module,
+            "resolve_subscription_quality_filter_with_runtime_adapter",
+            lambda _sub: {},
+        )
+        monkeypatch.setattr(
+            resolver_runtime_module.operation_log_service,
+            "log_background_event",
+            AsyncMock(),
         )
 
-        original_log = resolver_runtime_module.operation_log_service.log_background_event
-        resolver_runtime_module.operation_log_service.log_background_event = AsyncMock()  # type: ignore[method-assign]
-        try:
-            resources, _traces, meta = asyncio.run(
-                service._fetch_resources(
-                    channel="all",
-                    sub=sub,
-                    source_order=["pansou", "hdhive"],
-                    exclude_urls={"https://115.com/s/used"},
-                )
+        resources, _traces, meta = asyncio.run(
+            service._fetch_resources(
+                channel="all",
+                sub=sub,
+                source_order=["pansou", "hdhive"],
+                exclude_urls={"https://115.com/s/used"},
             )
-        finally:
-            resolver_runtime_module.operation_log_service.log_background_event = original_log  # type: ignore[method-assign]
+        )
 
         assert len(resources) == 1
         assert resources[0]["share_link"] == "https://115.com/s/new"

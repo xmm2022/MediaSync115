@@ -9,6 +9,19 @@ import pytest
 from app.services.subscriptions.resource_candidates import (
     filter_resources_excluding_urls,
 )
+from app.services.subscriptions import (
+    runtime_preferences_adapter as preferences_runtime_module,
+)
+from app.services.subscriptions.hdhive_unlock_runtime_adapter import (
+    build_hdhive_unlock_context_with_runtime_adapter,
+    prepare_hdhive_locked_resources_with_runtime_adapter,
+)
+from app.services.subscriptions.resource_fetcher_runtime_adapter import (
+    fetch_from_hdhive_with_runtime_adapter,
+    fetch_from_pansou_with_runtime_adapter,
+    fetch_from_tg_with_runtime_adapter,
+    fetch_offline_magnets_with_runtime_adapter,
+)
 from app.services.subscriptions.resource_resolver import (
     resolve_subscription_resources,
 )
@@ -21,6 +34,10 @@ from app.services.subscriptions.resource_resolver_runtime_adapter import (
     build_default_resource_resolver_runtime_dependencies,
     emit_source_attempt_event,
     fetch_subscription_resources_with_runtime_adapter,
+)
+from app.services.subscriptions.runtime_preferences_adapter import (
+    resolve_source_order_with_runtime_adapter,
+    resolve_subscription_quality_filter_with_runtime_adapter,
 )
 
 
@@ -300,6 +317,48 @@ def test_default_runtime_dependencies_use_existing_helpers_and_runners() -> None
     assert dependencies.filter_resources_excluding_urls is filter_resources_excluding_urls
     assert dependencies.run_adapter is fetch_subscription_resources_with_adapter
     assert dependencies.run_resolver is resolve_subscription_resources
+
+
+def test_default_runtime_dependencies_bind_resource_resolver_runtime_helpers() -> None:
+    dependencies = build_default_resource_resolver_runtime_dependencies()
+
+    assert dependencies.fetch_from_hdhive is fetch_from_hdhive_with_runtime_adapter
+    assert dependencies.fetch_from_tg is fetch_from_tg_with_runtime_adapter
+    assert dependencies.fetch_from_pansou is fetch_from_pansou_with_runtime_adapter
+    assert dependencies.fetch_offline_magnets is fetch_offline_magnets_with_runtime_adapter
+    assert dependencies.resolve_source_order is resolve_source_order_with_runtime_adapter
+    assert dependencies.resolve_subscription_resolutions is (
+        preferences_runtime_module.resolve_subscription_resolutions_with_runtime_adapter
+    )
+    assert dependencies.resolve_subscription_quality_filter is (
+        resolve_subscription_quality_filter_with_runtime_adapter
+    )
+    assert dependencies.prepare_hdhive_locked_resources is (
+        prepare_hdhive_locked_resources_with_runtime_adapter
+    )
+    assert dependencies.build_hdhive_unlock_context is (
+        build_hdhive_unlock_context_with_runtime_adapter
+    )
+    assert dependencies.filter_resources_excluding_urls is filter_resources_excluding_urls
+    assert dependencies.run_adapter is fetch_subscription_resources_with_adapter
+    assert dependencies.run_resolver is resolve_subscription_resources
+
+
+def test_default_runtime_dependencies_preserve_falsy_explicit_injections() -> None:
+    class FalsyCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        def __call__(self, *_args: Any, **_kwargs: Any) -> list[Any]:
+            return []
+
+    resolve_source_order = FalsyCallable()
+
+    dependencies = build_default_resource_resolver_runtime_dependencies(
+        resolve_source_order=resolve_source_order,
+    )
+
+    assert dependencies.resolve_source_order is resolve_source_order
 
 
 def test_emit_source_attempt_event_respects_kafka_enabled(monkeypatch: Any) -> None:

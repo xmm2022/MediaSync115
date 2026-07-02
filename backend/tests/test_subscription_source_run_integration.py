@@ -9,7 +9,9 @@ async def test_subscription_check_scans_enabled_manual_pan115_sources(monkeypatc
     from app.models.models import MediaType, Subscription, SubscriptionSource
     from app.services.subscription_service import SubscriptionService
     from app.services.subscription_source_service import subscription_source_service
-    import app.services.subscription_service as subscription_service_module
+    from app.services.subscriptions import (
+        fixed_source_scan_runtime_adapter as fixed_source_runtime_module,
+    )
 
     await ensure_tables_exist(
         "subscriptions",
@@ -97,12 +99,12 @@ async def test_subscription_check_scans_enabled_manual_pan115_sources(monkeypatc
     monkeypatch.setattr(service, "_evaluate_pre_scan_cleanup", fake_cleanup)
     monkeypatch.setattr(service, "_fetch_resources", fake_fetch_resources)
     monkeypatch.setattr(
-        subscription_service_module.runtime_settings_service,
+        fixed_source_runtime_module.runtime_settings_service,
         "get_pan115_cookie",
         lambda: "cookie",
     )
     monkeypatch.setattr(
-        subscription_service_module.runtime_settings_service,
+        fixed_source_runtime_module.runtime_settings_service,
         "get_pan115_default_folder",
         lambda: {"folder_id": "fixed-source-target"},
     )

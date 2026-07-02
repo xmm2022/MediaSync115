@@ -88,6 +88,18 @@ def resolve_source_order_with_runtime_adapter(
     )
 
 
+def resolve_subscription_resolutions_with_runtime_adapter(
+    sub: Any,
+    *,
+    dependencies: RuntimePreferencesDependencies | None = None,
+) -> list[str]:
+    _ = sub
+    current_dependencies = (
+        dependencies or build_default_runtime_preferences_dependencies()
+    )
+    return current_dependencies.get_resource_preferred_resolutions()
+
+
 def resolve_subscription_quality_filter_with_runtime_adapter(
     sub: Any,
     *,

@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.services.runtime_settings_service import runtime_settings_service
+from app.services.subscriptions import (
+    runtime_preferences_adapter as preferences_runtime_module,
+)
 from app.services.subscriptions.quality_filter import (
     SubscriptionQualityPreferences,
     build_subscription_quality_filter,
@@ -145,6 +148,21 @@ def test_runtime_adapter_builds_quality_filter_from_injected_preferences() -> No
         min_size_gb=2.0,
         max_size_gb=40.0,
     )
+
+
+def test_resolve_subscription_resolutions_with_runtime_adapter_reads_runtime_preferences() -> None:
+    sub = SimpleNamespace(title="测试订阅")
+
+    result = (
+        preferences_runtime_module.resolve_subscription_resolutions_with_runtime_adapter(
+            sub,
+            dependencies=_dependencies(
+                get_resource_preferred_resolutions=lambda: ["2160p", "1080p"],
+            ),
+        )
+    )
+
+    assert result == ["2160p", "1080p"]
 
 
 def test_default_runtime_preferences_dependencies_bind_existing_helpers() -> None:
