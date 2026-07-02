@@ -6,11 +6,13 @@ from typing import Any
 import pytest
 
 from app.models.models import MediaType
-import app.services.subscription_service as subscription_module
 from app.services.subscription_service import SubscriptionService
 from app.services.subscriptions.pre_scan_cleanup import (
     PreScanCleanupDependencies,
     evaluate_pre_scan_cleanup,
+)
+from app.services.subscriptions import (
+    pre_scan_cleanup_runtime_adapter as pre_scan_runtime_module,
 )
 
 
@@ -276,7 +278,7 @@ async def test_subscription_service_wrapper_injects_dependencies_for_snapshots(
     )
     monkeypatch.setattr(service, "_create_step_log", fake_create_step_log)
     monkeypatch.setattr(
-        subscription_module.operation_log_service,
+        pre_scan_runtime_module.operation_log_service,
         "log_background_event",
         fake_log_background_event,
     )

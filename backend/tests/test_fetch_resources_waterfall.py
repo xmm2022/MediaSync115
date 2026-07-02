@@ -10,6 +10,9 @@ from app.services.subscriptions.resource_resolver import (
     ResourceResolverDependencies,
     resolve_subscription_resources,
 )
+from app.services.subscriptions import (
+    resource_resolver_runtime_adapter as resolver_runtime_module,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -272,12 +275,8 @@ class TestFetchResourcesWaterfall:
             side_effect=lambda resources, *_args, **_kwargs: resources
         )
 
-        from app.services import subscription_service as subscription_service_module
-
-        original_log = (
-            subscription_service_module.operation_log_service.log_background_event
-        )
-        subscription_service_module.operation_log_service.log_background_event = AsyncMock()  # type: ignore[method-assign]
+        original_log = resolver_runtime_module.operation_log_service.log_background_event
+        resolver_runtime_module.operation_log_service.log_background_event = AsyncMock()  # type: ignore[method-assign]
         try:
             resources, _traces, meta = asyncio.run(
                 service._fetch_resources(
@@ -287,7 +286,7 @@ class TestFetchResourcesWaterfall:
                 )
             )
         finally:
-            subscription_service_module.operation_log_service.log_background_event = original_log  # type: ignore[method-assign]
+            resolver_runtime_module.operation_log_service.log_background_event = original_log  # type: ignore[method-assign]
 
         assert len(resources) == 1
         assert resources[0]["share_link"] == "https://115.com/s/pansou1"
@@ -348,12 +347,8 @@ class TestFetchResourcesWaterfall:
             side_effect=lambda resources, *_args, **_kwargs: resources
         )
 
-        from app.services import subscription_service as subscription_service_module
-
-        original_log = (
-            subscription_service_module.operation_log_service.log_background_event
-        )
-        subscription_service_module.operation_log_service.log_background_event = AsyncMock()  # type: ignore[method-assign]
+        original_log = resolver_runtime_module.operation_log_service.log_background_event
+        resolver_runtime_module.operation_log_service.log_background_event = AsyncMock()  # type: ignore[method-assign]
         try:
             resources, _traces, meta = asyncio.run(
                 service._fetch_resources(
@@ -364,7 +359,7 @@ class TestFetchResourcesWaterfall:
                 )
             )
         finally:
-            subscription_service_module.operation_log_service.log_background_event = original_log  # type: ignore[method-assign]
+            resolver_runtime_module.operation_log_service.log_background_event = original_log  # type: ignore[method-assign]
 
         assert len(resources) == 1
         assert resources[0]["share_link"] == "https://115.com/s/new"

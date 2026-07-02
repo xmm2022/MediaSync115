@@ -1,22 +1,15 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Awaitable, Callable
-from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.timezone_utils import beijing_now
 from app.models.models import (
     DownloadRecord,
     ExecutionStatus,
-    MediaType,
-    Subscription,
 )
-from app.core.database import async_session_maker
-from app.services.operation_log_service import operation_log_service
 from app.services.subscriptions.link_fallback_flow import (
     auto_save_records_with_link_fallback as auto_save_records_with_link_fallback_flow,
 )
@@ -67,9 +60,9 @@ from app.services.subscriptions.runtime_preferences_adapter import (
     resolve_source_order_with_runtime_adapter,
     resolve_subscription_quality_filter_with_runtime_adapter,
 )
-from app.services.subscriptions.item_processing_run_flow import (
-    SubscriptionItemProcessingDependencies,
-    process_subscription_item,
+from app.services.subscriptions.run_channel_runtime_adapter import (
+    build_default_run_channel_runtime_dependencies,
+    run_channel_check_with_runtime_adapter,
 )
 from app.services.subscriptions.resource_resolver_runtime_adapter import (
     build_default_resource_resolver_runtime_dependencies,
@@ -77,22 +70,6 @@ from app.services.subscriptions.resource_resolver_runtime_adapter import (
 )
 from app.services.subscriptions.resource_storage_runtime_adapter import (
     store_new_resources_with_runtime_adapter,
-)
-from app.services.subscriptions.run_summary import (
-    normalize_subscription_channel,
-)
-from app.services.subscriptions.run_finalize_flow import (
-    RunFinalizeDependencies,
-    finalize_subscription_run,
-)
-from app.services.subscriptions.run_loader import load_active_subscription_snapshots
-from app.services.subscriptions.run_start_flow import (
-    SubscriptionRunStartDependencies,
-    start_subscription_run,
-)
-from app.services.subscriptions.run_dispatch_flow import (
-    SubscriptionRunDispatchDependencies,
-    dispatch_subscription_checks,
 )
 from app.services.subscriptions.auto_save_resources_runtime_adapter import (
     auto_save_resources_with_runtime_adapter,
@@ -132,94 +109,35 @@ class SubscriptionService:
         force_auto_download: bool = False,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
-        normalized_channel = normalize_subscription_channel(channel)
-        run_start = await start_subscription_run(
+        return await run_channel_check_with_runtime_adapter(
             db=db,
-            channel=normalized_channel,
+            channel=channel,
             force_auto_download=force_auto_download,
             progress_callback=progress_callback,
-            dependencies=SubscriptionRunStartDependencies(
-                log_background_event=operation_log_service.log_background_event,
-                create_step_log=self._create_step_log,
-                load_active_subscriptions=load_active_subscription_snapshots,
-                build_hdhive_unlock_context=self._build_hdhive_unlock_context,
-                resolve_source_order=self._resolve_source_order,
-                now=beijing_now,
-                make_run_id=lambda: uuid4().hex,
-            ),
-        )
-        run_id = run_start.run_id
-        started_at = run_start.started_at
-        result = run_start.result
-        hdhive_unlock_context = run_start.hdhive_unlock_context
-        source_order = run_start.source_order
-        subscriptions = run_start.subscriptions
-
-        result_lock = asyncio.Lock()
-
-        async def _process_subscription(sub: SubscriptionSnapshot) -> None:
-            await process_subscription_item(
-                sub=sub,
-                run_id=run_id,
-                channel=normalized_channel,
-                force_auto_download=force_auto_download,
-                hdhive_unlock_context=hdhive_unlock_context,
-                source_order=source_order,
-                result=result,
-                result_lock=result_lock,
-                progress_callback=progress_callback,
-                tv_media_type=MediaType.TV,
-                dependencies=SubscriptionItemProcessingDependencies(
-                    session_factory=async_session_maker,
-                    create_step_log=self._create_step_log,
-                    log_background_event=(
-                        operation_log_service.log_background_event
-                    ),
-                    evaluate_pre_scan_cleanup=self._evaluate_pre_scan_cleanup,
-                    fetch_resources=self._fetch_resources,
-                    store_new_resources=self._store_new_resources,
-                    load_retryable_records=self._load_retryable_records,
-                    load_force_retry_records=self._load_force_retry_records,
-                    auto_save_records_with_link_fallback=(
-                        self._auto_save_records_with_link_fallback
-                    ),
-                    should_scan_fixed_sources=self._should_scan_fixed_sources,
-                    scan_fixed_sources_for_subscription=(
-                        self._scan_fixed_sources_for_subscription
-                    ),
-                    delete_subscription_with_records=(
-                        self._delete_subscription_with_records
-                    ),
-                ),
-            )
-
-        await dispatch_subscription_checks(
-            subscriptions=subscriptions,
             concurrency=_SUBSCRIPTION_SCAN_CONCURRENCY,
-            dependencies=SubscriptionRunDispatchDependencies(
-                process_subscription=_process_subscription,
-            ),
-        )
-
-        await finalize_subscription_run(
-            db=db,
-            channel=normalized_channel,
-            run_id=run_id,
-            result=result,
-            started_at=started_at,
-            hdhive_unlock_context=hdhive_unlock_context,
-            success_status=ExecutionStatus.SUCCESS,
-            failed_status=ExecutionStatus.FAILED,
-            partial_status=ExecutionStatus.PARTIAL,
-            dependencies=RunFinalizeDependencies(
-                log_background_event=operation_log_service.log_background_event,
+            dependencies=build_default_run_channel_runtime_dependencies(
                 create_execution_log=self._create_execution_log,
                 create_step_log=self._create_step_log,
                 prune_step_logs=self._prune_step_logs,
-                now=beijing_now,
+                build_hdhive_unlock_context=self._build_hdhive_unlock_context,
+                resolve_source_order=self._resolve_source_order,
+                evaluate_pre_scan_cleanup=self._evaluate_pre_scan_cleanup,
+                fetch_resources=self._fetch_resources,
+                store_new_resources=self._store_new_resources,
+                load_retryable_records=self._load_retryable_records,
+                load_force_retry_records=self._load_force_retry_records,
+                auto_save_records_with_link_fallback=(
+                    self._auto_save_records_with_link_fallback
+                ),
+                should_scan_fixed_sources=self._should_scan_fixed_sources,
+                scan_fixed_sources_for_subscription=(
+                    self._scan_fixed_sources_for_subscription
+                ),
+                delete_subscription_with_records=(
+                    self._delete_subscription_with_records
+                ),
             ),
         )
-        return result
 
     async def _create_step_log(
         self,
