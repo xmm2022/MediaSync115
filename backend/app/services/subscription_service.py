@@ -19,8 +19,6 @@ from app.models.models import (
 from app.core.database import async_session_maker
 from app.services.operation_log_service import operation_log_service
 from app.services.emby_service import emby_service
-from app.services.feiniu_service import feiniu_service
-from app.services.feiniu_sync_index_service import feiniu_sync_index_service
 from app.services.subscriptions.link_fallback_flow import (
     auto_save_records_with_link_fallback as auto_save_records_with_link_fallback_flow,
 )
@@ -117,6 +115,10 @@ from app.services.subscriptions.hdhive_unlock_runtime_adapter import (
 )
 from app.services.subscriptions.transfer_notification_runtime_adapter import (
     notify_transfer_success_with_runtime_adapter,
+)
+from app.services.subscriptions.feiniu_status_runtime_adapter import (
+    check_feiniu_movie_status_with_runtime_adapter,
+    check_feiniu_tv_missing_status_with_runtime_adapter,
 )
 from app.services.runtime_settings_service import runtime_settings_service
 from app.services.subscription_delete_service import subscription_delete_service
@@ -321,103 +323,13 @@ class SubscriptionService:
         self, tmdb_id: int
     ) -> dict[str, Any]:
         """检查电影在飞牛中是否已存在，返回 {"checked": bool, "exists": bool, "item_ids": list}"""
-        if not runtime_settings_service.get_feiniu_url().strip():
-            return {"checked": False}
-        try:
-            indexed_result = await feiniu_sync_index_service.get_movie_status(tmdb_id)
-            if indexed_result is not None:
-                if str(indexed_result.get("status") or "") == "ok" and bool(
-                    indexed_result.get("exists")
-                ):
-                    return {
-                        "checked": True,
-                        "exists": True,
-                        "item_ids": indexed_result.get("item_ids") or [],
-                    }
-                return {
-                    "checked": True,
-                    "exists": False,
-                    "item_ids": [],
-                }
-            live_result = await feiniu_service.get_movie_status_by_tmdb(tmdb_id)
-            if str(live_result.get("status") or "") == "ok" and bool(
-                live_result.get("exists")
-            ):
-                return {
-                    "checked": True,
-                    "exists": True,
-                    "item_ids": live_result.get("item_ids") or [],
-                }
-            if str(live_result.get("status") or "") == "not_logged_in":
-                return {"checked": False}
-            return {
-                "checked": str(live_result.get("status") or "") == "ok",
-                "exists": False,
-                "item_ids": [],
-            }
-        except Exception:
-            logger.exception("飞牛电影状态查询失败: tmdb_id=%s", tmdb_id)
-            return {"checked": False}
+        return await check_feiniu_movie_status_with_runtime_adapter(tmdb_id)
 
     async def _check_feiniu_tv_missing_status(
         self, tmdb_id: int
     ) -> dict[str, Any]:
         """检查剧集在飞牛中的缺集状态，返回 {"checked": bool, "missing_count": int}"""
-        if not runtime_settings_service.get_feiniu_url().strip():
-            return {"checked": False}
-        try:
-            from app.services.tmdb_service import tmdb_service as _tmdb
-
-            indexed_result = (
-                await feiniu_sync_index_service.get_tv_existing_episodes(tmdb_id)
-            )
-            feiniu_result = (
-                indexed_result
-                if indexed_result is not None
-                else await feiniu_service.get_tv_episode_status_by_tmdb(tmdb_id)
-            )
-            status_text = str(feiniu_result.get("status") or "")
-            if status_text not in ("ok",):
-                return {"checked": False}
-
-            feiniu_existing = feiniu_result.get("existing_episodes") or set()
-            feiniu_existing_pairs = {
-                (int(p[0]), int(p[1]))
-                for p in feiniu_existing
-                if isinstance(p, (list, tuple)) and len(p) == 2
-            } if isinstance(feiniu_existing, (list, set)) else feiniu_existing
-
-            tmdb_detail = await _tmdb.get_tv_detail(tmdb_id)
-            seasons = (
-                tmdb_detail.get("seasons")
-                if isinstance(tmdb_detail, dict)
-                else []
-            )
-            if not isinstance(seasons, list):
-                seasons = []
-            tmdb_pairs: set[tuple[int, int]] = set()
-            for season in seasons:
-                if not isinstance(season, dict):
-                    continue
-                sn = season.get("season_number")
-                ec = season.get("episode_count")
-                if sn is None or ec is None:
-                    continue
-                sn = int(sn)
-                ec = int(ec)
-                if sn == 0:
-                    continue
-                for ep in range(1, ec + 1):
-                    tmdb_pairs.add((sn, ep))
-
-            if not tmdb_pairs:
-                return {"checked": False}
-
-            missing = tmdb_pairs - feiniu_existing_pairs
-            return {"checked": True, "missing_count": len(missing)}
-        except Exception:
-            logger.exception("飞牛剧集缺集状态查询失败: tmdb_id=%s", tmdb_id)
-            return {"checked": False}
+        return await check_feiniu_tv_missing_status_with_runtime_adapter(tmdb_id)
 
     async def cleanup_single_subscription(
         self, db: AsyncSession, subscription_id: int
